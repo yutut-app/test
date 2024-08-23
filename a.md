@@ -1,50 +1,16 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-from datetime import datetime
-import numpy as np
-
-# 日本語フォントの設定
-plt.rcParams['font.family'] = 'MS Gothic'  # または 'IPAexGothic', 'Yu Gothic'などを試してみてください
-
-# データの読み込み
-df = pd.read_csv('casting_data.csv')
-
-# データの前処理
-date_columns = ['日時', '出荷検査日時', '加工検査日時']
-for col in date_columns:
-    df[col] = pd.to_datetime(df[col])
-
-# 時系列順にソート
-df = df.sort_values('日時')
-
-# 鋳造条件の列名を取得（int型とfloat型の列）
-casting_condition_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-casting_condition_columns = [col for col in casting_condition_columns if col != '目的変数']
-
-# 出力ディレクトリの作成
-output_dir = r'..\data\output\eda'
-os.makedirs(output_dir, exist_ok=True)
-
-# 現在の日時を取得（ファイル名用）
-current_time = datetime.now().strftime("%y%m%d%H%M")
-
-# PDFファイルを作成
-pdf_filename = os.path.join(output_dir, f'vis_鋳造機と鋳造条件の関係_{current_time}.pdf')
-
-from matplotlib.backends.backend_pdf import PdfPages
-
 # jitterを追加する関数
 def add_jitter(values, jitter_amount=0.3):
     return values + np.random.uniform(-jitter_amount, jitter_amount, len(values))
+
+# グラフを表示するかどうかのフラグ
+show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
 
 # PDFファイルを開く
 with PdfPages(pdf_filename) as pdf:
     # 各鋳造条件に対してプロットを作成
     for condition in casting_condition_columns:
         # プロットの作成
-        fig, ax = plt.subplots(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(12, 3))
         
         # OKとNGのデータを分離
         df_ok = df[df['目的変数'] == 0]
@@ -77,10 +43,10 @@ with PdfPages(pdf_filename) as pdf:
         # PDFに追加
         pdf.savefig(fig)
         
-        # プロットをクローズ
-        plt.close(fig)
+        # グラフを表示（フラグがTrueの場合）
+        if show_plots:
+            plt.show()
+        else:
+            plt.close(fig)
 
 print(f"グラフをPDFに保存しました: {pdf_filename}")
-
-# 可視化する際は以下のコメントを外してください
-# plt.show()
