@@ -1,112 +1,77 @@
+# 必要なライブラリをインポート
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import timedelta
+from datetime import datetime, timedelta
 import os
-from matplotlib.backends.backend_pdf import PdfPages
-from datetime import datetime
 
 # データの読み込み
-df = pd.read_csv('casting_process_data.csv')
+# CSVファイルからデータを読み込みます。ファイルパスは適宜変更してください。
+data_frame = pd.read_csv('../data/input/casting_data.csv')
 
-# データの前処理
-date_columns = ['日時', '出荷検査日時', '加工検査日時']
-for col in date_columns:
-    df[col] = pd.to_datetime(df[col])
+# 日時列を日時型に変換
+date_time_columns = ['日時', '出荷検査日時', '加工検査日時']
+for column in date_time_columns:
+    data_frame[column] = pd.to_datetime(data_frame[column])
 
-# 出力ディレクトリの作成
-output_dir = r'..\data\output\time_vis'
-os.makedirs(output_dir, exist_ok=True)
+# 鋳造条件の列を特定（int型とfloat型の列）
+casting_condition_columns = data_frame.select_dtypes(include=['int64', 'float64']).columns.tolist()
+casting_condition_columns.remove('目的変数')  # 目的変数は除外
 
-# 現在の日時を取得してファイル名に使用
-current_time = datetime.now().strftime("%y%m%d%H%M")
-
-# 鋳造条件のカラムを取得（目的変数を除く数値列）
-casting_conditions = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-casting_conditions.remove('目的変数')
-
-for condition in casting_conditions:
-    # 各鋳造条件ごとにPDFファイルを作成
-    pdf_filename = os.path.join(output_dir, f'time_vis_{condition}_{current_time}.pdf')
-    with PdfPages(pdf_filename) as pdf:
-        # 全体の時系列データの可視化
-        plt.figure(figsize=(15, 8))
-        sns.set_style("whitegrid")
-
-        # OKとNGのデータを分けて、それぞれ異なる色で表示
-        ok_data = df[df['目的変数'] == 0]
-        ng_data = df[df['目的変数'] == 1]
-
-        plt.plot(ok_data['日時'], ok_data[condition], color='blue', label='OK', marker='o')
-        plt.plot(ng_data['日時'], ng_data[condition], color='red', label='NG', marker='x')
-
-        # 5分以上の間隔があるデータポイントの間は線を繋げない
-        for i in range(1, len(df)):
-            if (df['日時'].iloc[i] - df['日時'].iloc[i-1]) > timedelta(minutes=5):
-                plt.axvline(x=df['日時'].iloc[i], color='gray', linestyle='--', alpha=0.5)
-
-        plt.title(f'{condition}の時系列変化', fontsize=16)
-        plt.xlabel('日時', fontsize=12)
-        plt.ylabel(f'{condition}の値', fontsize=12)
-        plt.legend()
-        plt.xticks(rotation=45)
-        plt.tight_layout()
+# 時系列データの可視化関数
+def visualize_time_series_data(data_frame, condition):
+    plt.figure(figsize=(20, 10))
+    
+    # 1週間ごとにデータをグループ化
+    data_frame['週'] = data_frame['日時'].dt.to_period('W-MON')  # 月曜日始まりの週に設定
+    weeks = data_frame['週'].unique()
+    
+    for week_index, week in enumerate(weeks):
+        week_data = data_frame[data_frame['週'] == week]
         
-        pdf.savefig()
-        plt.close()
-
-        # 鋳造機名ごとの分析
-        plt.figure(figsize=(15, 8))
-        for machine in df['鋳造機名'].unique():
-            machine_data = df[df['鋳造機名'] == machine]
-            plt.plot(machine_data['日時'], machine_data[condition], label=machine)
-
-        plt.title(f'鋳造機名ごとの{condition}の時系列変化', fontsize=16)
-        plt.xlabel('日時', fontsize=12)
-        plt.ylabel(f'{condition}の値', fontsize=12)
-        plt.legend()
-        plt.xticks(rotation=45)
-        plt.tight_layout()
+        # 月曜日から始まるようにデータを調整
+        start_of_week = week.start_time
         
-        pdf.savefig()
-        plt.close()
-
-        # 品番（型番）ごとの分析
-        plt.figure(figsize=(15, 8))
-        for product in df['品番'].unique():
-            product_data = df[df['品番'] == product]
-            plt.plot(product_data['日時'], product_data[condition], label=product)
-
-        plt.title(f'品番ごとの{condition}の時系列変化', fontsize=16)
-        plt.xlabel('日時', fontsize=12)
-        plt.ylabel(f'{condition}の値', fontsize=12)
-        plt.legend()
-        plt.xticks(rotation=45)
-        plt.tight_layout()
+        # X軸: 鋳造条件の値、Y軸: 時刻
+        plt.subplot(1, len(weeks), week_index + 1)
         
-        pdf.savefig()
-        plt.close()
-
-    print(f"{condition}のグラフがPDFファイルとして保存されました: {pdf_filename}")
-
-# OKとNGの割合の時系列変化
-df['date'] = df['日時'].dt.date
-daily_ratio = df.groupby('date')['目的変数'].mean()
-
-pdf_filename = os.path.join(output_dir, f'time_vis_NG率_{current_time}.pdf')
-with PdfPages(pdf_filename) as pdf:
-    plt.figure(figsize=(15, 8))
-    plt.plot(daily_ratio.index, daily_ratio.values, marker='o')
-    plt.title('日ごとのNG率の推移', fontsize=16)
-    plt.xlabel('日付', fontsize=12)
-    plt.ylabel('NG率', fontsize=12)
-    plt.xticks(rotation=45)
+        previous_time = None
+        for _, row in week_data.iterrows():
+            current_time = row['日時']
+            
+            # 5分以上の間隔がある場合は線を繋げない
+            if previous_time is not None and (current_time - previous_time) > timedelta(minutes=5):
+                plt.plot(row[condition], current_time.time(), marker='o', color='none', markersize=5)
+            else:
+                color = 'green' if row['目的変数'] == 0 else 'red'
+                plt.plot(row[condition], current_time.time(), marker='o', color=color, markersize=5)
+            
+            # 出荷検査と加工検査のマーク
+            if pd.notna(row['出荷検査日時']):
+                plt.plot(row[condition], row['出荷検査日時'].time(), marker='s', color='blue', markersize=3)
+            if pd.notna(row['加工検査日時']) and row['目的変数'] == 1:
+                plt.plot(row[condition], row['加工検査日時'].time(), marker='*', color='purple', markersize=3)
+            
+            previous_time = current_time
+        
+        plt.title(f'Week of {start_of_week.date()}')
+        plt.xlabel(condition)
+        plt.ylabel('Time')
+    
+    plt.suptitle(f'Time Series Visualization for {condition}')
     plt.tight_layout()
-
-    pdf.savefig()
+    
+    # グラフをPDFとして保存
+    current_time = datetime.now().strftime("%y%m%d%H%M")
+    output_directory = '../data/output/time_vis'
+    os.makedirs(output_directory, exist_ok=True)
+    plt.savefig(f'{output_directory}/timevis_{condition}_{current_time}.pdf')
     plt.close()
 
-print(f"NG率のグラフがPDFファイルとして保存されました: {pdf_filename}")
+# 各鋳造条件に対して可視化を実行
+for condition in casting_condition_columns:
+    visualize_time_series_data(data_frame, condition)
+    print(f'Visualization for {condition} saved.')
 
-# plt.show()をコメントアウト
+# グラフを表示したい場合は、以下のコメントを外してください
 # plt.show()
