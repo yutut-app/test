@@ -6,42 +6,49 @@ os.makedirs(output_dir, exist_ok=True)
 current_time = datetime.now().strftime("%y%m%d%H%M")
 
 # PDFファイルを作成
-pdf_filename = os.path.join(output_dir, f'vis_品番と鋳造条件の関係_{current_time}.pdf')
+pdf_filename = os.path.join(output_dir, f'vis_各鋳造条件におけるNG率_{current_time}.pdf')
+
+from matplotlib.backends.backend_pdf import PdfPages
 
 # グラフを表示するかどうかのフラグ
 show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
+
+# NG率を計算する関数
+def calculate_ng_rate(group):
+    total = len(group)
+    ng_count = group['目的変数'].sum()
+    return ng_count / total if total > 0 else 0
 
 # PDFファイルを開く
 with PdfPages(pdf_filename) as pdf:
     # 各鋳造条件に対してプロットを作成
     for condition in casting_condition_columns:
+        # 鋳造条件を10分位に分割
+        df['condition_bin'] = pd.qcut(df[condition], q=10, labels=False)
+        
+        # 各ビンごとのNG率を計算
+        ng_rates = df.groupby('condition_bin').apply(calculate_ng_rate).reset_index()
+        ng_rates.columns = ['condition_bin', 'ng_rate']
+        
+        # ビンの中央値を計算
+        bin_means = df.groupby('condition_bin')[condition].mean().reset_index()
+        
+        # NG率とビンの中央値をマージ
+        plot_data = pd.merge(ng_rates, bin_means, on='condition_bin')
+        
         # プロットの作成
-        fig, ax = plt.subplots(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(12, 6))
         
-        # OKとNGのデータを分離
-        df_ok = df[df['目的変数'] == 0]
-        df_ng = df[df['目的変数'] == 1]
-        
-        # OKのデータをプロット（透明度を下げる）
-        sns.stripplot(data=df_ok, x=condition, y='品番', color='blue', alpha=0.3, 
-                      jitter=True, size=5, ax=ax)
-        
-        # NGのデータをプロット（前面に、大きく、透明度を上げる）
-        sns.stripplot(data=df_ng, x=condition, y='品番', color='orange', alpha=1.0, 
-                      jitter=True, size=10, ax=ax)
+        # 棒グラフの作成
+        plot_data.plot(kind='bar', x=condition, y='ng_rate', ax=ax)
         
         # タイトルと軸ラベルの設定
-        plt.title(f'品番と{condition}の関係')
+        plt.title(f'{condition}における渦流探傷のNG率')
         plt.xlabel(condition)
-        plt.ylabel('品番')
+        plt.ylabel('NG率')
         
-        # 凡例の設定
-        from matplotlib.lines import Line2D
-        legend_elements = [Line2D([0], [0], marker='o', color='w', label='OK (0)',
-                                  markerfacecolor='blue', markersize=10, alpha=0.3),
-                           Line2D([0], [0], marker='o', color='w', label='NG (1)',
-                                  markerfacecolor='orange', markersize=15)]
-        ax.legend(handles=legend_elements, title='目的変数')
+        # x軸のラベルを回転
+        plt.xticks(rotation=45, ha='right')
         
         # グラフの調整
         plt.tight_layout()
