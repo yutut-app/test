@@ -25,10 +25,11 @@ current_time = datetime.now().strftime("%y%m%d%H%M")
 casting_conditions = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
 casting_conditions.remove('目的変数')
 
-# PDFファイルの作成
-pdf_filename = os.path.join(output_dir, f'time_vis_鋳造条件_{current_time}.pdf')
-with PdfPages(pdf_filename) as pdf:
-    for condition in casting_conditions:
+for condition in casting_conditions:
+    # 各鋳造条件ごとにPDFファイルを作成
+    pdf_filename = os.path.join(output_dir, f'time_vis_{condition}_{current_time}.pdf')
+    with PdfPages(pdf_filename) as pdf:
+        # 全体の時系列データの可視化
         plt.figure(figsize=(15, 8))
         sns.set_style("whitegrid")
 
@@ -51,7 +52,6 @@ with PdfPages(pdf_filename) as pdf:
         plt.xticks(rotation=45)
         plt.tight_layout()
         
-        # グラフをPDFに保存
         pdf.savefig()
         plt.close()
 
@@ -68,7 +68,6 @@ with PdfPages(pdf_filename) as pdf:
         plt.xticks(rotation=45)
         plt.tight_layout()
         
-        # グラフをPDFに保存
         pdf.savefig()
         plt.close()
 
@@ -85,27 +84,29 @@ with PdfPages(pdf_filename) as pdf:
         plt.xticks(rotation=45)
         plt.tight_layout()
         
-        # グラフをPDFに保存
         pdf.savefig()
         plt.close()
+
+    print(f"{condition}のグラフがPDFファイルとして保存されました: {pdf_filename}")
 
 # OKとNGの割合の時系列変化
 df['date'] = df['日時'].dt.date
 daily_ratio = df.groupby('date')['目的変数'].mean()
 
-plt.figure(figsize=(15, 8))
-plt.plot(daily_ratio.index, daily_ratio.values, marker='o')
-plt.title('日ごとのNG率の推移', fontsize=16)
-plt.xlabel('日付', fontsize=12)
-plt.ylabel('NG率', fontsize=12)
-plt.xticks(rotation=45)
-plt.tight_layout()
+pdf_filename = os.path.join(output_dir, f'time_vis_NG率_{current_time}.pdf')
+with PdfPages(pdf_filename) as pdf:
+    plt.figure(figsize=(15, 8))
+    plt.plot(daily_ratio.index, daily_ratio.values, marker='o')
+    plt.title('日ごとのNG率の推移', fontsize=16)
+    plt.xlabel('日付', fontsize=12)
+    plt.ylabel('NG率', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
 
-# グラフをPDFに保存
-pdf.savefig()
-plt.close()
+    pdf.savefig()
+    plt.close()
 
-print(f"グラフがPDFファイルとして保存されました: {pdf_filename}")
+print(f"NG率のグラフがPDFファイルとして保存されました: {pdf_filename}")
 
 # plt.show()をコメントアウト
 # plt.show()
