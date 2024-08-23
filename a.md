@@ -30,18 +30,24 @@ casting_condition_columns = [col for col in casting_condition_columns if col != 
 
 # 出力ディレクトリの作成
 output_dir_timevis = r'..\data\output\time_vis\time_series'
-output_dir_ng = r'..\data\output\time_vis\ng_analysis'
 os.makedirs(output_dir_timevis, exist_ok=True)
-os.makedirs(output_dir_ng, exist_ok=True)
 
 # 日ごとのデータを分割する関数
 def split_days(df):
     return [group for _, group in df.groupby(df['日時'].dt.date)]
 
+# Y軸の範囲を計算する関数
+def get_y_range(df, condition):
+    min_val = df[condition].min()
+    max_val = df[condition].max()
+    range_val = max_val - min_val
+    return (min_val - range_val * 0.1, max_val + range_val * 0.1)
+
 # 時系列での鋳造条件の変化を可視化（日ごと、鋳造機名ごと、品番ごと）
 days = split_days(df)
 
 for condition in casting_condition_columns:
+    y_range = get_y_range(df, condition)
     for machine in df['鋳造機名'].unique():
         pdf_filename = os.path.join(output_dir_timevis, f'timevis_{condition}_{machine}_{datetime.now().strftime("%y%m%d%H%M")}.pdf')
         with PdfPages(pdf_filename) as pdf:
@@ -64,92 +70,81 @@ for condition in casting_condition_columns:
                                label=f'品番: {product}', 
                                marker=markers[i % len(markers)],
                                color=colors[i % len(colors)],
-                               s=50)  # マーカーサイズを調整
+                               s=50, zorder=3)  # マーカーサイズを調整、zorderを高く設定
                     
                     # 5分以内のデータ点を線で結ぶ
                     product_df = product_df.sort_values('日時')
                     for j in range(1, len(product_df)):
                         if (product_df['日時'].iloc[j] - product_df['日時'].iloc[j-1]).total_seconds() <= 300:
                             ax.plot(product_df['日時'].iloc[j-1:j+1], product_df[condition].iloc[j-1:j+1], 
-                                    color=colors[i % len(colors)], alpha=0.5)
+                                    color=colors[i % len(colors)], alpha=0.5, zorder=2)
                 
                 # NGのマーク
                 ng_mask = day_df['目的変数'] == 1
-                ax.scatter(day_df[ng_mask]['日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='red', marker='x', s=200, label='NG')
+                ax.scatter(day_df[ng_mask]['日時'], day_df[ng_mask][condition], color='red', marker='x', s=200, label='NG', zorder=4)
                 
                 # NGの出荷検査と加工検査のマーク
                 for _, row in day_df[ng_mask].iterrows():
-                    ax.annotate('', xy=(row['出荷検査日時'], ax.get_ylim()[1]), xytext=(row['日時'], ax.get_ylim()[1]),
-                                arrowprops=dict(arrowstyle='->', color='blue', lw=2))
-                    ax.annotate('', xy=(row['加工検査日時'], ax.get_ylim()[1]), xytext=(row['日時'], ax.get_ylim()[1]),
-                                arrowprops=dict(arrowstyle='->', color='purple', lw=2))
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['出荷検査日時'], row[condition]), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom', zorder=5)
+                    ax.annotate('', xy=(row['出荷検査日時'], row[condition]), xytext=(row['日時'], row[condition]),
+                                arrowprops=dict(arrowstyle='->', color='blue', lw=2), zorder=5)
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], row[condition]), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom', zorder=5)
+                    ax.annotate('', xy=(row['加工検査日時'], row[condition]), xytext=(row['日時'], row[condition]),
+                                arrowprops=dict(arrowstyle='->', color='purple', lw=2), zorder=5)
                 
-                ax.scatter(day_df[ng_mask]['出荷検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='blue', marker='s', s=200, label='出荷検査(NG)')
-                ax.scatter(day_df[ng_mask]['加工検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='purple', marker='^', s=200, label='加工検査(NG)')
+                ax.scatter(day_df[ng_mask]['出荷検査日時'], day_df[ng_mask][condition], color='blue', marker='s', s=200, label='出荷検査(NG)', zorder=4)
+                ax.scatter(day_df[ng_mask]['加工検査日時'], day_df[ng_mask][condition], color='purple', marker='^', s=200, label='加工検査(NG)', zorder=4)
                 
                 ax.set_xlabel('時間')
                 ax.set_ylabel(f'{condition}の値')
                 date = day_df['日時'].iloc[0].date()
                 ax.set_title(f'{condition}の時間経過による変化 (鋳造機名: {machine})\n{date.strftime("%Y/%m/%d")}')
                 ax.set_xlim(day_df['日時'].min(), day_df['日時'].max())
+                ax.set_ylim(y_range)
                 ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
                 plt.tight_layout()
                 pdf.savefig(fig)
                 plt.close(fig)
                 # plt.show()  # コメントアウトを外すと表示されます
 
-print("全ての鋳造条件のグラフがPDFとして保存されました。")
-
-# NGが発生した際の前後のデータを分析
-for machine in df['鋳造機名'].unique():
-    machine_df = df[df['鋳造機名'] == machine].sort_values('日時')
-    ng_indices = machine_df[machine_df['目的変数'] == 1].index
-    
-    pdf_filename = os.path.join(output_dir_ng, f'timevis_ng_analysis_{machine}_{datetime.now().strftime("%y%m%d%H%M")}.pdf')
-    with PdfPages(pdf_filename) as pdf:
-        for ng_index in ng_indices:
-            ng_time = machine_df.loc[ng_index, '日時']
-            start_time = ng_time - timedelta(minutes=30)
-            end_time = ng_time + timedelta(minutes=30)
-            
-            ng_period = machine_df[(machine_df['日時'] >= start_time) & (machine_df['日時'] <= end_time)]
-            
-            fig, ax = plt.subplots(figsize=(15, 10))
-            
-            # 品番を取得
-            product = ng_period['品番'].iloc[0]
-            
-            for condition in casting_condition_columns:
-                ax.scatter(ng_period['日時'], ng_period[condition], label=condition, s=50)
+            # 加工検査日時がある日のグラフも表示
+            inspection_df = df[(df['鋳造機名'] == machine) & (df['加工検査日時'].notnull())]
+            inspection_dates = inspection_df['加工検査日時'].dt.date.unique()
+            for inspection_date in inspection_dates:
+                day_df = inspection_df[inspection_df['加工検査日時'].dt.date == inspection_date]
                 
-                # 5分以内のデータ点を線で結ぶ
-                for j in range(1, len(ng_period)):
-                    if (ng_period['日時'].iloc[j] - ng_period['日時'].iloc[j-1]).total_seconds() <= 300:
-                        ax.plot(ng_period['日時'].iloc[j-1:j+1], ng_period[condition].iloc[j-1:j+1], alpha=0.5)
-            
-            ax.axvline(x=ng_time, color='r', linestyle='--', label='NG発生')
-            
-            # NGのマーク
-            ng_mask = ng_period['目的変数'] == 1
-            ax.scatter(ng_period[ng_mask]['日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='red', marker='x', s=200, label='NG')
-            
-            # NGの出荷検査と加工検査のマーク
-            for _, row in ng_period[ng_mask].iterrows():
-                ax.annotate('', xy=(row['出荷検査日時'], ax.get_ylim()[1]), xytext=(row['日時'], ax.get_ylim()[1]),
-                            arrowprops=dict(arrowstyle='->', color='blue', lw=2))
-                ax.annotate('', xy=(row['加工検査日時'], ax.get_ylim()[1]), xytext=(row['日時'], ax.get_ylim()[1]),
-                            arrowprops=dict(arrowstyle='->', color='purple', lw=2))
-            
-            ax.scatter(ng_period[ng_mask]['出荷検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='blue', marker='s', s=200, label='出荷検査(NG)')
-            ax.scatter(ng_period[ng_mask]['加工検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='purple', marker='^', s=200, label='加工検査(NG)')
-            
-            ax.set_xlabel('時間')
-            ax.set_ylabel('鋳造条件の値')
-            ax.set_title(f'NG発生前後の鋳造条件の変化 (鋳造機名: {machine}, 品番: {product})\n{start_time.strftime("%Y/%m/%d %H:%M")} ~ {end_time.strftime("%Y/%m/%d %H:%M")}')
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-            plt.tight_layout()
-            pdf.savefig(fig)
-            plt.close(fig)
-            # plt.show()  # コメントアウトを外すと表示されます
+                fig, ax = plt.subplots(figsize=(20, 10))
+                
+                unique_products = day_df['品番'].unique()
+                
+                for i, product in enumerate(unique_products):
+                    product_df = day_df[day_df['品番'] == product]
+                    ax.scatter(product_df['加工検査日時'], product_df[condition], 
+                               label=f'品番: {product}', 
+                               marker=markers[i % len(markers)],
+                               color=colors[i % len(colors)],
+                               s=50, zorder=3)
+                
+                # NGのマーク
+                ng_mask = day_df['目的変数'] == 1
+                ax.scatter(day_df[ng_mask]['加工検査日時'], day_df[ng_mask][condition], color='red', marker='x', s=200, label='NG', zorder=4)
+                
+                # NGの出荷検査と加工検査のマーク
+                for _, row in day_df[ng_mask].iterrows():
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], row[condition]), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom', zorder=5)
+                
+                ax.set_xlabel('加工検査時間')
+                ax.set_ylabel(f'{condition}の値')
+                ax.set_title(f'加工検査日の{condition}の変化 (鋳造機名: {machine})\n{inspection_date.strftime("%Y/%m/%d")}')
+                ax.set_xlim(day_df['加工検査日時'].min(), day_df['加工検査日時'].max())
+                ax.set_ylim(y_range)
+                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                plt.tight_layout()
+                pdf.savefig(fig)
+                plt.close(fig)
+                # plt.show()  # コメントアウトを外すと表示されます
 
-print("NGが発生した際の前後のデータ分析グラフがPDFとして保存されました。")
+print("全ての鋳造条件のグラフと加工検査日のグラフがPDFとして保存されました。")
