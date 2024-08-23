@@ -1,77 +1,147 @@
-# 必要なライブラリをインポート
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
 import os
+from matplotlib.backends.backend_pdf import PdfPages
 
 # データの読み込み
-# CSVファイルからデータを読み込みます。ファイルパスは適宜変更してください。
-data_frame = pd.read_csv('../data/input/casting_data.csv')
+df = pd.read_csv('casting_data.csv')
 
-# 日時列を日時型に変換
-date_time_columns = ['日時', '出荷検査日時', '加工検査日時']
-for column in date_time_columns:
-    data_frame[column] = pd.to_datetime(data_frame[column])
+# データの前処理
+date_columns = ['日時', '出荷検査日時', '加工検査日時']
+for col in date_columns:
+    df[col] = pd.to_datetime(df[col])
 
-# 鋳造条件の列を特定（int型とfloat型の列）
-casting_condition_columns = data_frame.select_dtypes(include=['int64', 'float64']).columns.tolist()
-casting_condition_columns.remove('目的変数')  # 目的変数は除外
+# 時系列順にソート
+df = df.sort_values('日時')
 
-# 時系列データの可視化関数
-def visualize_time_series_data(data_frame, condition):
-    plt.figure(figsize=(20, 10))
-    
-    # 1週間ごとにデータをグループ化
-    data_frame['週'] = data_frame['日時'].dt.to_period('W-MON')  # 月曜日始まりの週に設定
-    weeks = data_frame['週'].unique()
-    
-    for week_index, week in enumerate(weeks):
-        week_data = data_frame[data_frame['週'] == week]
-        
-        # 月曜日から始まるようにデータを調整
-        start_of_week = week.start_time
-        
-        # X軸: 鋳造条件の値、Y軸: 時刻
-        plt.subplot(1, len(weeks), week_index + 1)
-        
-        previous_time = None
-        for _, row in week_data.iterrows():
-            current_time = row['日時']
-            
-            # 5分以上の間隔がある場合は線を繋げない
-            if previous_time is not None and (current_time - previous_time) > timedelta(minutes=5):
-                plt.plot(row[condition], current_time.time(), marker='o', color='none', markersize=5)
-            else:
-                color = 'green' if row['目的変数'] == 0 else 'red'
-                plt.plot(row[condition], current_time.time(), marker='o', color=color, markersize=5)
-            
-            # 出荷検査と加工検査のマーク
-            if pd.notna(row['出荷検査日時']):
-                plt.plot(row[condition], row['出荷検査日時'].time(), marker='s', color='blue', markersize=3)
-            if pd.notna(row['加工検査日時']) and row['目的変数'] == 1:
-                plt.plot(row[condition], row['加工検査日時'].time(), marker='*', color='purple', markersize=3)
-            
-            previous_time = current_time
-        
-        plt.title(f'Week of {start_of_week.date()}')
-        plt.xlabel(condition)
-        plt.ylabel('Time')
-    
-    plt.suptitle(f'Time Series Visualization for {condition}')
-    plt.tight_layout()
-    
-    # グラフをPDFとして保存
-    current_time = datetime.now().strftime("%y%m%d%H%M")
-    output_directory = '../data/output/time_vis'
-    os.makedirs(output_directory, exist_ok=True)
-    plt.savefig(f'{output_directory}/timevis_{condition}_{current_time}.pdf')
-    plt.close()
+# データの概要を確認
+print(df.info())
+print(df.describe())
 
-# 各鋳造条件に対して可視化を実行
+# 鋳造条件の列名を取得（int型とfloat型の列）
+casting_condition_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+casting_condition_columns = [col for col in casting_condition_columns if col != '目的変数']
+
+# 出力ディレクトリの作成
+output_dir = r'..\data\output\time_vis'
+os.makedirs(output_dir, exist_ok=True)
+
+# 週ごとのデータを分割する関数
+def split_weeks(df):
+    weeks = []
+    current_week = []
+    current_monday = df['日時'].iloc[0].floor('D') - timedelta(days=df['日時'].iloc[0].weekday())
+    
+    for _, row in df.iterrows():
+        if row['日時'].floor('D') >= current_monday + timedelta(days=7):
+            weeks.append(current_week)
+            current_week = []
+            current_monday += timedelta(days=7)
+        current_week.append(row)
+    
+    if current_week:
+        weeks.append(current_week)
+    
+    return weeks
+
+# 時系列での鋳造条件の変化を可視化（週ごと、鋳造機名ごと、品番ごと）
+weeks = split_weeks(df)
+
 for condition in casting_condition_columns:
-    visualize_time_series_data(data_frame, condition)
-    print(f'Visualization for {condition} saved.')
+    pdf_filename = os.path.join(output_dir, f'timevis_{condition}_{datetime.now().strftime("%y%m%d%H%M")}.pdf')
+    with PdfPages(pdf_filename) as pdf:
+        for week_num, week_data in enumerate(weeks):
+            week_df = pd.DataFrame(week_data)
+            
+            # 鋳造機名ごとにグラフを分ける
+            unique_machines = week_df['鋳造機名'].unique()
+            for machine in unique_machines:
+                machine_df = week_df[week_df['鋳造機名'] == machine]
+                
+                fig, ax = plt.subplots(figsize=(20, 10))
+                
+                # 品番ごとに線の種類を変える
+                unique_products = machine_df['品番'].unique()
+                line_styles = ['-', '--', '-.', ':']  # 線の種類のリスト
+                
+                for i, product in enumerate(unique_products):
+                    product_df = machine_df[machine_df['品番'] == product]
+                    ax.plot(product_df['日時'], product_df[condition], 
+                            label=f'品番: {product}', 
+                            linestyle=line_styles[i % len(line_styles)])
+                
+                # OK/NGのマーク
+                for _, row in machine_df.iterrows():
+                    if row['目的変数'] == 0:
+                        ax.plot(row['日時'], ax.get_ylim()[1], 'go', markersize=10, label='OK' if 'OK' not in ax.get_legend_handles_labels()[1] else "")
+                    else:
+                        ax.plot(row['日時'], ax.get_ylim()[1], 'ro', markersize=10, label='NG' if 'NG' not in ax.get_legend_handles_labels()[1] else "")
+                
+                # 出荷検査と加工検査のマーク
+                ax.scatter(machine_df['出荷検査日時'], [ax.get_ylim()[1]]*len(machine_df), color='blue', marker='s', s=100, label='出荷検査')
+                ax.scatter(machine_df[machine_df['目的変数'] == 1]['加工検査日時'], [ax.get_ylim()[1]]*len(machine_df[machine_df['目的変数'] == 1]), color='purple', marker='^', s=100, label='加工検査')
+                
+                # 5分以上間隔が空いている箇所で線を切る
+                for i in range(1, len(machine_df)):
+                    if (machine_df['日時'].iloc[i] - machine_df['日時'].iloc[i-1]).total_seconds() >= 300:
+                        ax.axvline(machine_df['日時'].iloc[i] - timedelta(seconds=150), color='gray', linestyle='--', alpha=0.5)
+                
+                ax.set_xlabel('時間')
+                ax.set_ylabel(f'{condition}の値')
+                start_date = week_df['日時'].iloc[0].floor('D')
+                end_date = start_date + timedelta(days=6)
+                ax.set_title(f'{condition}の時間経過による変化 (鋳造機名: {machine})\n{start_date.strftime("%Y/%m/%d")} ~ {end_date.strftime("%Y/%m/%d")}')
+                ax.set_xlim(start_date, end_date + timedelta(days=1))
+                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                plt.tight_layout()
+                pdf.savefig(fig)
+                plt.close(fig)
+                # plt.show()  # コメントアウトを外すと表示されます
 
-# グラフを表示したい場合は、以下のコメントを外してください
-# plt.show()
+print("全ての鋳造条件のグラフがPDFとして保存されました。")
+
+# NGが発生した際の前後のデータを分析
+pdf_filename = os.path.join(output_dir, f'timevis_ng_analysis_{datetime.now().strftime("%y%m%d%H%M")}.pdf')
+with PdfPages(pdf_filename) as pdf:
+    ng_indices = df[df['目的変数'] == 1].index
+    for ng_index in ng_indices:
+        start_index = max(0, ng_index - 5)
+        end_index = min(len(df), ng_index + 6)
+        ng_period = df.iloc[start_index:end_index]
+        
+        fig, ax = plt.subplots(figsize=(15, 10))
+        
+        # 鋳造機名と品番を取得
+        machine = ng_period['鋳造機名'].iloc[0]
+        product = ng_period['品番'].iloc[0]
+        
+        for condition in casting_condition_columns:
+            ax.plot(ng_period['日時'], ng_period[condition], label=condition)
+        
+        ax.axvline(x=df.loc[ng_index, '日時'], color='r', linestyle='--', label='NG発生')
+        
+        # OK/NGのマーク
+        for _, row in ng_period.iterrows():
+            if row['目的変数'] == 0:
+                ax.plot(row['日時'], ax.get_ylim()[1], 'go', markersize=10, label='OK' if 'OK' not in ax.get_legend_handles_labels()[1] else "")
+            else:
+                ax.plot(row['日時'], ax.get_ylim()[1], 'ro', markersize=10, label='NG' if 'NG' not in ax.get_legend_handles_labels()[1] else "")
+        
+        # 出荷検査と加工検査のマーク
+        ax.scatter(ng_period['出荷検査日時'], [ax.get_ylim()[1]]*len(ng_period), color='blue', marker='s', s=100, label='出荷検査')
+        ax.scatter(ng_period[ng_period['目的変数'] == 1]['加工検査日時'], [ax.get_ylim()[1]]*len(ng_period[ng_period['目的変数'] == 1]), color='purple', marker='^', s=100, label='加工検査')
+        
+        ax.set_xlabel('時間')
+        ax.set_ylabel('鋳造条件の値')
+        start_date = ng_period['日時'].iloc[0]
+        end_date = ng_period['日時'].iloc[-1]
+        ax.set_title(f'NG発生前後の鋳造条件の変化 (鋳造機名: {machine}, 品番: {product})\n{start_date.strftime("%Y/%m/%d %H:%M")} ~ {end_date.strftime("%Y/%m/%d %H:%M")}')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+        # plt.show()  # コメントアウトを外すと表示されます
+
+print("NGが発生した際の前後のデータ分析グラフがPDFとして保存されました。")
