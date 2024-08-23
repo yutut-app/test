@@ -41,15 +41,17 @@ def get_y_range(machine_df, condition):
     y_min = machine_df[condition].min()
     y_max = machine_df[condition].max()
     y_range = y_max - y_min
-    return y_min - 0.1 * y_range, y_max + 0.2 * y_range  # マークのスペースを確保
+    return y_min - 0.1 * y_range, y_max + 0.3 * y_range  # マークのスペースを確保
 
 # 時系列での鋳造条件の変化を可視化（日ごと、鋳造機名ごと、品番ごと）
 days = split_days(df)
 
 for condition in casting_condition_columns:
+    y_ranges = {machine: get_y_range(df[df['鋳造機名'] == machine], condition) for machine in df['鋳造機名'].unique()}
+    
     for machine in df['鋳造機名'].unique():
-        machine_df = df[df['鋳造機名'] == machine]
-        y_min, y_max = get_y_range(machine_df, condition)
+        y_min, y_max = y_ranges[machine]
+        mark_y = y_min + 0.95 * (y_max - y_min)  # マークの位置を設定
         
         pdf_filename = os.path.join(output_dir_timevis, f'timevis_{condition}_{machine}_{datetime.now().strftime("%y%m%d%H%M")}.pdf')
         with PdfPages(pdf_filename) as pdf:
@@ -83,19 +85,19 @@ for condition in casting_condition_columns:
                 
                 # NGのマーク
                 ng_mask = day_df['目的変数'] == 1
-                ax.scatter(day_df[ng_mask]['日時'], [y_max]*sum(ng_mask), color='red', marker='x', s=200, label='NG', zorder=5)
+                ax.scatter(day_df[ng_mask]['日時'], [mark_y]*sum(ng_mask), color='red', marker='x', s=200, label='NG', zorder=5)
                 
                 # NGの出荷検査と加工検査のマーク
                 for _, row in day_df[ng_mask].iterrows():
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['日時'], y_max), xytext=(0, 10), 
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['日時'], mark_y), xytext=(0, 10), 
                                 textcoords='offset points', ha='center', va='bottom', zorder=6)
-                    ax.annotate('', xy=(row['出荷検査日時'], y_max), xytext=(row['日時'], y_max),
+                    ax.annotate('', xy=(row['出荷検査日時'], mark_y), xytext=(row['日時'], mark_y),
                                 arrowprops=dict(arrowstyle='->', color='blue', lw=2), zorder=4)
-                    ax.annotate('', xy=(row['加工検査日時'], y_max), xytext=(row['日時'], y_max),
+                    ax.annotate('', xy=(row['加工検査日時'], mark_y), xytext=(row['日時'], mark_y),
                                 arrowprops=dict(arrowstyle='->', color='purple', lw=2), zorder=4)
                 
-                ax.scatter(day_df[ng_mask]['出荷検査日時'], [y_max]*sum(ng_mask), color='blue', marker='s', s=200, label='出荷検査(NG)', zorder=5)
-                ax.scatter(day_df[ng_mask]['加工検査日時'], [y_max]*sum(ng_mask), color='purple', marker='^', s=200, label='加工検査(NG)', zorder=5)
+                ax.scatter(day_df[ng_mask]['出荷検査日時'], [mark_y]*sum(ng_mask), color='blue', marker='s', s=200, label='出荷検査(NG)', zorder=5)
+                ax.scatter(day_df[ng_mask]['加工検査日時'], [mark_y]*sum(ng_mask), color='purple', marker='^', s=200, label='加工検査(NG)', zorder=5)
                 
                 ax.set_xlabel('時間')
                 ax.set_ylabel(f'{condition}の値')
@@ -126,13 +128,13 @@ for condition in casting_condition_columns:
                 
                 # NGのマーク
                 ng_mask = day_df['目的変数'] == 1
-                ax.scatter(day_df[ng_mask]['加工検査日時'], [y_max]*sum(ng_mask), color='red', marker='x', s=200, label='NG', zorder=5)
+                ax.scatter(day_df[ng_mask]['加工検査日時'], [mark_y]*sum(ng_mask), color='red', marker='x', s=200, label='NG', zorder=5)
                 
                 # 加工検査日時のマーク
-                ax.scatter(day_df['加工検査日時'], [y_max]*len(day_df), color='purple', marker='^', s=200, label='加工検査', zorder=5)
+                ax.scatter(day_df['加工検査日時'], [mark_y]*len(day_df), color='purple', marker='^', s=200, label='加工検査', zorder=5)
                 
                 for _, row in day_df.iterrows():
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], y_max), xytext=(0, 10), 
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], mark_y), xytext=(0, 10), 
                                 textcoords='offset points', ha='center', va='bottom', zorder=6)
                 
                 ax.set_xlabel('時間')
