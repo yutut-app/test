@@ -1,18 +1,14 @@
-
-
-# 各鋳造条件に対してswarmplotを作成し、PDFとして保存
+# 各鋳造条件に対してcatplotを作成し、PDFとして保存
 for condition in casting_condition_columns:
     plt.figure(figsize=(12, 8))
     
-    # OKとNGのデータを分離
-    df_ok = df[df['目的変数'] == 0]
-    df_ng = df[df['目的変数'] == 1]
+    # OKデータ（目的変数0）のプロット
+    sns.stripplot(data=df[df['目的変数'] == 0], x=condition, y='鋳造機名', 
+                  color='blue', alpha=0.3, size=3, jitter=0.3)
     
-    # OKのデータをプロット（透明度を下げる）
-    sns.swarmplot(data=df_ok, x=condition, y='鋳造機名', color='blue', alpha=0.3, size=3)
-    
-    # NGのデータをプロット（サイズを大きくする）
-    sns.swarmplot(data=df_ng, x=condition, y='鋳造機名', color='orange', size=5)
+    # NGデータ（目的変数1）のプロット
+    sns.stripplot(data=df[df['目的変数'] == 1], x=condition, y='鋳造機名', 
+                  color='orange', alpha=1, size=7, jitter=0.3)
     
     plt.title(f'鋳造機名と{condition}の関係')
     plt.legend(['OK', 'NG'])
