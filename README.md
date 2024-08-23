@@ -101,49 +101,36 @@ for condition in casting_condition_columns:
                 # plt.show()  # コメントアウトを外すと表示されます
 
             # 加工検査日時がある日のグラフも表示
-            inspection_dates = df[(df['鋳造機名'] == machine) & (df['加工検査日時'].notnull())]['加工検査日時'].dt.date.unique()
+            inspection_df = df[(df['鋳造機名'] == machine) & (df['加工検査日時'].notnull())]
+            inspection_dates = inspection_df['加工検査日時'].dt.date.unique()
             for inspection_date in inspection_dates:
-                day_df = df[(df['鋳造機名'] == machine) & (df['日時'].dt.date == inspection_date)]
+                day_df = inspection_df[inspection_df['加工検査日時'].dt.date == inspection_date]
                 
                 fig, ax = plt.subplots(figsize=(20, 10))
                 
+                unique_products = day_df['品番'].unique()
+                
                 for i, product in enumerate(unique_products):
                     product_df = day_df[day_df['品番'] == product]
-                    ax.scatter(product_df['日時'], product_df[condition], 
+                    ax.scatter(product_df['加工検査日時'], product_df[condition], 
                                label=f'品番: {product}', 
                                marker=markers[i % len(markers)],
                                color=colors[i % len(colors)],
                                s=50)
-                    
-                    # 5分以内のデータ点を線で結ぶ
-                    product_df = product_df.sort_values('日時')
-                    for j in range(1, len(product_df)):
-                        if (product_df['日時'].iloc[j] - product_df['日時'].iloc[j-1]).total_seconds() <= 300:
-                            ax.plot(product_df['日時'].iloc[j-1:j+1], product_df[condition].iloc[j-1:j+1], 
-                                    color=colors[i % len(colors)], alpha=0.5)
                 
                 # NGのマーク
                 ng_mask = day_df['目的変数'] == 1
-                ax.scatter(day_df[ng_mask]['日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='red', marker='x', s=200, label='NG')
+                ax.scatter(day_df[ng_mask]['加工検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='red', marker='x', s=200, label='NG')
                 
                 # NGの出荷検査と加工検査のマーク
                 for _, row in day_df[ng_mask].iterrows():
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['出荷検査日時'], ax.get_ylim()[1]), xytext=(0, 10), 
-                                textcoords='offset points', ha='center', va='bottom')
-                    ax.annotate('', xy=(row['出荷検査日時'], ax.get_ylim()[1]), xytext=(row['日時'], ax.get_ylim()[1]),
-                                arrowprops=dict(arrowstyle='->', color='blue', lw=2))
                     ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], ax.get_ylim()[1]), xytext=(0, 10), 
                                 textcoords='offset points', ha='center', va='bottom')
-                    ax.annotate('', xy=(row['加工検査日時'], ax.get_ylim()[1]), xytext=(row['日時'], ax.get_ylim()[1]),
-                                arrowprops=dict(arrowstyle='->', color='purple', lw=2))
                 
-                ax.scatter(day_df[ng_mask]['出荷検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='blue', marker='s', s=200, label='出荷検査(NG)')
-                ax.scatter(day_df[ng_mask]['加工検査日時'], [ax.get_ylim()[1]]*sum(ng_mask), color='purple', marker='^', s=200, label='加工検査(NG)')
-                
-                ax.set_xlabel('時間')
+                ax.set_xlabel('加工検査時間')
                 ax.set_ylabel(f'{condition}の値')
                 ax.set_title(f'加工検査日の{condition}の変化 (鋳造機名: {machine})\n{inspection_date.strftime("%Y/%m/%d")}')
-                ax.set_xlim(day_df['日時'].min(), day_df['日時'].max())
+                ax.set_xlim(day_df['加工検査日時'].min(), day_df['加工検査日時'].max())
                 ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
                 plt.tight_layout()
                 pdf.savefig(fig)
