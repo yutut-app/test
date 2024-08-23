@@ -1,19 +1,25 @@
-# config.py
+# data_loader.py
 
-# ファイルパスの設定
-INPUT_FILE_PATH = "path/to/your/input/file.csv"
+import pandas as pd
+from config import INPUT_FILE_PATH, DATE_FORMAT
 
-# グラフの設定
-GRAPH_TITLE = "鋳造工程の時系列データ分析"
-X_AXIS_LABEL = "日時"
-Y_AXIS_LABEL = "測定値"
-LINE_COLOR = "blue"
-MARKER_COLOR = "red"
-MARKER_SIZE = 5
-FIGURE_SIZE = (12, 6)
+def load_casting_data():
+    """
+    CSVファイルから鋳造工程のデータを読み込む関数
 
-# 日時のフォーマット
-DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-# データの間隔設定（分）
-MAX_TIME_GAP = 5
+    Returns:
+        pandas.DataFrame: 読み込んだデータ
+    """
+    try:
+        data = pd.read_csv(INPUT_FILE_PATH)
+        
+        # 日時列を日時型に変換
+        date_columns = ['日時', '出荷検査日時', '加工検査日時']
+        for col in date_columns:
+            data[col] = pd.to_datetime(data[col], format=DATE_FORMAT)
+        
+        return data
+    except Exception as e:
+        print(f"データの読み込みに失敗しました: {e}")
+        return None
+        
