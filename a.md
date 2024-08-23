@@ -8,8 +8,6 @@ current_time = datetime.now().strftime("%y%m%d%H%M")
 # PDFファイルを作成
 pdf_filename = os.path.join(output_dir, f'vis_各鋳造条件におけるNG率_{current_time}.pdf')
 
-from matplotlib.backends.backend_pdf import PdfPages
-
 # グラフを表示するかどうかのフラグ
 show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
 
@@ -24,7 +22,7 @@ with PdfPages(pdf_filename) as pdf:
     # 各鋳造条件に対してプロットを作成
     for condition in casting_condition_columns:
         # 鋳造条件を10分位に分割
-        df['condition_bin'] = pd.qcut(df[condition], q=10, labels=False)
+        df['condition_bin'] = pd.qcut(df[condition], q=10, labels=False, duplicates='drop')
         
         # 各ビンごとのNG率を計算
         ng_rates = df.groupby('condition_bin').apply(calculate_ng_rate).reset_index()
