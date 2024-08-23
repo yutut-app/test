@@ -37,11 +37,11 @@ def split_days(df):
     return [group for _, group in df.groupby(df['日時'].dt.date)]
 
 # Y軸の範囲を計算する関数
-def get_y_range(df, condition, padding=0.1):
-    min_val = df[condition].min()
-    max_val = df[condition].max()
-    range_val = max_val - min_val
-    return (min_val - range_val * padding, max_val + range_val * padding)
+def get_y_range(machine_df, condition):
+    y_min = machine_df[condition].min()
+    y_max = machine_df[condition].max()
+    y_range = y_max - y_min
+    return y_min - 0.1 * y_range, y_max + 0.2 * y_range  # マークのスペースを確保
 
 # 時系列での鋳造条件の変化を可視化（日ごと、鋳造機名ごと、品番ごと）
 days = split_days(df)
@@ -49,7 +49,7 @@ days = split_days(df)
 for condition in casting_condition_columns:
     for machine in df['鋳造機名'].unique():
         machine_df = df[df['鋳造機名'] == machine]
-        y_range = get_y_range(machine_df, condition)
+        y_min, y_max = get_y_range(machine_df, condition)
         
         pdf_filename = os.path.join(output_dir_timevis, f'timevis_{condition}_{machine}_{datetime.now().strftime("%y%m%d%H%M")}.pdf')
         with PdfPages(pdf_filename) as pdf:
@@ -72,7 +72,7 @@ for condition in casting_condition_columns:
                                label=f'品番: {product}', 
                                marker=markers[i % len(markers)],
                                color=colors[i % len(colors)],
-                               s=50, zorder=3)  # マーカーサイズを調整、zorderを高く設定
+                               s=50, zorder=3)  # マーカーサイズを調整
                     
                     # 5分以内のデータ点を線で結ぶ
                     product_df = product_df.sort_values('日時')
@@ -83,28 +83,26 @@ for condition in casting_condition_columns:
                 
                 # NGのマーク
                 ng_mask = day_df['目的変数'] == 1
-                ax.scatter(day_df[ng_mask]['日時'], day_df[ng_mask][condition], color='red', marker='x', s=200, label='NG', zorder=4)
+                ax.scatter(day_df[ng_mask]['日時'], [y_max]*sum(ng_mask), color='red', marker='x', s=200, label='NG', zorder=5)
                 
                 # NGの出荷検査と加工検査のマーク
                 for _, row in day_df[ng_mask].iterrows():
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['出荷検査日時'], row[condition]), xytext=(0, 20), 
-                                textcoords='offset points', ha='center', va='bottom', zorder=5)
-                    ax.annotate('', xy=(row['出荷検査日時'], row[condition]), xytext=(row['日時'], row[condition]),
-                                arrowprops=dict(arrowstyle='->', color='blue', lw=2), zorder=5)
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], row[condition]), xytext=(0, 20), 
-                                textcoords='offset points', ha='center', va='bottom', zorder=5)
-                    ax.annotate('', xy=(row['加工検査日時'], row[condition]), xytext=(row['日時'], row[condition]),
-                                arrowprops=dict(arrowstyle='->', color='purple', lw=2), zorder=5)
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['日時'], y_max), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom', zorder=6)
+                    ax.annotate('', xy=(row['出荷検査日時'], y_max), xytext=(row['日時'], y_max),
+                                arrowprops=dict(arrowstyle='->', color='blue', lw=2), zorder=4)
+                    ax.annotate('', xy=(row['加工検査日時'], y_max), xytext=(row['日時'], y_max),
+                                arrowprops=dict(arrowstyle='->', color='purple', lw=2), zorder=4)
                 
-                ax.scatter(day_df[ng_mask]['出荷検査日時'], day_df[ng_mask][condition], color='blue', marker='s', s=200, label='出荷検査(NG)', zorder=4)
-                ax.scatter(day_df[ng_mask]['加工検査日時'], day_df[ng_mask][condition], color='purple', marker='^', s=200, label='加工検査(NG)', zorder=4)
+                ax.scatter(day_df[ng_mask]['出荷検査日時'], [y_max]*sum(ng_mask), color='blue', marker='s', s=200, label='出荷検査(NG)', zorder=5)
+                ax.scatter(day_df[ng_mask]['加工検査日時'], [y_max]*sum(ng_mask), color='purple', marker='^', s=200, label='加工検査(NG)', zorder=5)
                 
                 ax.set_xlabel('時間')
                 ax.set_ylabel(f'{condition}の値')
                 date = day_df['日時'].iloc[0].date()
                 ax.set_title(f'{condition}の時間経過による変化 (鋳造機名: {machine})\n{date.strftime("%Y/%m/%d")}')
                 ax.set_xlim(day_df['日時'].min(), day_df['日時'].max())
-                ax.set_ylim(*y_range)
+                ax.set_ylim(y_min, y_max)
                 ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
                 plt.tight_layout()
                 pdf.savefig(fig)
@@ -115,9 +113,6 @@ for condition in casting_condition_columns:
             inspection_dates = df[(df['鋳造機名'] == machine) & (df['加工検査日時'].notnull())]['加工検査日時'].dt.date.unique()
             for inspection_date in inspection_dates:
                 day_df = df[(df['鋳造機名'] == machine) & (df['加工検査日時'].dt.date == inspection_date)]
-                
-                if day_df.empty:
-                    continue
                 
                 fig, ax = plt.subplots(figsize=(20, 10))
                 
@@ -131,24 +126,20 @@ for condition in casting_condition_columns:
                 
                 # NGのマーク
                 ng_mask = day_df['目的変数'] == 1
-                ax.scatter(day_df[ng_mask]['加工検査日時'], day_df[ng_mask][condition], color='red', marker='x', s=200, label='NG', zorder=4)
+                ax.scatter(day_df[ng_mask]['加工検査日時'], [y_max]*sum(ng_mask), color='red', marker='x', s=200, label='NG', zorder=5)
                 
-                # NGの出荷検査と加工検査のマーク
-                for _, row in day_df[ng_mask].iterrows():
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['出荷検査日時'], row[condition]), xytext=(0, 20), 
-                                textcoords='offset points', ha='center', va='bottom', zorder=5)
-                    ax.annotate('', xy=(row['出荷検査日時'], row[condition]), xytext=(row['加工検査日時'], row[condition]),
-                                arrowprops=dict(arrowstyle='->', color='blue', lw=2), zorder=5)
-                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], row[condition]), xytext=(0, 20), 
-                                textcoords='offset points', ha='center', va='bottom', zorder=5)
+                # 加工検査日時のマーク
+                ax.scatter(day_df['加工検査日時'], [y_max]*len(day_df), color='purple', marker='^', s=200, label='加工検査', zorder=5)
                 
-                ax.scatter(day_df[ng_mask]['出荷検査日時'], day_df[ng_mask][condition], color='blue', marker='s', s=200, label='出荷検査(NG)', zorder=4)
+                for _, row in day_df.iterrows():
+                    ax.annotate(row['日時'].strftime('%H:%M'), xy=(row['加工検査日時'], y_max), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom', zorder=6)
                 
                 ax.set_xlabel('時間')
                 ax.set_ylabel(f'{condition}の値')
                 ax.set_title(f'加工検査日の{condition}の変化 (鋳造機名: {machine})\n{inspection_date.strftime("%Y/%m/%d")}')
                 ax.set_xlim(day_df['加工検査日時'].min(), day_df['加工検査日時'].max())
-                ax.set_ylim(*y_range)
+                ax.set_ylim(y_min, y_max)
                 ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
                 plt.tight_layout()
                 pdf.savefig(fig)
