@@ -28,17 +28,17 @@ os.makedirs(output_dir, exist_ok=True)
 # 現在の日時を取得（ファイル名用）
 current_time = datetime.now().strftime("%y%m%d%H%M")
 
-# 各鋳造条件ごとに散布図を作成してPDF保存
+# 各鋳造条件ごとに散布図を作成
 for condition in casting_condition_columns:
     plt.figure(figsize=(12, 8))
     
     # 目的変数が0（OK）のデータ
     ok_data = df[df['目的変数'] == 0]
-    plt.scatter(ok_data[condition], ok_data['鋳造機名'], color='blue', label='OK', alpha=0.5)
+    plt.scatter(ok_data[condition], ok_data['鋳造機名'], c='blue', label='OK', alpha=0.6)
     
     # 目的変数が1（NG）のデータ
     ng_data = df[df['目的変数'] == 1]
-    plt.scatter(ng_data[condition], ng_data['鋳造機名'], color='orange', label='NG', alpha=0.5)
+    plt.scatter(ng_data[condition], ng_data['鋳造機名'], c='orange', label='NG', alpha=0.6)
     
     plt.xlabel(condition)
     plt.ylabel('鋳造機名')
