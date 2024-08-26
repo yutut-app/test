@@ -1,62 +1,39 @@
+# 鋳造機ごとの品番別NG率分析
 
-# NG率の計算
-def calculate_ng_rate(data):
-    total = len(data)
-    ng_count = (data == 1).sum()
-    return (ng_count / total) * 100 if total > 0 else 0
+このセクションでは、鋳造機ごとに品番別のNG率（不良品率）を分析し、グラフ化します。この分析は、本案件の2つの主要な目的に直接関連しています：
 
-# 出力ディレクトリの作成
-output_dir = r'..\data\output\eda'
-os.makedirs(output_dir, exist_ok=True)
+## なぜこの分析が重要か？
 
-# 現在の日時を取得（ファイル名用）
-current_time = datetime.now().strftime("%y%m%d%H%M")
+1. **鋳造機の性能比較**：
+   異なる鋳造機のNG率を比較することで、どの機械がより高品質な製品を生産しているかを把握できます。
 
-from matplotlib.backends.backend_pdf import PdfPages
+2. **品番ごとの品質傾向**：
+   各品番のNG率を見ることで、特定の製品設計が不良品を生みやすいかどうかを判断できます。
 
-# グラフを表示するかどうかのフラグ
-show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
+3. **改善の焦点を特定**：
+   NG率が高い鋳造機や品番を特定することで、品質改善の取り組みをどこに集中させるべきかが明確になります。
 
-# 鋳造機名ごとにプロットを作成
-for machine in df['鋳造機名'].unique():
-    # 鋳造機名ごとのデータをフィルタリング
-    df_machine = df[df['鋳造機名'] == machine]
-    
-    # 品番ごとのNG率を計算
-    ng_rate_by_product = df_machine.groupby('品番')['目的変数'].agg(calculate_ng_rate).reset_index()
-    ng_rate_by_product.columns = ['品番', 'NG率']
-    
-    # 鋳造機名ごとの総データ数を計算
-    total_count = len(df_machine)
-    
-    # PDFファイルを作成
-    pdf_filename = os.path.join(output_dir, f'vis_{machine}の品番ごとNG率_{current_time}.pdf')
-    
-    with PdfPages(pdf_filename) as pdf:
-        fig, ax = plt.subplots(figsize=(12, 6))
-        bars = ng_rate_by_product.plot(x='品番', y='NG率', kind='bar', ax=ax)
-        plt.title(f'{machine}の品番ごとの渦流探傷NG率 (n={total_count})')
-        plt.xlabel('品番')
-        plt.ylabel('NG率 [%]')
-        plt.ylim(0, 100)  # Y軸の最大値を100%に設定
+## コードの説明
 
-        # 各棒グラフの上に値とテキストを表示
-        for i, bar in enumerate(bars.patches):
-            height = bar.get_height()
-            product = ng_rate_by_product['品番'].iloc[i]
-            ng_count = df_machine[(df_machine['品番'] == product) & (df_machine['目的変数'] == 1)].shape[0]
-            total_count = df_machine[df_machine['品番'] == product].shape[0]
-            text = f"{height:.2f}% ({ng_count}/{total_count})"
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                    text,
-                    ha='center', va='bottom')
+このコードは以下の手順で分析を行います：
 
-        plt.tight_layout()
-        pdf.savefig(fig)
-        
-        if show_plots:
-            plt.show()
-        else:
-            plt.close(fig)
+1. NG率を計算する関数を定義します。
+2. 鋳造機ごとにデータをグループ化し、各品番のNG率を計算します。
+3. 計算結果をグラフ化し、PDFファイルとして保存します。
 
-    print(f"{machine}のグラフをPDFに保存しました: {pdf_filename}")
+## 結果の解釈
+
+1. 1号機について：
+
+全ての品番でNGが発生しています。
+→ 1号機の全体的な設定や操作方法に問題がある可能性があります。例えば、温度制御や金型の状態が適切でない可能性があります。
+品番5が最もNG率が高いです。
+→ 品番5の設計や形状が1号機の特性と相性が悪い可能性があります。例えば、1号機の鋳造速度や圧力が品番5の要求仕様に適していない可能性があります。
+
+
+2. 2号機について：
+
+品番2と品番5はNGがありません（NG率0%）。
+→ 2号機の設定が品番2と品番5の製造に最適化されている可能性があります。例えば、冷却速度や注湯温度が適切に調整されているかもしれません。
+品番6のみNGがあります。
+→ 品番6の設計や要求仕様が2号機の性能限界に近い可能性があります。例えば、品番6が他の品番よりも複雑な形状や薄い壁厚を持っているかもしれません。
