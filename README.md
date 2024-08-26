@@ -1,3 +1,31 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+from datetime import datetime
+import numpy as np
+
+# 日本語フォントの設定
+plt.rcParams['font.family'] = 'MS Gothic'  # または 'IPAexGothic', 'Yu Gothic'などを試してみてください
+
+# データの読み込み
+df = pd.read_csv('casting_data.csv')
+
+# データの前処理
+date_columns = ['日時', '出荷検査日時', '加工検査日時']
+for col in date_columns:
+    df[col] = pd.to_datetime(df[col])
+
+# 時系列順にソート
+df = df.sort_values('日時')
+
+# 鋳造機名を昇順にソート
+df['鋳造機名'] = pd.Categorical(df['鋳造機名'], sorted(df['鋳造機名'].unique()))
+
+# 鋳造条件の列名を取得（int型とfloat型の列）
+casting_condition_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+casting_condition_columns = [col for col in casting_condition_columns if col != '目的変数']
+
 # 出力ディレクトリの作成
 output_dir = r'..\data\output\eda'
 os.makedirs(output_dir, exist_ok=True)
@@ -8,10 +36,10 @@ current_time = datetime.now().strftime("%y%m%d%H%M")
 # グラフを表示するかどうかのフラグ
 show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
 
-# 鋳造機名ごとにプロットを作成
-for machine in df['鋳造機名'].unique():
+# 品番ごとにプロットを作成
+for product in df['品番'].unique():
     # PDFファイルを作成
-    pdf_filename = os.path.join(output_dir, f'vis_{machine}と品番の鋳造条件の関係_{current_time}.pdf')
+    pdf_filename = os.path.join(output_dir, f'vis_{product}と鋳造機名の鋳造条件の関係_{current_time}.pdf')
     
     with PdfPages(pdf_filename) as pdf:
         # 各鋳造条件に対してプロットを作成
@@ -19,25 +47,25 @@ for machine in df['鋳造機名'].unique():
             # プロットの作成
             fig, ax = plt.subplots(figsize=(12, 8))
             
-            # 現在の鋳造機名のデータのみをフィルタリング
-            df_machine = df[df['鋳造機名'] == machine]
+            # 現在の品番のデータのみをフィルタリング
+            df_product = df[df['品番'] == product]
             
             # OKとNGのデータを分離
-            df_ok = df_machine[df_machine['目的変数'] == 0]
-            df_ng = df_machine[df_machine['目的変数'] == 1]
+            df_ok = df_product[df_product['目的変数'] == 0]
+            df_ng = df_product[df_product['目的変数'] == 1]
             
             # OKのデータをプロット（透明度を下げる）
-            sns.stripplot(data=df_ok, x=condition, y='品番', color='blue', alpha=0.3, 
-                          jitter=True, size=5, ax=ax, order=sorted(df_machine['品番'].unique()))
+            sns.stripplot(data=df_ok, x=condition, y='鋳造機名', color='blue', alpha=0.3, 
+                          jitter=True, size=5, ax=ax, order=sorted(df_product['鋳造機名'].unique()))
             
             # NGのデータをプロット（前面に、大きく、透明度を上げる）
-            sns.stripplot(data=df_ng, x=condition, y='品番', color='orange', alpha=1.0, 
-                          jitter=True, size=10, ax=ax, order=sorted(df_machine['品番'].unique()))
+            sns.stripplot(data=df_ng, x=condition, y='鋳造機名', color='orange', alpha=1.0, 
+                          jitter=True, size=10, ax=ax, order=sorted(df_product['鋳造機名'].unique()))
             
             # タイトルと軸ラベルの設定
-            plt.title(f'{machine}の品番と{condition}の関係')
+            plt.title(f'{product}の鋳造機名と{condition}の関係')
             plt.xlabel(condition)
-            plt.ylabel('品番')
+            plt.ylabel('鋳造機名')
             
             # 凡例の設定
             from matplotlib.lines import Line2D
@@ -59,4 +87,4 @@ for machine in df['鋳造機名'].unique():
             else:
                 plt.close(fig)
 
-    print(f"{machine}のグラフをPDFに保存しました: {pdf_filename}")
+    print(f"{product}のグラフをPDFに保存しました: {pdf_filename}")
