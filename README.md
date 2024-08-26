@@ -1,36 +1,62 @@
-# データの準備と出力設定
 
-この部分では、分析に必要なデータの準備と、結果を保存するための設定を行います。これは、効率的かつ体系的なデータ分析のために重要なステップです。
-
-## なぜこのステップが必要か？
-
-1. **分析対象の特定**：
-   鋳造条件に関連する列を特定することで、分析の焦点を絞ることができます。これにより、効率的に重要な情報を抽出できます。
-
-2. **データの整理**：
-   数値データ（整数型と浮動小数点型）に注目することで、統計的な分析や視覚化が容易になります。
-
-3. **結果の保存準備**：
-   分析結果を保存するためのフォルダを準備することで、作業の成果を整理し、後で簡単に参照できるようになります。
-
-## コードの説明
-
-```python
-# 鋳造条件の列名を取得（int型とfloat型の列）
-casting_condition_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-casting_condition_columns = [col for col in casting_condition_columns if col != '目的変数']
+# NG率の計算
+def calculate_ng_rate(data):
+    total = len(data)
+    ng_count = (data == 1).sum()
+    return (ng_count / total) * 100 if total > 0 else 0
 
 # 出力ディレクトリの作成
 output_dir = r'..\data\output\eda'
 os.makedirs(output_dir, exist_ok=True)
-```
 
-このコードは以下のことを行っています：
+# 現在の日時を取得（ファイル名用）
+current_time = datetime.now().strftime("%y%m%d%H%M")
 
-1. データフレーム（df）から整数型（int64）と浮動小数点型（float64）の列を選択し、その列名のリストを作成します。これらは鋳造条件を表す数値データです。
+from matplotlib.backends.backend_pdf import PdfPages
 
-2. 作成したリストから '目的変数' という列を除外します。これは、目的変数（おそらく製品の良否を示す変数）を分析対象から外すためです。
+# グラフを表示するかどうかのフラグ
+show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
 
-3. 分析結果を保存するためのフォルダ（'..\data\output\eda'）を作成します。既にフォルダが存在する場合はエラーを発生させません。
+# 鋳造機名ごとにプロットを作成
+for machine in df['鋳造機名'].unique():
+    # 鋳造機名ごとのデータをフィルタリング
+    df_machine = df[df['鋳造機名'] == machine]
+    
+    # 品番ごとのNG率を計算
+    ng_rate_by_product = df_machine.groupby('品番')['目的変数'].agg(calculate_ng_rate).reset_index()
+    ng_rate_by_product.columns = ['品番', 'NG率']
+    
+    # 鋳造機名ごとの総データ数を計算
+    total_count = len(df_machine)
+    
+    # PDFファイルを作成
+    pdf_filename = os.path.join(output_dir, f'vis_{machine}の品番ごとNG率_{current_time}.pdf')
+    
+    with PdfPages(pdf_filename) as pdf:
+        fig, ax = plt.subplots(figsize=(12, 6))
+        bars = ng_rate_by_product.plot(x='品番', y='NG率', kind='bar', ax=ax)
+        plt.title(f'{machine}の品番ごとの渦流探傷NG率 (n={total_count})')
+        plt.xlabel('品番')
+        plt.ylabel('NG率 [%]')
+        plt.ylim(0, 100)  # Y軸の最大値を100%に設定
 
-このステップを行うことで、分析対象となるデータを明確にし、結果を保存する準備が整います。これにより、後続の分析作業がスムーズに進行し、結果の管理も容易になります。また、鋳造条件に焦点を当てることで、製品の品質に影響を与える要因を特定するための基盤が整います。
+        # 各棒グラフの上に値とテキストを表示
+        for i, bar in enumerate(bars.patches):
+            height = bar.get_height()
+            product = ng_rate_by_product['品番'].iloc[i]
+            ng_count = df_machine[(df_machine['品番'] == product) & (df_machine['目的変数'] == 1)].shape[0]
+            total_count = df_machine[df_machine['品番'] == product].shape[0]
+            text = f"{height:.2f}% ({ng_count}/{total_count})"
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    text,
+                    ha='center', va='bottom')
+
+        plt.tight_layout()
+        pdf.savefig(fig)
+        
+        if show_plots:
+            plt.show()
+        else:
+            plt.close(fig)
+
+    print(f"{machine}のグラフをPDFに保存しました: {pdf_filename}")
