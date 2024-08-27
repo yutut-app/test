@@ -1,61 +1,41 @@
-# NG率の計算
-def calculate_ng_rate(group):
-    total = len(group)
-    ng_count = (group == 1).sum()
-    return (ng_count, total, ng_count / total * 100 if total > 0 else 0)
+# 出力ディレクトリの作成
+output_dir = r'..\data\output\eda\鋳造条件と品質の分析\鋳造機ごとの比較'
+pdf_output_dir = os.path.join(output_dir, 'pdf')
+png_output_dir = os.path.join(output_dir, 'png')
+os.makedirs(pdf_output_dir, exist_ok=True)
+os.makedirs(png_output_dir, exist_ok=True)
 
-# 鋳造機名と品番の組み合わせごとにNG率を計算
-ng_rate_by_machine_product = df.groupby(['鋳造機名', '品番'])['目的変数'].agg(calculate_ng_rate).reset_index()
-ng_rate_by_machine_product.columns = ['鋳造機名', '品番', 'NG_データ']
-ng_rate_by_machine_product[['NG回数', '全回数', 'NG率']] = pd.DataFrame(ng_rate_by_machine_product['NG_データ'].tolist(), index=ng_rate_by_machine_product.index)
-ng_rate_by_machine_product = ng_rate_by_machine_product.drop('NG_データ', axis=1)
-
-# 品番を昇順にソート
-unique_products = sorted(ng_rate_by_machine_product['品番'].unique())
-
-# グラフの作成
-fig, ax = plt.subplots(figsize=(15, 8))
-
-# 鋳造機名ごとに色を変えて棒グラフを作成
-colors = ['blue', 'red']
-machines = ng_rate_by_machine_product['鋳造機名'].unique()
-width = 0.35  # バーの幅
-
-for i, machine in enumerate(machines):
-    data = ng_rate_by_machine_product[ng_rate_by_machine_product['鋳造機名'] == machine]
-    x = [unique_products.index(product) for product in data['品番']]
-    rects = ax.bar(np.array(x) + i*width, data['NG率'], width, label=machine, color=colors[i])
+# 品番ごとにPNGファイルを作成
+for product in unique_products:
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # 各棒グラフの上に値とテキストを表示
-    for rect, ng_count, total_count in zip(rects, data['NG回数'], data['全回数']):
-        height = rect.get_height()
-        if total_count > 0:  # 2号機の品番4のケースを除外
-            text = f"{height:.2f}%\n({ng_count}/{total_count})"
-            ax.text(rect.get_x() + rect.get_width()/2., height,
-                    text,
-                    ha='center', va='bottom')
+    for i, machine in enumerate(machines):
+        data = ng_rate_by_machine_product[(ng_rate_by_machine_product['鋳造機名'] == machine) & 
+                                          (ng_rate_by_machine_product['品番'] == product)]
+        if not data.empty:
+            rects = ax.bar(machine, data['NG率'].values[0], width, color=colors[i])
+            
+            # 各棒グラフの上に値とテキストを表示
+            height = data['NG率'].values[0]
+            ng_count = data['NG回数'].values[0]
+            total_count = data['全回数'].values[0]
+            if total_count > 0:
+                text = f"{height:.2f}%\n({ng_count}/{total_count})"
+                ax.text(i, height, text, ha='center', va='bottom')
 
-ax.set_ylabel('NG率 [%]')
-ax.set_xlabel('品番')
-ax.set_title('鋳造機名ごとの品番別NG率')
-ax.set_xticks(np.arange(len(unique_products)) + width / 2)
-ax.set_xticklabels(unique_products)
-ax.legend()
-ax.set_ylim(0, 10)  # Y軸の最大値を10%に設定
+    ax.set_ylabel('NG率 [%]')
+    ax.set_title(f'品番 {product} の鋳造機名ごとのNG率')
+    ax.set_ylim(0, 100)  # Y軸の最大値を100%に設定
 
-plt.tight_layout()
+    plt.tight_layout()
 
-# PDFとPNGで保存
-pdf_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番別NG率_{current_time}.pdf')
-png_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番別NG率_{current_time}.png')
+    # PNGに保存
+    png_filename = os.path.join(png_output_dir, f'vis_品番{product}の鋳造機名ごとのNG率_{current_time}.png')
+    plt.savefig(png_filename)
 
-plt.savefig(pdf_filename)
-plt.savefig(png_filename)
+    if show_plots:
+        plt.show()
+    else:
+        plt.close(fig)
 
-if show_plots:
-    plt.show()
-else:
-    plt.close(fig)
-
-print(f"グラフをPDFに保存しました: {pdf_filename}")
-print(f"グラフをPNGに保存しました: {png_filename}")
+    print(f"品番 {product} のグラフをPNGに保存しました: {png_filename}")
