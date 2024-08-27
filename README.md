@@ -1,13 +1,17 @@
-# NG率の計算
-def calculate_ng_rate(group):
-    total = len(group)
-    ng_count = (group == 1).sum()
-    return ng_count, total
-    
 # 品番ごとのNG率を計算
 ng_rate_by_product = df.groupby(['鋳造機名', '品番'])['目的変数'].agg(calculate_ng_rate).reset_index()
 ng_rate_by_product.columns = ['鋳造機名', '品番', 'NG_count', 'Total_count']
 ng_rate_by_product['NG率'] = ng_rate_by_product['NG_count'] / ng_rate_by_product['Total_count'] * 100
+
+# 2号機の品番4のデータを追加（0.00% (0/0)として）
+if '2号機' not in ng_rate_by_product[ng_rate_by_product['品番'] == '4']['鋳造機名'].values:
+    ng_rate_by_product = ng_rate_by_product.append({
+        '鋳造機名': '2号機',
+        '品番': '4',
+        'NG_count': 0,
+        'Total_count': 0,
+        'NG率': 0.0
+    }, ignore_index=True)
 
 # PDFファイルを作成
 pdf_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番ごとNG率_{current_time}.pdf')
@@ -24,8 +28,8 @@ plt.ylim(0, 100)  # Y軸の最大値を100%に設定
 # 各棒グラフの上に値とテキストを表示
 for i, bar in enumerate(bars.patches):
     height = bar.get_height()
-    machine = ng_rate_by_product['鋳造機名'].iloc[i // 4]
-    product = ng_rate_by_product['品番'].iloc[i % 4]
+    machine = ng_rate_by_product['鋳造機名'].iloc[i]
+    product = ng_rate_by_product['品番'].iloc[i]
     ng_count = ng_rate_by_product.loc[(ng_rate_by_product['鋳造機名'] == machine) & 
                                       (ng_rate_by_product['品番'] == product), 'NG_count'].values[0]
     total_count = ng_rate_by_product.loc[(ng_rate_by_product['鋳造機名'] == machine) & 
