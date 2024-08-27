@@ -1,24 +1,9 @@
-# NG率の計算
-def calculate_ng_rate(data):
-    total = len(data)
-    ng_count = (data == 1).sum()
-    return (ng_count / total) * 100 if total > 0 else 0
-
-# 出力ディレクトリの作成
-output_dir = r'..\data\output\eda'
-os.makedirs(output_dir, exist_ok=True)
-
-# 現在の日時を取得（ファイル名用）
-current_time = datetime.now().strftime("%y%m%d%H%M")
-
-from matplotlib.backends.backend_pdf import PdfPages
-
 # グラフを表示するかどうかのフラグ
-show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
+show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
 
 # 全鋳造機名のデータを使用してNG率を計算
-ng_rate_by_product_machine = df.groupby(['品番', '鋳造機名'])['目的変数'].agg(calculate_ng_rate).reset_index()
-ng_rate_by_product_machine.columns = ['品番', '鋳造機名', 'NG率']
+ng_rate_by_product_machine = df.groupby(['品番', '鋳造機名'])['目的変数'].agg(['count', calculate_ng_rate]).reset_index()
+ng_rate_by_product_machine.columns = ['品番', '鋳造機名', 'データ数', 'NG率']
 
 # 総データ数を計算
 total_count = len(df)
@@ -32,24 +17,27 @@ with PdfPages(pdf_filename) as pdf:
     plt.title(f'全鋳造機名の品番ごとの渦流探傷NG率 (n={total_count})')
     plt.xlabel('品番')
     plt.ylabel('NG率 [%]')
-    plt.ylim(0, 100)  # Y軸の最大値を100%に設定
+    plt.ylim(0, 20)  # Y軸の最大値を20%に設定
     
     # 各棒グラフの上に値とテキストを表示
     for i, bar in enumerate(bars.patches):
         height = bar.get_height()
-        product = ng_rate_by_product_machine['品番'].iloc[i // len(df['鋳造機名'].unique())]
-        machine = ng_rate_by_product_machine['鋳造機名'].iloc[i % len(df['鋳造機名'].unique())]
-        ng_count = df[(df['品番'] == product) & (df['鋳造機名'] == machine) & (df['目的変数'] == 1)].shape[0]
-        total_count = df[(df['品番'] == product) & (df['鋳造機名'] == machine)].shape[0]
-        text = f"{height:.2f}%\n({ng_count}/{total_count})"
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                text,
-                ha='center', va='bottom', fontsize=8)
+        if height > 0:  # データが存在する場合のみテキストを表示
+            product = ng_rate_by_product_machine['品番'].iloc[i // len(df['鋳造機名'].unique())]
+            machine = ng_rate_by_product_machine['鋳造機名'].iloc[i % len(df['鋳造機名'].unique())]
+            data = ng_rate_by_product_machine[(ng_rate_by_product_machine['品番'] == product) & 
+                                              (ng_rate_by_product_machine['鋳造機名'] == machine)]
+            if not data.empty:
+                total_count = data['データ数'].values[0]
+                ng_count = int(total_count * height / 100)
+                text = f"{height:.2f}%\n({ng_count}/{total_count})"
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                        text,
+                        ha='center', va='bottom', fontsize=8)
     
-    plt.xticks(rotation=45)
-    plt.legend(title='鋳造機名')
+    plt.legend(title='鋳造機名', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
-    pdf.savefig(fig)
+    pdf.savefig(fig, bbox_inches='tight')
     
     if show_plots:
         plt.show()
