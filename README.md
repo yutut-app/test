@@ -17,7 +17,7 @@ with PdfPages(pdf_filename) as pdf:
     plt.title(f'全鋳造機名の品番ごとの渦流探傷NG率 (n={total_count})')
     plt.xlabel('品番')
     plt.ylabel('NG率 [%]')
-    plt.ylim(0, 100)  # Y軸の最大値を100%に設定
+    plt.ylim(0, 20)  # Y軸の最大値を20%に設定
     
     # 各棒グラフの上に値とテキストを表示
     for i, bar in enumerate(bars.patches):
