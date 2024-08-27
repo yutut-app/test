@@ -1,62 +1,52 @@
 # NG率の計算
-def calculate_ng_rate(data):
-    total = len(data)
-    ng_count = (data == 1).sum()
-    return (ng_count, total)
-
-# 出力ディレクトリの作成
-output_dir = r'..\data\output\eda'
-os.makedirs(output_dir, exist_ok=True)
-
-# 現在の日時を取得（ファイル名用）
-current_time = datetime.now().strftime("%y%m%d%H%M")
-
-# グラフを表示するかどうかのフラグ
-show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
-
-# 全ての鋳造機名と品番の組み合わせでNG率を計算
-ng_rate_by_machine_product = df.groupby(['鋳造機名', '品番'])['目的変数'].apply(calculate_ng_rate).reset_index()
-ng_rate_by_machine_product.columns = ['鋳造機名', '品番', 'NG_count_total']
-ng_rate_by_machine_product[['NG_count', 'Total_count']] = pd.DataFrame(ng_rate_by_machine_product['NG_count_total'].tolist(), index=ng_rate_by_machine_product.index)
-ng_rate_by_machine_product['NG率'] = ng_rate_by_machine_product['NG_count'] / ng_rate_by_machine_product['Total_count'] * 100
-
-# プロットの作成
-fig, ax = plt.subplots(figsize=(15, 8))
-bar_width = 0.35
-index = np.arange(len(ng_rate_by_machine_product['品番'].unique()))
-
-for i, machine in enumerate(ng_rate_by_machine_product['鋳造機名'].unique()):
-    data = ng_rate_by_machine_product[ng_rate_by_machine_product['鋳造機名'] == machine]
-    bars = ax.bar(index + i*bar_width, data['NG率'], bar_width, label=machine)
+def calculate_ng_rate(group):
+    total = len(group)
+    ng_count = (group == 1).sum()
+    return ng_count, total
     
-    # 各棒グラフの上に値とテキストを表示
-    for bar in bars:
-        height = bar.get_height()
-        machine_product = data[data['NG率'] == height].iloc[0]
-        ng_count = machine_product['NG_count']
-        total_count = machine_product['Total_count']
-        if total_count == 0:
-            text = "0.00% (0/0)"
-        else:
-            text = f"{height:.2f}% ({ng_count}/{total_count})"
-        ax.text(bar.get_x() + bar.get_width()/2., height, text,
-                ha='center', va='bottom', rotation=90, fontsize=8)
+# 品番ごとのNG率を計算
+ng_rate_by_product = df.groupby(['鋳造機名', '品番'])['目的変数'].agg(calculate_ng_rate).reset_index()
+ng_rate_by_product.columns = ['鋳造機名', '品番', 'NG_count', 'Total_count']
+ng_rate_by_product['NG率'] = ng_rate_by_product['NG_count'] / ng_rate_by_product['Total_count'] * 100
 
-ax.set_xlabel('品番')
-ax.set_ylabel('NG率 [%]')
-ax.set_title('鋳造機名ごとの品番別NG率')
-ax.set_xticks(index + bar_width / 2)
-ax.set_xticklabels(ng_rate_by_machine_product['品番'].unique())
-ax.legend()
-ax.set_ylim(0, 100)  # Y軸の最大値を100%に設定
+# PDFファイルを作成
+pdf_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番ごとNG率_{current_time}.pdf')
+png_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番ごとNG率_{current_time}.png')
+
+fig, ax = plt.subplots(figsize=(15, 8))
+bars = sns.barplot(x='品番', y='NG率', hue='鋳造機名', data=ng_rate_by_product, ax=ax)
+
+plt.title('鋳造機名ごとの品番ごとの渦流探傷NG率')
+plt.xlabel('品番')
+plt.ylabel('NG率 [%]')
+plt.ylim(0, 100)  # Y軸の最大値を100%に設定
+
+# 各棒グラフの上に値とテキストを表示
+for i, bar in enumerate(bars.patches):
+    height = bar.get_height()
+    machine = ng_rate_by_product['鋳造機名'].iloc[i // 4]
+    product = ng_rate_by_product['品番'].iloc[i % 4]
+    ng_count = ng_rate_by_product.loc[(ng_rate_by_product['鋳造機名'] == machine) & 
+                                      (ng_rate_by_product['品番'] == product), 'NG_count'].values[0]
+    total_count = ng_rate_by_product.loc[(ng_rate_by_product['鋳造機名'] == machine) & 
+                                         (ng_rate_by_product['品番'] == product), 'Total_count'].values[0]
+    
+    if machine == '2号機' and product == '4':
+        text = "0.00% (0/0)"
+    else:
+        text = f"{height:.2f}% ({ng_count}/{total_count})"
+    
+    ax.text(bar.get_x() + bar.get_width()/2., height,
+            text,
+            ha='center', va='bottom')
 
 plt.tight_layout()
 
-# PDFとPNGに保存
-pdf_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番別NG率_{current_time}.pdf')
-png_filename = os.path.join(output_dir, f'vis_鋳造機名ごとの品番別NG率_{current_time}.png')
+# PDFに保存
+with PdfPages(pdf_filename) as pdf:
+    pdf.savefig(fig)
 
-plt.savefig(pdf_filename)
+# PNGに保存
 plt.savefig(png_filename)
 
 if show_plots:
