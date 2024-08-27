@@ -1,5 +1,5 @@
 # グラフを表示するかどうかのフラグ
-show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
+show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
 
 # 全鋳造機名のデータを使用してNG率を計算
 ng_rate_by_product_machine = df.groupby(['品番', '鋳造機名'])['目的変数'].agg(['count', calculate_ng_rate]).reset_index()
@@ -17,23 +17,22 @@ with PdfPages(pdf_filename) as pdf:
     plt.title(f'全鋳造機名の品番ごとの渦流探傷NG率 (n={total_count})')
     plt.xlabel('品番')
     plt.ylabel('NG率 [%]')
-    plt.ylim(0, 20)  # Y軸の最大値を20%に設定
+    plt.ylim(0, 100)  # Y軸の最大値を100%に設定
     
     # 各棒グラフの上に値とテキストを表示
     for i, bar in enumerate(bars.patches):
         height = bar.get_height()
-        if height > 0:  # データが存在する場合のみテキストを表示
-            product = ng_rate_by_product_machine['品番'].iloc[i // len(df['鋳造機名'].unique())]
-            machine = ng_rate_by_product_machine['鋳造機名'].iloc[i % len(df['鋳造機名'].unique())]
-            data = ng_rate_by_product_machine[(ng_rate_by_product_machine['品番'] == product) & 
-                                              (ng_rate_by_product_machine['鋳造機名'] == machine)]
-            if not data.empty:
-                total_count = data['データ数'].values[0]
-                ng_count = int(total_count * height / 100)
-                text = f"{height:.2f}%\n({ng_count}/{total_count})"
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                        text,
-                        ha='center', va='bottom', fontsize=8)
+        product = ng_rate_by_product_machine['品番'].iloc[i // len(df['鋳造機名'].unique())]
+        machine = ng_rate_by_product_machine['鋳造機名'].iloc[i % len(df['鋳造機名'].unique())]
+        data = ng_rate_by_product_machine[(ng_rate_by_product_machine['品番'] == product) & 
+                                          (ng_rate_by_product_machine['鋳造機名'] == machine)]
+        if not data.empty:
+            total_count = data['データ数'].values[0]
+            ng_count = int(total_count * height / 100)
+            text = f"{height:.2f}%\n({ng_count}/{total_count})"
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    text,
+                    ha='center', va='bottom', fontsize=8)
     
     plt.legend(title='鋳造機名', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
