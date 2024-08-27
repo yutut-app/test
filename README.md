@@ -10,6 +10,9 @@ ng_rate_by_machine_product.columns = ['鋳造機名', '品番', 'NG_データ']
 ng_rate_by_machine_product[['NG回数', '全回数', 'NG率']] = pd.DataFrame(ng_rate_by_machine_product['NG_データ'].tolist(), index=ng_rate_by_machine_product.index)
 ng_rate_by_machine_product = ng_rate_by_machine_product.drop('NG_データ', axis=1)
 
+# 品番を昇順にソート
+unique_products = sorted(ng_rate_by_machine_product['品番'].unique())
+
 # グラフの作成
 fig, ax = plt.subplots(figsize=(15, 8))
 
@@ -20,8 +23,8 @@ width = 0.35  # バーの幅
 
 for i, machine in enumerate(machines):
     data = ng_rate_by_machine_product[ng_rate_by_machine_product['鋳造機名'] == machine]
-    x = np.arange(len(data['品番']))
-    rects = ax.bar(x + i*width, data['NG率'], width, label=machine, color=colors[i])
+    x = [unique_products.index(product) for product in data['品番']]
+    rects = ax.bar(np.array(x) + i*width, data['NG率'], width, label=machine, color=colors[i])
     
     # 各棒グラフの上に値とテキストを表示
     for rect, ng_count, total_count in zip(rects, data['NG回数'], data['全回数']):
@@ -35,10 +38,10 @@ for i, machine in enumerate(machines):
 ax.set_ylabel('NG率 [%]')
 ax.set_xlabel('品番')
 ax.set_title('鋳造機名ごとの品番別NG率')
-ax.set_xticks(np.arange(len(data['品番'])) + width / 2)
-ax.set_xticklabels(data['品番'])
+ax.set_xticks(np.arange(len(unique_products)) + width / 2)
+ax.set_xticklabels(unique_products)
 ax.legend()
-ax.set_ylim(0, 100)  # Y軸の最大値を100%に設定
+ax.set_ylim(0, 10)  # Y軸の最大値を10%に設定
 
 plt.tight_layout()
 
