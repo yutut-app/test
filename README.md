@@ -4,6 +4,10 @@ def calculate_ng_rate(data):
     ng_count = (data == 1).sum()
     return (ng_count / total) * 100 if total > 0 else 0
 
+# 出力ディレクトリの作成
+output_dir = r'..\data\output\eda'
+os.makedirs(output_dir, exist_ok=True)
+
 # 現在の日時を取得（ファイル名用）
 current_time = datetime.now().strftime("%y%m%d%H%M")
 
