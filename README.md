@@ -17,20 +17,23 @@ with PdfPages(pdf_filename) as pdf:
     plt.title(f'全鋳造機名の品番ごとの渦流探傷NG率 (n={total_count})')
     plt.xlabel('品番')
     plt.ylabel('NG率 [%]')
-    plt.ylim(0, 20)  # Y軸の最大値を20%に設定
+    plt.ylim(0, 10)  # Y軸の最大値を10%に設定
     
     # 各棒グラフの上に値とテキストを表示
     for i, bar in enumerate(bars.patches):
-        height = bar.get_height()
         product = ng_rate_by_product_machine['品番'].iloc[i // len(df['鋳造機名'].unique())]
         machine = ng_rate_by_product_machine['鋳造機名'].iloc[i % len(df['鋳造機名'].unique())]
         data = ng_rate_by_product_machine[(ng_rate_by_product_machine['品番'] == product) & 
                                           (ng_rate_by_product_machine['鋳造機名'] == machine)]
         if not data.empty:
+            height = data['NG率'].values[0]
             total_count = data['データ数'].values[0]
             ng_count = int(total_count * height / 100)
-            text = f"{height:.2f}%\n({ng_count}/{total_count})"
-            ax.text(bar.get_x() + bar.get_width()/2., height,
+            if total_count == 0:
+                text = "0%(0/0)"
+            else:
+                text = f"{height:.2f}%\n({ng_count}/{total_count})"
+            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
                     text,
                     ha='center', va='bottom', fontsize=8)
     
