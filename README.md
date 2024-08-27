@@ -1,38 +1,55 @@
-本案件の目的に対するまとめを、「鋳造条件と品質の関係分析：品番ごとの詳細調査」と「鋳造条件と品質の関係分析：鋳造機ごとの品番別詳細調査」の両方の結果を踏まえて行います。
+# NG率の計算
+def calculate_ng_rate(data):
+    total = len(data)
+    ng_count = (data == 1).sum()
+    return (ng_count / total) * 100 if total > 0 else 0
 
-1. 欠陥（鋳巣）発生の低減に寄与する可能性のある鋳造条件の探索：
-a) 鋳造機と品番の相互作用：
-- 鋳造機1では全ての品番でNGが発生していますが、鋳造機2では品番2と5でNGが発生していません。
-- 品番6は両方の鋳造機でNGが発生しており、他の品番とは異なる傾向を示しています。
+# 現在の日時を取得（ファイル名用）
+current_time = datetime.now().strftime("%y%m%d%H%M")
 
-これらの結果から、鋳造機と品番の組み合わせが品質に大きく影響していることが分かります。特に鋳造機2での品番2と5の製造条件は、欠陥低減に有効である可能性が高いです。
+from matplotlib.backends.backend_pdf import PdfPages
 
-b) 重要な鋳造条件：
-以下の条件が品質に大きな影響を与えている可能性があります：
-- サイクルタイム
-- 真空漏れ監視
-- 金型温度（特に金型温度3と4）
-- GF真空圧
-- 高速(平均)速度
-- 低速真空度
-- 高速変動数(VPN)
+# グラフを表示するかどうかのフラグ
+show_plots = True  # Trueにするとグラフを表示、Falseにすると表示しない
 
-これらの条件について、NGが発生しにくい値の範囲が見出されています。例えば、金型温度4が780以下の時や、高速(平均)速度が4.11以下の時にNGが少ない傾向が見られます。
+# 全鋳造機名のデータを使用してNG率を計算
+ng_rate_by_product_machine = df.groupby(['品番', '鋳造機名'])['目的変数'].agg(calculate_ng_rate).reset_index()
+ng_rate_by_product_machine.columns = ['品番', '鋳造機名', 'NG率']
 
-2. 不良品（亀裂のある製品）の検出・判別精度向上の可能性評価：
+# 総データ数を計算
+total_count = len(df)
 
-a) 品番ごとの判別基準：
-品番によって鋳造条件の適正範囲が大きく異なることが明らかになりました。例えば：
-- 品番2と5：GF真空圧が-95.4以下、低速真空度が7.1以下
-- 品番6：GF真空圧が-94.9以上、低速真空度が13.1以上
+# PDFファイルを作成
+pdf_filename = os.path.join(output_dir, f'vis_全鋳造機名の品番ごとNG率_{current_time}.pdf')
 
-これらの違いを考慮した品番ごとの判別基準を設けることで、検出精度の向上が期待できます。
+with PdfPages(pdf_filename) as pdf:
+    fig, ax = plt.subplots(figsize=(15, 8))
+    bars = sns.barplot(x='品番', y='NG率', hue='鋳造機名', data=ng_rate_by_product_machine, ax=ax)
+    plt.title(f'全鋳造機名の品番ごとの渦流探傷NG率 (n={total_count})')
+    plt.xlabel('品番')
+    plt.ylabel('NG率 [%]')
+    plt.ylim(0, 100)  # Y軸の最大値を100%に設定
+    
+    # 各棒グラフの上に値とテキストを表示
+    for i, bar in enumerate(bars.patches):
+        height = bar.get_height()
+        product = ng_rate_by_product_machine['品番'].iloc[i // len(df['鋳造機名'].unique())]
+        machine = ng_rate_by_product_machine['鋳造機名'].iloc[i % len(df['鋳造機名'].unique())]
+        ng_count = df[(df['品番'] == product) & (df['鋳造機名'] == machine) & (df['目的変数'] == 1)].shape[0]
+        total_count = df[(df['品番'] == product) & (df['鋳造機名'] == machine)].shape[0]
+        text = f"{height:.2f}%\n({ng_count}/{total_count})"
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                text,
+                ha='center', va='bottom', fontsize=8)
+    
+    plt.xticks(rotation=45)
+    plt.legend(title='鋳造機名')
+    plt.tight_layout()
+    pdf.savefig(fig)
+    
+    if show_plots:
+        plt.show()
+    else:
+        plt.close(fig)
 
-b) 鋳造機ごとの判別基準：
-鋳造機1と鋳造機2で使用されている鋳造条件の値の範囲が異なる場合が多く見られました。鋳造機ごとに異なる判別基準を設けることで、より精度の高い不良品検出が可能になる可能性があります。
-
-c) 複合条件の考慮：
-単一の条件だけでなく、複数の条件の組み合わせがNGの発生に影響している可能性があります。例えば、サイクルタイムと真空漏れ監視、あるいはGF真空圧と低速真空度の組み合わせなどを考慮した判別モデルの構築が有効かもしれません。
-
-まとめ：
-本分析により、欠陥発生の低減に寄与する可能性のある鋳造条件と、不良品検出の精度向上につながる可能性のある判別基準について、多くの有用な知見が得られました。しかし、これらの結果はあくまで仮説段階であり、さらなる検証が必要です。
+print(f"全鋳造機名のグラフをPDFに保存しました: {pdf_filename}")
