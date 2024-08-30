@@ -1,6 +1,6 @@
 # データの前処理
 df['日時'] = pd.to_datetime(df['日時'])
-df['週'] = df['日時'].dt.to_period('W')
+df['週'] = df['日時'].dt.to_period('W').astype(str)
 df['日数'] = df.groupby('週')['日時'].transform('nunique')
 
 # 出力ディレクトリの作成
@@ -49,7 +49,7 @@ with PdfPages(pdf_filename) as pdf:
         ax.set_ylabel('NG率 [%]')
         ax.set_title(f'{machine}の週別NG率')
         ax.set_xticks(weeks)
-        ax.set_xticklabels([f'{w}週目' for w in weeks])
+        ax.set_xticklabels([f'{w}週目' for w in weeks], rotation=45, ha='right')
         ax.set_ylim(0, 100)
         ax.legend()
         plt.grid(True)
@@ -59,7 +59,7 @@ with PdfPages(pdf_filename) as pdf:
         
         # PNGとして保存
         png_filename = os.path.join(output_dir, f'vis_週ごとの偏り_{machine}_{current_time}.png')
-        plt.savefig(png_filename)
+        plt.savefig(png_filename, bbox_inches='tight')
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
