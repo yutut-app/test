@@ -1,8 +1,6 @@
-# NG率の計算
-def calculate_ng_rate(group):
-    total = len(group)
-    ng_count = (group == 1).sum()
-    return (ng_count, total, ng_count / total * 100 if total > 0 else 0)
+# データの前処理
+df['日時'] = pd.to_datetime(df['日時'])
+df['時間'] = df['日時'].dt.hour
 
 # 出力ディレクトリの作成
 output_dir = r'..\data\output\eda\NG数の時系列の偏り\時間の偏り'
@@ -14,35 +12,31 @@ current_time = datetime.now().strftime("%y%m%d%H%M")
 # グラフを表示するかどうかのフラグ
 show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
 
-# 時間ごとのNG率を計算
-df['時間'] = df['日時'].dt.hour
-ng_rate_by_hour = df.groupby(['鋳造機名', '品番', '時間'])['目的変数'].apply(calculate_ng_rate).reset_index()
-ng_rate_by_hour.columns = ['鋳造機名', '品番', '時間', 'NG_データ']
-ng_rate_by_hour[['NG回数', '全回数', 'NG率']] = pd.DataFrame(ng_rate_by_hour['NG_データ'].tolist(), index=ng_rate_by_hour.index)
-ng_rate_by_hour = ng_rate_by_hour.drop('NG_データ', axis=1)
-
-# 色の設定
-colors = plt.cm.rainbow(np.linspace(0, 1, len(df['品番'].unique())))
+# NG率の計算関数
+def calculate_ng_rate(group):
+    return group[group['目的変数'] == 1].shape[0] / group.shape[0] * 100
 
 # PDFファイルを作成
-pdf_filename = os.path.join(output_dir, f'vis_時間の偏り_全鋳造機名_{current_time}.pdf')
+pdf_filename = os.path.join(output_dir, f'vis_時間の偏り_全鋳造機_{current_time}.pdf')
 
 with PdfPages(pdf_filename) as pdf:
     # 鋳造機名ごとにプロットを作成
     for machine in df['鋳造機名'].unique():
-        fig, ax = plt.subplots(figsize=(15, 8))
+        fig, ax = plt.subplots(figsize=(15, 10))
         
-        data = ng_rate_by_hour[ng_rate_by_hour['鋳造機名'] == machine]
+        # 鋳造機名でフィルタリング
+        df_machine = df[df['鋳造機名'] == machine]
         
-        for i, product in enumerate(df['品番'].unique()):
-            product_data = data[data['品番'] == product]
-            ax.plot(product_data['時間'], product_data['NG率'], marker='o', label=product, color=colors[i])
+        # 品番ごとにNG率を計算し、プロット
+        for product in df_machine['品番'].unique():
+            df_product = df_machine[df_machine['品番'] == product]
+            ng_rates = df_product.groupby('時間').apply(calculate_ng_rate)
+            ax.plot(ng_rates.index, ng_rates.values, label=f'品番 {product}', marker='o')
         
         ax.set_xlabel('時間 (時)')
         ax.set_ylabel('NG率 [%]')
-        ax.set_title(f'{machine}の時間ごとNG率')
-        ax.set_xticks(range(24))
-        ax.set_xlim(0, 23)
+        ax.set_title(f'{machine}の時間帯別NG率')
+        ax.set_xticks(range(0, 24))
         ax.set_ylim(0, 100)
         ax.legend()
         plt.grid(True)
@@ -59,6 +53,7 @@ with PdfPages(pdf_filename) as pdf:
             plt.show()
         else:
             plt.close(fig)
+    
+    print(f"全鋳造機のグラフをPDFに保存しました: {pdf_filename}")
 
-    print(f"全鋳造機名のグラフをPDFに保存しました: {pdf_filename}")
-    print(f"各鋳造機名のグラフをPNGに保存しました: {output_dir}")
+print("各鋳造機のグラフをPNGに保存しました。")
