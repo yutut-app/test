@@ -1,7 +1,6 @@
 # データの前処理
 df['日時'] = pd.to_datetime(df['日時'])
-df['週'] = df['日時'].dt.to_period('W').astype(str)
-df['日数'] = df.groupby('週')['日時'].transform('nunique')
+df['週'] = (df['日時'] - df['日時'].min()).dt.days // 7 + 1
 
 # 出力ディレクトリの作成
 output_dir = r'..\data\output\eda\NG数の時系列の偏り\週ごとの偏り'
@@ -16,6 +15,10 @@ show_plots = False  # Trueにするとグラフを表示、Falseにすると表�
 # NG率の計算関数
 def calculate_ng_rate(group):
     return group[group['目的変数'] == 1].shape[0] / group.shape[0] * 100
+
+# 週ごとのデータ数を計算する関数
+def count_days_in_week(group):
+    return group['日時'].dt.date.nunique()
 
 # PDFファイルを作成
 pdf_filename = os.path.join(output_dir, f'vis_週ごとの偏り_全鋳造機_{current_time}.pdf')
@@ -32,34 +35,30 @@ with PdfPages(pdf_filename) as pdf:
         for product in df_machine['品番'].unique():
             df_product = df_machine[df_machine['品番'] == product]
             ng_rates = df_product.groupby('週').apply(calculate_ng_rate)
-            
-            # 週順にソート
-            ng_rates = ng_rates.sort_index()
-            
-            # プロット
-            weeks = range(1, len(ng_rates) + 1)
-            ax.plot(weeks, ng_rates.values, label=f'品番 {product}', marker='o')
-            
-            # 7日未満の週にマーカーを付ける
-            for week, rate, days in zip(weeks, ng_rates.values, df_product.groupby('週')['日数'].first()):
-                if days < 7:
-                    ax.annotate(f'({days})', (week, rate), textcoords="offset points", xytext=(0,10), ha='center')
+            ax.plot(ng_rates.index, ng_rates.values, label=f'品番 {product}', marker='o')
+        
+        # 週ごとのデータ数を計算
+        days_in_week = df_machine.groupby('週').apply(count_days_in_week)
         
         ax.set_xlabel('週')
         ax.set_ylabel('NG率 [%]')
         ax.set_title(f'{machine}の週別NG率')
-        ax.set_xticks(weeks)
-        ax.set_xticklabels([f'{w}週目' for w in weeks], rotation=45, ha='right')
+        ax.set_xticks(range(1, df_machine['週'].max() + 1))
         ax.set_ylim(0, 100)
         ax.legend()
         plt.grid(True)
+        
+        # 7日未満の週にテキストを追加
+        for week, days in days_in_week.items():
+            if days < 7:
+                ax.text(week, ax.get_ylim()[1], f'({days})', ha='center', va='bottom')
         
         # PDFに追加
         pdf.savefig(fig)
         
         # PNGとして保存
         png_filename = os.path.join(output_dir, f'vis_週ごとの偏り_{machine}_{current_time}.png')
-        plt.savefig(png_filename, bbox_inches='tight')
+        plt.savefig(png_filename)
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
