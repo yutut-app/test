@@ -1,6 +1,7 @@
 # データの前処理
 df['日時'] = pd.to_datetime(df['日時'])
 df['週'] = df['日時'].dt.to_period('W')
+df['日数'] = df.groupby('週')['日時'].transform('nunique')
 
 # 出力ディレクトリの作成
 output_dir = r'..\data\output\eda\NG数の時系列の偏り\週ごとの偏り'
@@ -35,20 +36,18 @@ with PdfPages(pdf_filename) as pdf:
             # 週順にソート
             ng_rates = ng_rates.sort_index()
             
-            # 週番号を振り直す
+            # プロット
             weeks = range(1, len(ng_rates) + 1)
-            
             ax.plot(weeks, ng_rates.values, label=f'品番 {product}', marker='o')
             
-            # 7日間未満の週にテキストを表示
-            for i, (week, group) in enumerate(df_product.groupby('週')):
-                if group['日時'].dt.dayofweek.nunique() < 7:
-                    days = group['日時'].dt.dayofweek.nunique()
-                    ax.text(i+1, ng_rates.iloc[i], f'({days})', ha='center', va='bottom')
+            # 7日未満の週にマーカーを付ける
+            for week, rate, days in zip(weeks, ng_rates.values, df_product.groupby('週')['日数'].first()):
+                if days < 7:
+                    ax.annotate(f'({days})', (week, rate), textcoords="offset points", xytext=(0,10), ha='center')
         
         ax.set_xlabel('週')
         ax.set_ylabel('NG率 [%]')
-        ax.set_title(f'{machine}の週ごとのNG率')
+        ax.set_title(f'{machine}の週別NG率')
         ax.set_xticks(weeks)
         ax.set_xticklabels([f'{w}週目' for w in weeks])
         ax.set_ylim(0, 100)
