@@ -1,12 +1,74 @@
-お世話になっております。
+# データの前処理
+df['日時'] = pd.to_datetime(df['日時'])
+df['時間'] = df['日時'].dt.hour
 
-度重なるご質問にもかかわらず、丁寧にご回答いただき誠にありがとうございます。
-多くの質問を重ねてしまい、大変申し訳ございませんでした。
+# 出力ディレクトリの作成
+output_dir = r'..\data\output\eda\NG数の時系列の偏り\時間の偏り'
+os.makedirs(output_dir, exist_ok=True)
 
-これまでにいただいたご回答とご説明により、状況を十分に理解することができました
-ソースコードの提供や開示に関する現状のお立場も理解いたしました。
+# 現在の日時を取得（ファイル名用）
+current_time = datetime.now().strftime("%y%m%d%H%M")
 
-これらの情報を踏まえ、社内で慎重に方針を検討させていただきます。
-検討結果や追加でご相談させていただくことがございましたら、改めてご連絡させていただく可能性がございます。
+# グラフを表示するかどうかのフラグ
+show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
 
-お忙しい中、度々のご対応をいただき、重ねて御礼申し上げます。今後ともどうぞよろしくお願いいたします。
+# NG率とNG数の計算関数
+def calculate_ng_rate_and_count(group):
+    total = group.shape[0]
+    if total == 0:
+        return None, None  # データが無い場合はNoneを返す
+    ng_count = group[group['目的変数'] == 1].shape[0]
+    ng_rate = (ng_count / total) * 100 if total > 0 else None
+    return ng_rate, ng_count
+
+# PDFファイルを作成
+pdf_filename = os.path.join(output_dir, f'vis_時間の偏り_全鋳造機_{current_time}.pdf')
+
+with PdfPages(pdf_filename) as pdf:
+    # 鋳造機名ごとにプロットを作成
+    for machine in df['鋳造機名'].unique():
+        fig, ax = plt.subplots(figsize=(15, 10))
+        
+        # 鋳造機名でフィルタリング
+        df_machine = df[df['鋳造機名'] == machine]
+        
+        # 品番ごとにNG率を計算し、プロット
+        for product in df_machine['品番'].unique():
+            df_product = df_machine[df_machine['品番'] == product]
+            ng_data = df_product.groupby('時間').apply(calculate_ng_rate_and_count)
+            
+            # Noneの値（データ無し）を除外してプロット
+            valid_data = ng_data.dropna()
+            x = valid_data.index
+            y = [rate for rate, _ in valid_data]
+            ax.plot(x, y, label=f'品番 {product}', marker='o')
+            
+            # NG率が7.5%以上の場合、NG数を表示
+            for hour, (rate, count) in valid_data.items():
+                if rate >= 7.5:
+                    ax.text(hour, rate, f'{count}', ha='center', va='bottom')
+        
+        ax.set_xlabel('時間 (時)')
+        ax.set_ylabel('NG率 [%]')
+        ax.set_title(f'{machine}の時間帯別NG率')
+        ax.set_xticks(range(0, 24))
+        ax.set_ylim(0, 100)
+        ax.legend()
+        plt.grid(True)
+        
+        # PDFに追加
+        pdf.savefig(fig)
+        
+        # PNGとして保存
+        png_filename = os.path.join(output_dir, f'vis_時間の偏り_{machine}_{current_time}.png')
+        plt.savefig(png_filename)
+        
+        # グラフを表示（フラグがTrueの場合）
+        if show_plots:
+            plt.show()
+        else:
+            plt.close(fig)
+    
+    print(f"全鋳造機のグラフをPDFに保存しました: {pdf_filename}")
+
+print("各鋳造機のグラフをPNGに保存しました。")
