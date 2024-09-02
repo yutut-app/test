@@ -30,7 +30,7 @@ pdf_filename = os.path.join(output_dir, f'vis_週ごとの偏り_全鋳造機_{c
 with PdfPages(pdf_filename) as pdf:
     # 鋳造機名ごとにプロットを作成
     for machine in df['鋳造機名'].unique():
-        fig, ax = plt.subplots(figsize=(15, 10))
+        fig, ax = plt.subplots(figsize=(20, 12))  # グラフサイズを拡大
         
         # 鋳造機名でフィルタリング
         df_machine = df[df['鋳造機名'] == machine]
@@ -47,8 +47,9 @@ with PdfPages(pdf_filename) as pdf:
             # NG率が7.5%以上の場合、テキストを表示
             for i, (rate, ng_count, total) in enumerate(ng_rates):
                 if rate >= 7.5:
+                    y_offset = 5 if i % 2 == 0 else -15  # 隔週で上下にずらす
                     ax.annotate(f"{rate:.1f}%\n({ng_count}/{total})", (weeks[i], rate),
-                                xytext=(0, 10), textcoords='offset points', ha='center')
+                                xytext=(0, y_offset), textcoords='offset points', ha='center', va='bottom')
             
             # 稼働時間を取得
             operation_hours = df_product.groupby('週').apply(get_operation_hours)
@@ -61,7 +62,9 @@ with PdfPages(pdf_filename) as pdf:
         ax.set_title(f'{machine}の週ごとNG率')
         ax.set_ylim(0, 100)
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        plt.xticks(rotation=45)
+        
+        # x軸のラベルを隔週表示に
+        plt.xticks(weeks[::2], rotation=45, ha='right')
         plt.grid(True)
         
         # 7日間ない週にテキストを追加
@@ -72,11 +75,11 @@ with PdfPages(pdf_filename) as pdf:
         plt.tight_layout()
         
         # PDFに追加
-        pdf.savefig(fig)
+        pdf.savefig(fig, bbox_inches='tight')
         
         # PNGとして保存
         png_filename = os.path.join(output_dir, f'vis_週ごとの偏り_{machine}_{current_time}.png')
-        plt.savefig(png_filename)
+        plt.savefig(png_filename, bbox_inches='tight')
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
