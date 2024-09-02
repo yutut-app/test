@@ -1,7 +1,3 @@
-# データの読み込みと前処理
-df['日時'] = pd.to_datetime(df['日時'])
-df['日付'] = df['日時'].dt.date
-
 # 鋳造条件の列名を取得（int型とfloat型の列）
 CASTING_CONDITION_COLUMNS = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
 CASTING_CONDITION_COLUMNS = [col for col in CASTING_CONDITION_COLUMNS if col != '目的変数']
@@ -20,6 +16,12 @@ PRODUCT_COLOR_MAP = {
     5: 'green',
     6: 'purple'
 }
+
+# グラフを表示するかどうかのフラグ
+SHOW_PLOTS_DAILY = False
+SHOW_PLOTS_HOURLY = False
+SHOW_PLOTS_WEEKDAY = False
+SHOW_PLOTS_WEEKLY = False
 
 def calculate_ng_rate(group):
     """NG率を計算する関数
