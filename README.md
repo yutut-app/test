@@ -43,18 +43,26 @@ with PdfPages(pdf_filename) as pdf:
             # 品番ごとにNG率を計算し、プロット
             for product in df_machine['品番'].unique():
                 df_product = df_machine[df_machine['品番'] == product]
+                
+                # 週の全日付を生成
+                date_range = pd.date_range(current_date, week_end)
+                
+                # NG率を計算し、全日付に対応するデータフレームを作成
                 ng_rates = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)].groupby('日付').apply(calculate_ng_rate)
+                ng_rates_full = pd.DataFrame(index=date_range, columns=['ng_rate'])
+                ng_rates_full.loc[ng_rates.index, 'ng_rate'] = ng_rates.values
                 
-                # Noneの値（データ無し）を除外してプロット
-                valid_data = ng_rates.dropna()
-                x_values = valid_data.index
-                y_values = [i[2] for i in valid_data.values]
+                # プロット用のデータを準備
+                x_values = ng_rates_full.index
+                y_values = [i[2] if i is not None else None for i in ng_rates_full['ng_rate']]
                 
+                # Noneの値を含めてプロット
                 line, = ax.plot(x_values, y_values, label=f'品番 {product}', marker='o')
                 
                 # NG率が1.0%以上の点にテキストを追加
-                for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
-                    if y >= 1.0:
+                for x, y in zip(x_values, y_values):
+                    if y is not None and y >= 1.0:
+                        ng, total, _ = ng_rates.loc[x]
                         ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
                                     textcoords='offset points', ha='center', va='bottom',
                                     bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
