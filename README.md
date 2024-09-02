@@ -42,10 +42,6 @@ with PdfPages(pdf_filename) as pdf:
             x_values = valid_data.index
             y_values = [i[2] for i in valid_data.values]
             
-            # NG率が負の値の場合、警告を表示
-            if any(y < 0 for y in y_values):
-                print(f"警告: {machine}の品番{product}にNG率が負の値があります。")
-            
             line, = ax.plot(x_values, y_values, label=f'品番 {product}', marker='o')
             
             # NG率が7.5%以上の点にテキストを追加
@@ -62,8 +58,9 @@ with PdfPages(pdf_filename) as pdf:
         ax.set_title(f'{machine}の時間帯別NG率', fontsize=16)
         ax.set_xticks(range(0, 24))
         ax.set_xticklabels(range(0, 24), fontsize=12)
-        ax.set_yticklabels(ax.get_yticks(), fontsize=12)
-        ax.set_ylim(0, 20)
+        ax.set_ylim(0, 100)
+        ax.yaxis.set_major_locator(plt.MultipleLocator(10))  # Y軸の目盛りを10%ごとに設定
+        ax.set_yticklabels([f'{int(x)}%' for x in ax.get_yticks()], fontsize=12)  # Y軸のラベルを設定
         ax.legend(fontsize=12)
         plt.grid(True)
         
