@@ -1,16 +1,3 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-from datetime import datetime, timedelta
-from matplotlib.backends.backend_pdf import PdfPages
-
-# 日本語フォントの設定
-plt.rcParams['font.family'] = 'MS Gothic'  # または 'IPAexGothic', 'Yu Gothic'などを試してみてください
-
-# データの読み込み
-df = pd.read_csv('casting_data.csv')
-
 # データの前処理
 df['日時'] = pd.to_datetime(df['日時'])
 df['週'] = (df['日時'] - df['日時'].min()).dt.days // 7 + 1
@@ -52,6 +39,8 @@ with PdfPages(pdf_filename) as pdf:
         # 鋳造機名でフィルタリング
         df_machine = df[df['鋳造機名'] == machine]
         
+        legend_elements = []
+        
         # 品番ごとにNG率を計算し、プロット
         for product in df_machine['品番'].unique():
             df_product = df_machine[df_machine['品番'] == product]
@@ -60,12 +49,20 @@ with PdfPages(pdf_filename) as pdf:
             x = ng_rates.index
             y = [rate for rate, _, _ in ng_rates.values]
             
-            ax.plot(x, y, label=f'品番 {product}', marker='o')
+            line, = ax.plot(x, y, marker='o')
             
             # NG率が7.5%以上の場合、NG数を表示
             for i, (rate, ng_count, total) in enumerate(ng_rates.values):
                 if rate >= 7.5:
-                    ax.text(x[i], y[i], f'{ng_count}/{total}', ha='center', va='bottom')
+                    ax.annotate(f'{ng_count}/{total}', (x[i], y[i]), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom')
+            
+            # 稼働時間を計算
+            operation_hours = df_product.groupby('週').apply(get_operation_hours).mode().values[0]
+            
+            # 凡例要素を追加
+            legend_elements.append(plt.Line2D([0], [0], marker='o', color=line.get_color(), 
+                                              label=f'品番 {product} (稼働時間: {operation_hours})'))
         
         # 週ごとのデータ数を計算
         days_in_week = df_machine.groupby('週').apply(count_days_in_week)
@@ -80,24 +77,20 @@ with PdfPages(pdf_filename) as pdf:
         # 7日未満の週にテキストを追加
         for week, days in days_in_week.items():
             if days < 7:
-                ax.text(week, ax.get_ylim()[1], f'({days})', ha='center', va='bottom')
+                ax.annotate(f'({days})', (week, ax.get_ylim()[1]), xytext=(0, 5), 
+                            textcoords='offset points', ha='center', va='bottom')
         
-        # 稼働時間を含む凡例を作成
-        legend_elements = []
-        for product in df_machine['品番'].unique():
-            df_product = df_machine[df_machine['品番'] == product]
-            operation_hours = df_product.groupby('週').apply(get_operation_hours).mode().values[0]
-            legend_elements.append(plt.Line2D([0], [0], marker='o', color=ax.get_lines()[-1].get_color(), 
-                                              label=f'品番 {product} (稼働時間: {operation_hours})'))
+        # 凡例を追加
+        ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1, 1))
         
-        ax.legend(handles=legend_elements)
+        plt.tight_layout()
         
         # PDFに追加
-        pdf.savefig(fig)
+        pdf.savefig(fig, bbox_inches='tight')
         
         # PNGとして保存
         png_filename = os.path.join(output_dir, f'vis_週ごとの偏り_{machine}_{current_time}.png')
-        plt.savefig(png_filename)
+        plt.savefig(png_filename, bbox_inches='tight')
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
