@@ -1,16 +1,3 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-from datetime import datetime
-from matplotlib.backends.backend_pdf import PdfPages
-
-# 日本語フォントの設定
-plt.rcParams['font.family'] = 'MS Gothic'  # または 'IPAexGothic', 'Yu Gothic'などを試してみてください
-
-# データの読み込み
-df = pd.read_csv('casting_data.csv')
-
 # データの前処理
 df['日時'] = pd.to_datetime(df['日時'])
 df['時間'] = df['日時'].dt.hour
@@ -51,7 +38,7 @@ with PdfPages(pdf_filename) as pdf:
             
             # Noneの値（データ無し）を除外してプロット
             valid_data = ng_rates.dropna()
-            x_values = [i[0] for i in valid_data.index]
+            x_values = valid_data.index
             y_values = [i[2] for i in valid_data.values]
             
             line, = ax.plot(x_values, y_values, label=f'品番 {product}', marker='o')
