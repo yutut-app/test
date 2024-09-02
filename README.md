@@ -71,8 +71,8 @@ with PdfPages(pdf_filename) as pdf:
             plt.grid(True)
             
             # x軸の日付フォーマットを設定
-            ax.xaxis.set_major_locator(plt.DayLocator())
-            ax.xaxis.set_major_formatter(plt.DateFormatter('%m/%d'))
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
             
             # PDFに追加
