@@ -1,3 +1,7 @@
+# 出力ディレクトリの設定
+DAILY_OUTPUT_DIR = f"{OUTPUT_DIR}/日ごとの偏り"
+os.makedirs(DAILY_OUTPUT_DIR, exist_ok=True)
+
 # PDFファイルの作成
 daily_pdf_filename = os.path.join(DAILY_OUTPUT_DIR, f'vis_日ごとの偏り_全鋳造機_{CURRENT_TIME}.pdf')
 
