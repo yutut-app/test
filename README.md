@@ -46,8 +46,12 @@ with PdfPages(daily_pdf_filename) as pdf:
             ax.set_ylabel('NG率 [%]', fontsize=14)
             ax.set_title(f'{machine}の日ごとNG率 ({current_date.strftime("%Y/%m/%d")} - {week_end.strftime("%Y/%m/%d")})', fontsize=16)
             ax.set_ylim(0, 100)
-            ax.yaxis.set_major_locator(plt.MultipleLocator(10))
-            ax.set_yticklabels([f'{int(x)}%' for x in ax.get_yticks()], fontsize=12)
+            
+            # Y軸のティックを固定
+            y_ticks = range(0, 101, 10)
+            ax.set_yticks(y_ticks)
+            ax.set_yticklabels([f'{y}%' for y in y_ticks], fontsize=12)
+            
             ax.legend(fontsize=12)
             plt.grid(True)
             
