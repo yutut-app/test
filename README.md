@@ -30,21 +30,23 @@ with PdfPages(daily_pdf_filename) as pdf:
             
             for product in df_machine['品番'].unique():
                 df_product = df_machine[df_machine['品番'] == product]
-                ng_rates = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)].groupby('日付').apply(calculate_ng_rate)
+                df_week_product = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)]
+                ng_rates = df_week_product.groupby('日付').apply(lambda x: pd.Series(calculate_ng_rate(x)))
                 
                 valid_data = ng_rates.dropna()
-                x_values = valid_data.index
-                y_values = [i[2] for i in valid_data.values]
-                
-                ax.plot(x_values, y_values, label=f'品番 {product}', marker='o', color=PRODUCT_COLOR_MAP.get(product, 'gray'))
-                
-                for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
-                    if y >= 1.0:
-                        ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
-                                    textcoords='offset points', ha='center', va='bottom',
-                                    bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
-                                    arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
-                                    fontsize=12)
+                if not valid_data.empty:
+                    x_values = valid_data.index
+                    y_values = valid_data.iloc[:, 2]  # NG率は3番目の要素
+                    
+                    ax.plot(x_values, y_values, label=f'品番 {product}', marker='o', color=PRODUCT_COLOR_MAP.get(product, 'gray'))
+                    
+                    for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
+                        if y >= 1.0:
+                            ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
+                                        textcoords='offset points', ha='center', va='bottom',
+                                        bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+                                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
+                                        fontsize=12)
             
             ax.set_xlabel('日付', fontsize=14)
             ax.set_ylabel('NG率 [%]', fontsize=14)
