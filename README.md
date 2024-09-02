@@ -44,10 +44,14 @@ with PdfPages(pdf_filename) as pdf:
             ax.plot(x, y, label=f'品番 {product}', marker='o')
             
             # NG率が7.5%以上の場合、NG数を表示
-            for hour, (rate, count) in valid_data.items():
-                if rate >= 7.5:
-                    ax.text(hour, rate, f'{count}', ha='center', va='bottom')
-        
+            # NG率が7.5%以上の点にテキストを追加
+            for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
+                if y >= 7.5:
+                    ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
+                                textcoords='offset points', ha='center', va='bottom',
+                                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
+                                fontsize=12, fontweight='bold')  # フォントサイズと太さを調整        
         ax.set_xlabel('時間 (時)')
         ax.set_ylabel('NG率 [%]')
         ax.set_title(f'{machine}の時間帯別NG率')
