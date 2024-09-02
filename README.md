@@ -1,6 +1,6 @@
 # データの前処理
 df['日時'] = pd.to_datetime(df['日時'])
-df['週'] = df['日時'].dt.to_period('W')
+df['週'] = (df['日時'] - df['日時'].min()).dt.days // 7 + 1
 
 # 出力ディレクトリの作成
 output_dir = r'..\data\output\eda\NG数の時系列の偏り\週ごとの偏り'
@@ -14,11 +14,9 @@ show_plots = False  # Trueにするとグラフを表示、Falseにすると表�
 
 # NG率の計算関数
 def calculate_ng_rate(group):
-    total = len(group)
-    ng_count = (group['目的変数'] == 1).sum()
-    return ng_count / total * 100 if total > 0 else 0, ng_count, total
+    return group[group['目的変数'] == 1].shape[0] / group.shape[0] * 100
 
-# 稼働時間の取得関数
+# 稼働時間の計算関数
 def get_operation_hours(group):
     start_time = group['日時'].min().strftime('%H:%M')
     end_time = group['日時'].max().strftime('%H:%M')
@@ -30,7 +28,7 @@ pdf_filename = os.path.join(output_dir, f'vis_週ごとの偏り_全鋳造機_{c
 with PdfPages(pdf_filename) as pdf:
     # 鋳造機名ごとにプロットを作成
     for machine in df['鋳造機名'].unique():
-        fig, ax = plt.subplots(figsize=(20, 12))  # グラフサイズを拡大
+        plt.figure(figsize=(15, 10))
         
         # 鋳造機名でフィルタリング
         df_machine = df[df['鋳造機名'] == machine]
@@ -39,53 +37,46 @@ with PdfPages(pdf_filename) as pdf:
         for product in df_machine['品番'].unique():
             df_product = df_machine[df_machine['品番'] == product]
             ng_rates = df_product.groupby('週').apply(calculate_ng_rate)
-            weeks = [week.strftime('%Y-%W') for week in ng_rates.index]
             
-            rates = [rate[0] for rate in ng_rates]
-            ax.plot(weeks, rates, label=f'品番 {product}', marker='o')
-            
-            # NG率が7.5%以上の場合、テキストを表示
-            for i, (rate, ng_count, total) in enumerate(ng_rates):
-                if rate >= 7.5:
-                    y_offset = 5 if i % 2 == 0 else -15  # 隔週で上下にずらす
-                    ax.annotate(f"{rate:.1f}%\n({ng_count}/{total})", (weeks[i], rate),
-                                xytext=(0, y_offset), textcoords='offset points', ha='center', va='bottom')
-            
-            # 稼働時間を取得
+            # 稼働時間の計算
             operation_hours = df_product.groupby('週').apply(get_operation_hours)
             
-            # 凡例に稼働時間を追加
-            ax.plot([], [], ' ', label=f'品番 {product} (稼働時間: {", ".join(operation_hours)})')
+            plt.plot(ng_rates.index, ng_rates.values, label=f'品番 {product}(稼働時間: {operation_hours.iloc[0]})', marker='o')
+            
+            # NG率が7.5%以上の場合、テキストで表示
+            for week, rate in ng_rates.items():
+                if rate >= 7.5:
+                    plt.text(week, rate, f'{rate:.2f}%', ha='center', va='bottom')
         
-        ax.set_xlabel('週')
-        ax.set_ylabel('NG率 [%]')
-        ax.set_title(f'{machine}の週ごとNG率')
-        ax.set_ylim(0, 100)
-        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        
-        # x軸のラベルを隔週表示に
-        plt.xticks(weeks[::2], rotation=45, ha='right')
+        plt.xlabel('週')
+        plt.ylabel('NG率 [%]')
+        plt.title(f'{machine}の週別NG率')
+        plt.xticks(range(1, df_machine['週'].max() + 1))
+        plt.ylim(0, 100)
+        plt.legend()
         plt.grid(True)
         
-        # 7日間ない週にテキストを追加
-        for i, week in enumerate(weeks):
-            if ng_rates.iloc[i][2] < 7:
-                ax.text(i, -5, f'({ng_rates.iloc[i][2]})', ha='center')
+        # 7日間ない週の表示
+        for week in range(1, df_machine['週'].max() + 1):
+            week_data = df_machine[df_machine['週'] == week]
+            days_in_week = (week_data['日時'].max() - week_data['日時'].min()).days + 1
+            if days_in_week < 7:
+                plt.text(week, plt.ylim()[1], f'({days_in_week})', ha='center', va='bottom')
         
         plt.tight_layout()
         
         # PDFに追加
-        pdf.savefig(fig, bbox_inches='tight')
+        pdf.savefig()
         
         # PNGとして保存
         png_filename = os.path.join(output_dir, f'vis_週ごとの偏り_{machine}_{current_time}.png')
-        plt.savefig(png_filename, bbox_inches='tight')
+        plt.savefig(png_filename)
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
             plt.show()
         else:
-            plt.close(fig)
+            plt.close()
     
     print(f"全鋳造機のグラフをPDFに保存しました: {pdf_filename}")
 
