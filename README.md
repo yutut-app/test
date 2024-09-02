@@ -1,7 +1,3 @@
-# 出力ディレクトリの設定
-DAILY_OUTPUT_DIR = f"{OUTPUT_DIR}/日ごとの偏り"
-os.makedirs(DAILY_OUTPUT_DIR, exist_ok=True)
-
 # PDFファイルの作成
 daily_pdf_filename = os.path.join(DAILY_OUTPUT_DIR, f'vis_日ごとの偏り_全鋳造機_{CURRENT_TIME}.pdf')
 
@@ -30,23 +26,24 @@ with PdfPages(daily_pdf_filename) as pdf:
             
             for product in df_machine['品番'].unique():
                 df_product = df_machine[df_machine['品番'] == product]
-                df_week_product = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)]
-                ng_rates = df_week_product.groupby('日付').apply(lambda x: pd.Series(calculate_ng_rate(x)))
+                df_week = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)]
+                
+                ng_rates = df_week.groupby('日付').apply(lambda x: pd.Series(calculate_ng_rate(x)))
+                ng_rates.columns = ['NG数', '総数', 'NG率']
                 
                 valid_data = ng_rates.dropna()
-                if not valid_data.empty:
-                    x_values = valid_data.index
-                    y_values = valid_data.iloc[:, 2]  # NG率は3番目の要素
-                    
-                    ax.plot(x_values, y_values, label=f'品番 {product}', marker='o', color=PRODUCT_COLOR_MAP.get(product, 'gray'))
-                    
-                    for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
-                        if y >= 1.0:
-                            ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
-                                        textcoords='offset points', ha='center', va='bottom',
-                                        bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
-                                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
-                                        fontsize=12)
+                x_values = valid_data.index
+                y_values = valid_data['NG率']
+                
+                ax.plot(x_values, y_values, label=f'品番 {product}', marker='o', color=PRODUCT_COLOR_MAP.get(product, 'gray'))
+                
+                for x, y, ng, total in zip(x_values, y_values, valid_data['NG数'], valid_data['総数']):
+                    if y >= 1.0:
+                        ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
+                                    textcoords='offset points', ha='center', va='bottom',
+                                    bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+                                    arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
+                                    fontsize=12)
             
             ax.set_xlabel('日付', fontsize=14)
             ax.set_ylabel('NG率 [%]', fontsize=14)
