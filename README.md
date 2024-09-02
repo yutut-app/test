@@ -50,7 +50,7 @@ with PdfPages(pdf_filename) as pdf:
             
             # NG率が7.5%以上の場合、NG数を表示
             for _, row in ng_data[ng_data['NG率'] >= 7.5].iterrows():
-                ax.annotate(f"{row['NG数']}/{row['全データ数']}", 
+                ax.annotate(f"{int(row['NG数'])}/{int(row['全データ数'])}", 
                             (row['週'], row['NG率']), 
                             xytext=(0, 10), textcoords='offset points', 
                             ha='center', va='bottom')
@@ -70,7 +70,7 @@ with PdfPages(pdf_filename) as pdf:
         ax.set_title(f'{machine}の週別NG率')
         ax.set_xticks(range(1, df_machine['週'].max() + 1))
         ax.set_ylim(0, 100)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
         plt.grid(True)
         
         # 7日未満の週にテキストを追加
