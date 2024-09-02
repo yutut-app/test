@@ -12,18 +12,20 @@ current_time = datetime.now().strftime("%y%m%d%H%M")
 # グラフを表示するかどうかのフラグ
 show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
 
-# NG率の計算関数
-def calculate_ng_rate(group):
+# NG率とNG数の計算関数
+def calculate_ng_rate_and_count(group):
     total = len(group)
     ng_count = group['目的変数'].sum()
-    return ng_count, total, (ng_count / total * 100 if total > 0 else 0)
+    return pd.Series({'NG率': (ng_count / total) * 100 if total > 0 else 0,
+                      'NG数': ng_count,
+                      '全データ数': total})
 
 # 週ごとのデータ数を計算する関数
 def count_days_in_week(group):
     return group['日時'].dt.date.nunique()
 
-# 稼働時間を取得する関数
-def get_operation_hours(group):
+# 稼働時間を計算する関数
+def calculate_operation_hours(group):
     start_time = group['日時'].min().strftime('%H:%M')
     end_time = group['日時'].max().strftime('%H:%M')
     return f"{start_time}~{end_time}"
@@ -42,16 +44,23 @@ with PdfPages(pdf_filename) as pdf:
         # 品番ごとにNG率を計算し、プロット
         for product in df_machine['品番'].unique():
             df_product = df_machine[df_machine['品番'] == product]
-            ng_rates = df_product.groupby('週').apply(calculate_ng_rate)
-            weeks = ng_rates.index
-            ng_counts, totals, rates = zip(*ng_rates.values)
+            ng_data = df_product.groupby('週').apply(calculate_ng_rate_and_count).reset_index()
             
-            ax.plot(weeks, rates, label=f'品番 {product}', marker='o')
+            ax.plot(ng_data['週'], ng_data['NG率'], label=f'品番 {product}', marker='o')
             
-            # NG率が7.5%以上の場合、NG数をテキストで表示
-            for week, rate, ng_count, total in zip(weeks, rates, ng_counts, totals):
-                if rate >= 7.5:
-                    ax.text(week, rate, f'{ng_count}/{total}', ha='center', va='bottom')
+            # NG率が7.5%以上の場合、NG数を表示
+            for _, row in ng_data[ng_data['NG率'] >= 7.5].iterrows():
+                ax.annotate(f"{row['NG数']}/{row['全データ数']}", 
+                            (row['週'], row['NG率']), 
+                            xytext=(0, 10), textcoords='offset points', 
+                            ha='center', va='bottom')
+            
+            # 稼働時間を計算
+            operation_hours = df_product.groupby('週').apply(calculate_operation_hours).reset_index()
+            operation_hours_str = ', '.join([f"{row['週']}週目:{row[0]}" for _, row in operation_hours.iterrows()])
+            
+            # 凡例のラベルに稼働時間を追加
+            ax.lines[-1].set_label(f'品番 {product} (稼働時間: {operation_hours_str})')
         
         # 週ごとのデータ数を計算
         days_in_week = df_machine.groupby('週').apply(count_days_in_week)
@@ -61,18 +70,7 @@ with PdfPages(pdf_filename) as pdf:
         ax.set_title(f'{machine}の週別NG率')
         ax.set_xticks(range(1, df_machine['週'].max() + 1))
         ax.set_ylim(0, 100)
-        
-        # 凡例に稼働時間を追加
-        handles, labels = ax.get_legend_handles_labels()
-        new_labels = []
-        for product in df_machine['品番'].unique():
-            df_product = df_machine[df_machine['品番'] == product]
-            operation_hours = df_product.groupby('週').apply(get_operation_hours)
-            operation_hours_str = ', '.join([f"{week}週目:{hours}" for week, hours in operation_hours.items()])
-            new_labels.append(f'品番 {product} (稼働時間: {operation_hours_str})')
-        
-        ax.legend(handles, new_labels, title='品番 (稼働時間)', bbox_to_anchor=(1.05, 1), loc='upper left')
-        
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.grid(True)
         
         # 7日未満の週にテキストを追加
