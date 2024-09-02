@@ -1,71 +1,12 @@
-# データの前処理
-df['日時'] = pd.to_datetime(df['日時'])
-df['週'] = df['日時'].dt.to_period('W').astype(str)
+お世話になっております。
 
-# 出力ディレクトリの作成
-output_dir = r'..\data\output\eda\NG数の時系列の偏り\週ごとの偏り'
-os.makedirs(output_dir, exist_ok=True)
+度重なるご質問にもかかわらず、丁寧にご回答いただき誠にありがとうございます。
+多くの質問を重ねてしまい、大変申し訳ございませんでした。
 
-# 現在の日時を取得（ファイル名用）
-current_time = datetime.now().strftime("%y%m%d%H%M")
+これまでにいただいたご回答とご説明により、状況を十分に理解することができました
+ソースコードの提供や開示に関する現状のお立場も理解いたしました。
 
-# グラフを表示するかどうかのフラグ
-show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
+これらの情報を踏まえ、社内で慎重に方針を検討させていただきます。
+検討結果や追加でご相談させていただくことがございましたら、改めてご連絡させていただく可能性がございます。
 
-# NG率の計算関数
-def calculate_ng_rate(group):
-    total = group.shape[0]
-    if total == 0:
-        return None  # データが無い場合はNoneを返す
-    ng_count = group[group['目的変数'] == 1].shape[0]
-    return (ng_count / total) * 100 if total > 0 else None
-
-# PDFファイルを作成
-pdf_filename = os.path.join(output_dir, f'vis_週ごとの偏り_全鋳造機_{current_time}.pdf')
-
-with PdfPages(pdf_filename) as pdf:
-    # 鋳造機名ごとにプロットを作成
-    for machine in df['鋳造機名'].unique():
-        fig, ax = plt.subplots(figsize=(15, 10))
-        
-        # 鋳造機名でフィルタリング
-        df_machine = df[df['鋳造機名'] == machine]
-        
-        # 品番ごとにNG率を計算し、プロット
-        for product in df_machine['品番'].unique():
-            df_product = df_machine[df_machine['品番'] == product]
-            ng_rates = df_product.groupby('週').apply(calculate_ng_rate)
-            
-            # Noneの値（データ無し）を除外してプロット
-            valid_data = ng_rates.dropna()
-            ax.plot(valid_data.index, valid_data.values, label=f'品番 {product}', marker='o')
-        
-        ax.set_xlabel('週')
-        ax.set_ylabel('NG率 [%]')
-        ax.set_title(f'{machine}の週ごとNG率')
-        ax.set_ylim(0, 100)
-        ax.legend()
-        plt.grid(True)
-        
-        # x軸ラベルの回転
-        plt.xticks(rotation=45, ha='right')
-        
-        # レイアウトの調整
-        plt.tight_layout()
-        
-        # PDFに追加
-        pdf.savefig(fig)
-        
-        # PNGとして保存
-        png_filename = os.path.join(output_dir, f'vis_週ごとの偏り_{machine}_{current_time}.png')
-        plt.savefig(png_filename)
-        
-        # グラフを表示（フラグがTrueの場合）
-        if show_plots:
-            plt.show()
-        else:
-            plt.close(fig)
-    
-    print(f"全鋳造機のグラフをPDFに保存しました: {pdf_filename}")
-
-print("各鋳造機のグラフをPNGに保存しました。")
+お忙しい中、度々のご対応をいただき、重ねて御礼申し上げます。今後ともどうぞよろしくお願いいたします。
