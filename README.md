@@ -26,18 +26,15 @@ with PdfPages(daily_pdf_filename) as pdf:
             
             for product in df_machine['品番'].unique():
                 df_product = df_machine[df_machine['品番'] == product]
-                df_week = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)]
-                
-                ng_rates = df_week.groupby('日付').apply(lambda x: pd.Series(calculate_ng_rate(x)))
-                ng_rates.columns = ['NG数', '総数', 'NG率']
+                ng_rates = df_product[(df_product['日付'] >= current_date) & (df_product['日付'] <= week_end)].groupby('日付').apply(calculate_ng_rate, include_groups=False)
                 
                 valid_data = ng_rates.dropna()
                 x_values = valid_data.index
-                y_values = valid_data['NG率']
+                y_values = [i[2] for i in valid_data.values]
                 
                 ax.plot(x_values, y_values, label=f'品番 {product}', marker='o', color=PRODUCT_COLOR_MAP.get(product, 'gray'))
                 
-                for x, y, ng, total in zip(x_values, y_values, valid_data['NG数'], valid_data['総数']):
+                for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
                     if y >= 1.0:
                         ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
                                     textcoords='offset points', ha='center', va='bottom',
