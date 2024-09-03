@@ -7,6 +7,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pandas as pd
 
 from time_series_data_prep import (
     df, OUTPUT_DIR, CURRENT_TIME, calculate_ng_rate
@@ -24,20 +25,22 @@ df_machine1 = df[df['鋳造機名'] == '1号機']
 df_machine2 = df[df['鋳造機名'] == '2号機']
 
 # NG率の計算
-def calculate_ng_rate_for_speed(df, speed_bin):
-    group = df[(df['低速（平均）速度'] >= speed_bin) & (df['低速（平均）速度'] < speed_bin + 0.001)]
-    result = calculate_ng_rate(group)
-    return result[2] if result else 0
+def calculate_ng_rate_for_speed(df, speed_bins):
+    df['speed_bin'] = pd.cut(df['低速（平均）速度'], bins=speed_bins)
+    grouped = df.groupby('speed_bin').apply(calculate_ng_rate)
+    return grouped.apply(lambda x: x[2] if x else 0)
 
 # ヒストグラムのデータ準備
-ng_rates_machine1 = [calculate_ng_rate_for_speed(df_machine1, bin) for bin in speed_bins[:-1]]
-ng_rates_machine2 = [calculate_ng_rate_for_speed(df_machine2, bin) for bin in speed_bins[:-1]]
+ng_rates_machine1 = calculate_ng_rate_for_speed(df_machine1, speed_bins)
+ng_rates_machine2 = calculate_ng_rate_for_speed(df_machine2, speed_bins)
 
 # グラフの作成
 fig, ax = plt.subplots(figsize=(15, 10))
 
-ax.bar(speed_bins[:-1], ng_rates_machine1, width=0.001, alpha=0.5, color='blue', label='1号機')
-ax.bar(speed_bins[:-1], ng_rates_machine2, width=0.001, alpha=0.5, color='orange', label='2号機')
+bar_width = 0.0004  # バーの幅を調整
+
+ax.bar(speed_bins[:-1], ng_rates_machine1, width=bar_width, alpha=0.5, color='blue', label='1号機')
+ax.bar(speed_bins[:-1] + bar_width, ng_rates_machine2, width=bar_width, alpha=0.5, color='orange', label='2号機')
 
 ax.set_xlabel('低速（平均）速度', fontsize=14)
 ax.set_ylabel('NG率 [%]', fontsize=14)
