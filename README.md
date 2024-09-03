@@ -7,10 +7,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import pandas as pd
 
 from time_series_data_prep import (
-    df, OUTPUT_DIR, CURRENT_TIME, calculate_ng_rate
+    df, OUTPUT_DIR, CURRENT_TIME
 )
 
 # 出力ディレクトリの設定
@@ -25,22 +24,33 @@ df_machine1 = df[df['鋳造機名'] == '1号機']
 df_machine2 = df[df['鋳造機名'] == '2号機']
 
 # NG率の計算
-def calculate_ng_rate_for_speed(df, speed_bins):
-    df['speed_bin'] = pd.cut(df['低速（平均）速度'], bins=speed_bins)
-    grouped = df.groupby('speed_bin').apply(calculate_ng_rate)
-    return grouped.apply(lambda x: x[2] if x else 0)
+def calculate_ng_rate_for_speed(df, speed_bin):
+    group = df[(df['低速（平均）速度'] >= speed_bin) & (df['低速（平均）速度'] < speed_bin + 0.001)]
+    ng_count = group[group['目的変数'] == 1].shape[0]
+    total_count = group.shape[0]
+    if total_count == 0:
+        return 0, "0/0"
+    ng_rate = (ng_count / total_count) * 100
+    return ng_rate, f"{ng_count}/{total_count}"
 
 # ヒストグラムのデータ準備
-ng_rates_machine1 = calculate_ng_rate_for_speed(df_machine1, speed_bins)
-ng_rates_machine2 = calculate_ng_rate_for_speed(df_machine2, speed_bins)
+ng_rates_machine1 = [calculate_ng_rate_for_speed(df_machine1, bin) for bin in speed_bins[:-1]]
+ng_rates_machine2 = [calculate_ng_rate_for_speed(df_machine2, bin) for bin in speed_bins[:-1]]
 
 # グラフの作成
 fig, ax = plt.subplots(figsize=(15, 10))
 
-bar_width = 0.0004  # バーの幅を調整
+bar_width = 0.0004
 
-ax.bar(speed_bins[:-1], ng_rates_machine1, width=bar_width, alpha=0.5, color='blue', label='1号機')
-ax.bar(speed_bins[:-1] + bar_width, ng_rates_machine2, width=bar_width, alpha=0.5, color='orange', label='2号機')
+for i, (rate, text) in enumerate(ng_rates_machine1):
+    bar = ax.bar(speed_bins[i], rate, width=bar_width, alpha=0.5, color='blue', label='1号機' if i == 0 else "")
+    if rate > 0:
+        ax.text(speed_bins[i], rate, f'{rate:.2f}%\n({text})', ha='center', va='bottom')
+
+for i, (rate, text) in enumerate(ng_rates_machine2):
+    bar = ax.bar(speed_bins[i] + bar_width, rate, width=bar_width, alpha=0.5, color='orange', label='2号機' if i == 0 else "")
+    if rate > 0:
+        ax.text(speed_bins[i] + bar_width, rate, f'{rate:.2f}%\n({text})', ha='center', va='bottom')
 
 ax.set_xlabel('低速（平均）速度', fontsize=14)
 ax.set_ylabel('NG率 [%]', fontsize=14)
