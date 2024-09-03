@@ -1,59 +1,31 @@
-# 出力ディレクトリの設定
-HOURLY_OUTPUT_DIR = f"{OUTPUT_DIR}/時間の偏り"
-os.makedirs(HOURLY_OUTPUT_DIR, exist_ok=True)
+承知しました。修正版のパワーポイント内容とカンペを以下に示します。
 
-# PDFファイルの作成
-hourly_pdf_filename = os.path.join(HOURLY_OUTPUT_DIR, f'vis_時間の偏り_全鋳造機_{CURRENT_TIME}.pdf')
+スライド1: 6月データ（EDA）のグラフ
+画像（中央）: x軸を品番、y軸をNG率としたヒストグラム（6月データ）
+テキスト（下部）: 6月データ（EDA）の品番別NG率
 
-with PdfPages(hourly_pdf_filename) as pdf:
-    for machine in df['鋳造機名'].unique():
-        df_machine = df[df['鋳造機名'] == machine]
-        
-        fig, ax = plt.subplots(figsize=(15, 10))
-        
-        for product in df_machine['品番'].unique():
-            df_product = df_machine[df_machine['品番'] == product]
-            ng_rates = df_product.groupby('時間').apply(calculate_ng_rate, include_groups=False)
-            
-            valid_data = ng_rates.dropna()
-            x_values = valid_data.index
-            y_values = [i[2] for i in valid_data.values]
-            
-            ax.plot(x_values, y_values, label=f'品番 {product}', marker='o', color=PRODUCT_COLOR_MAP.get(product, 'gray'))
-            
-            for x, y, (ng, total, _) in zip(x_values, y_values, valid_data.values):
-                if y >= 7.5:
-                    ax.annotate(f"{ng}/{total}", (x, y), xytext=(0, 10), 
-                                textcoords='offset points', ha='center', va='bottom',
-                                bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
-                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
-                                fontsize=12)
-        
-        ax.set_xlabel('時間 (時)', fontsize=14)
-        ax.set_ylabel('NG率 [%]', fontsize=14)
-        ax.set_title(f'{machine}の時間帯別NG率', fontsize=16)
-        ax.set_xlim(0, 23)
-        ax.set_xticks(range(0, 24))
-        ax.set_ylim(0, 100)
-        
-        # Y軸のティックを固定
-        y_ticks = range(0, 101, 10)
-        ax.set_yticks(y_ticks)
-        ax.set_yticklabels([f'{y}%' for y in y_ticks], fontsize=12)
-        
-        ax.legend(fontsize=12)
-        plt.grid(True)
-        
-        pdf.savefig(fig)
-        
-        hourly_png_filename = os.path.join(HOURLY_OUTPUT_DIR, f'vis_時間の偏り_{machine}_{CURRENT_TIME}.png')
-        plt.savefig(hourly_png_filename)
-        
-        if SHOW_PLOTS_HOURLY:
-            plt.show()
-        else:
-            plt.close(fig)
+カンペ: 「まず、6月のデータを基にしたEDAの結果をご覧ください。x軸が品番、y軸がNG率を示しています。1号機と2号機で明確な差があることがわかります。特に、2号機の品番2と5でNG率が0%だったことが注目点です。」
 
-    print(f"全鋳造機の時間の偏りグラフをPDFに保存しました: {hourly_pdf_filename}")
+スライド2: 7月データ（仮説検証）のグラフ
+画像（中央）: x軸を品番、y軸をNG率としたヒストグラム（7月データ）
+テキスト（下部）: 7月データ（仮説検証）の品番別NG率
 
-print("各鋳造機の時間の偏りグラフをPNGに保存しました。")
+カンペ: 「次に、7月のデータを使った仮説検証の結果です。6月と比べていくつかの変化が見られます。例えば、2号機の品番2でNGが発生し、品番3のデータが新たに得られました。一方で、1号機の品番2のデータがなくなっています。」
+
+スライド3: 6月と7月のデータ比較
+画像（左）: 6月データのヒストグラム
+画像（右）: 7月データのヒストグラム
+テキスト（下部）: 6月（EDA）と7月（仮説検証）データの比較
+
+カンペ: 「ここで、6月と7月のデータを並べて比較してみます。データの違いが明確に見えます。例えば、1号機の品番2は6月にはありましたが7月にはありません。逆に、2号機の品番3は7月に新たに登場しています。このようなデータの違いがあるため、すべての品番を直接比較することはできません。そのため、仮説検証では両月で共通して存在するデータのみを対象としました。」
+
+スライド4: 仮説検証の前提
+テキスト（左上）: 仮説検証の前提
+箇条書き（中央）:
+・ EDAと仮説検証で使用したデータの期間が異なる（6月vs7月）
+・ 一部の品番でデータの有無に変化がある
+・ 両月で共通して存在するデータのみを比較対象とした
+・ 鋳造機による差異と品番による差異に注目
+・ NG率の変動に着目し、原因を探る
+
+カンペ: 「仮説検証を行うにあたり、いくつかの重要な前提条件があります。まず、使用したデータの期間が6月と7月で異なること。次に、一部の品番でデータの有無に変化があるため、両月で共通して存在するデータのみを比較対象としたこと。そして、鋳造機や品番による差異に注目し、NG率の変動の原因を探ることが目的です。これらの点を踏まえて結果を解釈していく必要があります。データの違いを認識した上で、慎重に比較と分析を進めていきます。」
