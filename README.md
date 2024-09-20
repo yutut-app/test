@@ -1,42 +1,20 @@
-モデルの調査
+#### 参考Kaggle
+1. **SIIM-FISABIO-RSNA COVID-19 Detection**  
+   - **概要：** 医療画像に対する異常検出タスクで、X線画像からCOVID-19の兆候を検出します。転移学習やデータ拡張、Grad-CAMなどを使った手法がある。
+   - **リンク：** [SIIM-FISABIO-RSNA COVID-19 Detection](https://www.kaggle.com/c/siim-covid19-detection)
 
-#### **案1: 深層学習モデルと弱教師学習**
-- **弱教師学習の導入**：
-  - ラベルデータに誤りが含まれる可能性があるため、**弱教師学習**を導入して、誤ったラベルデータへのロバスト性を高める。
-  - まず、欠陥のトレンド監視を行い、その情報を基に**複数のスケール**で欠陥を見分けるモデルを構築します。
+2. **Severstal: Steel Defect Detection**  
+   - **概要：** スチールの表面にある欠陥を検出するタスクです。少ない欠陥データに対する検出や、セグメンテーション手法す。
+   - **リンク：** [Severstal: Steel Defect Detection](https://www.kaggle.com/c/severstal-steel-defect-detection)
 
-- **複雑な形状に対応するモデルの設計**：
-  - 欠陥の複雑な形状や多様なスケールに対応するために、深層学習モデルの層を調整し、各スケールに対応できる設計を検討します。
-    
-https://www.global.toshiba/jp/technology/corporate/ai/catalog003.html
+3. **SIIM-ACR Pneumothorax Segmentation**  
+   - **概要：** 医療画像における異常部分のセグメンテーションタスクです。少ない異常データを扱うため、データ拡張や転移学習。
+   - **リンク：** [SIIM-ACR Pneumothorax Segmentation](https://www.kaggle.com/c/siim-acr-pneumothorax-segmentation)
 
+4. **Fabric Defect Detection**  
+   - **概要：** 繊維の欠陥検出に関するタスクです。異常検知に関する実装が多く、Few-shot Learningやデータ拡張の手法。
+   - **リンク：** [Fabric Defect Detection](https://www.kaggle.com/c/fabric-defect-detection)
 
-#### **案2: オフライン・オンライン分類器の構築**
-- **オフラインでの事前トレーニング**：
-  - オフラインで特徴量を抽出し、ツールマークや鋳巣などの分類を事前に行います。事前分類器の性能を高めるために、NGデータが少ない場合でも効果的な特徴量を抽出します。
-
-- **オンラインでのリアルタイム分類**：
-  - 事前に構築した分類器をオンラインで使用し、リアルタイムにOK/NGを判定するシステムを設計します。オフラインでの事前分類器の精度を向上させ、オンラインでのパフォーマンスを最適化します。
-
-https://linx.jp/solution/3d/technology/ai/
-
-
-#### **案3: CNNによる分類**
-- **特徴量ベースの前処理**：
-  - CNN（畳み込みニューラルネットワーク）を使用して、OK/NGの分類を行います。ただし、CNNは教師あり学習であるため、教師データの準備が課題です。
-  
-- **欠陥を絞り込んだ分類**：
-  - CNNを使う前に、特徴量による欠陥検出を行い、CNNが対象とする欠陥を絞り込みます。これにより、データが少なくても高精度な分類を可能にします。
-
-https://www.omron.com/jp/ja/technology/omrontechnics/2022/20220812-hazeyama.html
-
-
-#### **案4: Few-shot Learning**
-- **Few-shot Learningの導入**：
-  - **NGデータが非常に少ない**ため、Few-shot Learningを活用して、少ないデータで学習可能なモデルを構築します。
-  
-- **具体的なアプローチ**：
-  - Few-shot Learningでは、既存の少ないNGデータを使い、モデルが新しいデータに対しても適応できるように学習します。これにより、追加のデータがなくても高精度な欠陥検出が可能になります。
-
-https://ai.reinforz.co.jp/178
-
+5. **Data Science Bowl 2018 (Nucleus Segmentation)**  
+   - **概要：** 医療画像における細胞核のセグメンテーションタスク。セグメンテーションや異常検出に関する深層学習モデル。
+   - **リンク：** [Data Science Bowl 2018](https://www.kaggle.com/c/data-science-bowl-2018)
