@@ -69,6 +69,9 @@
   2. **テンプレートマッチング（既知の形状との一致検出）**
 
 **補足説明**: 現在、具体的な画像処理手法は検討中です。
+https://scikit-image.org/docs/stable/auto_examples/edges/plot_canny.html
+https://rubikscode.net/2022/06/13/thresholding-edge-contour-and-line-detection-with-opencv/
+https://scikit-image.org/docs/stable/auto_examples/features_detection/plot_template.html
 
 ---
 
