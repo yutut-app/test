@@ -1,6 +1,4 @@
-以下は、各スライドで説明する際のカンペ（話す内容）です。初学者でも理解できるように、シンプルな言葉で解説します。
-
----
+--
 
 ### **スライド1：サマリ**
 **話す内容**:
@@ -50,4 +48,111 @@
 
 ---
 
-これらのスクリプトを使って、簡潔でわかりやすく、初学者にも理解できるプレゼンテーションが行えるようになります。
+以下の内容に基づいて、Pythonコードと`requirements.txt`ファイルを生成します。
+
+### 1. ライブラリのインポート
+
+```python
+import os
+import cv2
+import numpy as np
+from pathlib import Path
+```
+
+### 2. パラメータの設定
+
+```python
+# 入力画像のパス
+input_path = Path(r"../data/input")
+output_path = Path(r"../data/output")
+
+# 出力ディレクトリを作成
+output_ok_path = output_path / "OK"
+output_ng_path = output_path / "NG"
+
+output_ok_path.mkdir(parents=True, exist_ok=True)
+output_ng_path.mkdir(parents=True, exist_ok=True)
+
+# 欠陥サイズの閾値（0.5mm以上のものを検出）
+min_defect_size = 0.5  # mm
+pixel_to_mm_ratio = 0.01  # 仮の変換率、実際の値に応じて調整
+```
+
+### 3. データの読み込み
+
+```python
+def load_images_from_directory(directory):
+    image_paths = list(directory.glob("*.jpg"))
+    images = []
+    for img_path in image_paths:
+        img = cv2.imread(str(img_path))
+        if img is not None:
+            images.append((img_path, img))
+    return images
+
+ok_images = load_images_from_directory(input_path / "OK")
+ng_images = []
+for defect_type in ["鋳巣", "凹み", "亀裂"]:
+    defect_images = load_images_from_directory(input_path / "NG" / defect_type)
+    ng_images.extend(defect_images)
+```
+
+### 4. 欠陥候補の検出
+
+```python
+def detect_defects(image):
+    # グレースケール変換
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Cannyによるエッジ検出
+    edges = cv2.Canny(gray, 100, 200)
+    
+    # 輪郭抽出
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    defect_contours = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        # 面積を使ってフィルタリング（実際の面積の基準は調整が必要）
+        if area * pixel_to_mm_ratio > min_defect_size:
+            defect_contours.append(cnt)
+    return defect_contours
+```
+
+### 5. 画像切り出し
+
+```python
+def crop_and_save_image(image, contours, output_dir, image_name):
+    for i, cnt in enumerate(contours):
+        # 輪郭に基づき、画像を切り出す
+        x, y, w, h = cv2.boundingRect(cnt)
+        cropped_image = image[y:y+h, x:x+w]
+        
+        # ファイル名を生成して保存
+        cropped_image_path = output_dir / f"{image_name.stem}_defect_{i}.jpg"
+        cv2.imwrite(str(cropped_image_path), cropped_image)
+```
+
+### 6. 切り出した画像の保存
+
+```python
+# OK画像の処理
+for img_path, img in ok_images:
+    contours = detect_defects(img)
+    crop_and_save_image(img, contours, output_ok_path, img_path)
+
+# NG画像の処理
+for img_path, img in ng_images:
+    contours = detect_defects(img)
+    crop_and_save_image(img, contours, output_ng_path, img_path)
+```
+
+---
+
+### `requirements.txt` ファイル
+```txt
+opencv-python==4.5.3.56
+numpy==1.21.2
+```
+
+これで、コードは前処理済みの画像を読み込み、欠陥候補を検出し、画像を切り出して保存する流れを実装しています。
