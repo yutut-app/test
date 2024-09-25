@@ -82,9 +82,9 @@ MAX_DEFECT_AREA_PX = (MAX_DEFECT_DIAMETER_MM / PIXEL_TO_MM) ** 2 * np.pi  # 欠�
 BATCH_SIZE = 50  # メモリ節約のために一度に読み込む画像の数を制限
 
 # データのパス
-input_data_dir = r"../data/input"
-output_data_dir = r"../data/output"
-test_data_dir = r"../data/output/test/work_frame"  # ワークの輪郭画像を保存するディレクトリ
+input_data_dir = os.path.join("..", "data", "input")
+output_data_dir = os.path.join("..", "data", "output")
+test_data_dir = os.path.join(output_data_dir, "test", "work_frame")  # ワークの輪郭画像を保存するディレクトリ
 
 # OKとNGのディレクトリ設定
 ok_dir = os.path.join(input_data_dir, 'OK')
