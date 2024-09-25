@@ -48,6 +48,22 @@
 
 ---
 
+ワーク全体ではなく、ワーク内の小さな欠陥を検出するためには、以下のように改良を加えます。
+
+### 改良点
+
+1. **背景とワーク部分を分離**：
+   ワーク全体がエッジ検出によって検出されてしまう問題を解決するため、背景とワークを区別して、小さな欠陥だけを検出するようにします。これを実現するためには、まずワークの輪郭を検出し、その内側にある欠陥だけを検出するようにします。
+
+2. **欠陥部分のフィルタリング**：
+   ワーク全体の領域を無視し、小さな欠陥部分のみを対象とするために、欠陥の面積が小さい領域だけを検出対象にします。
+
+3. **ワーク内部の欠陥検出**：
+   ワーク全体の輪郭を利用して、その内側のみでエッジ検出を行うことで、ワーク内部の欠陥を見つけるようにします。
+
+以下、改良後のコードです。
+
+```python
 # 1. ライブラリのインポート
 %pip install -r requirements.txt
 
@@ -104,23 +120,36 @@ def process_ng_images():
         for batch_images in load_images_from_directory(subdir_path):
             process_images(batch_images, subdir, is_ng=True)
 
-# 4. 欠陥候補の検出
+# 4. 欠陥候補の検出（ワークの中の小さな欠陥）
 def detect_defect_candidates(image):
-    # エッジ検出を使用して欠陥候補を抽出
-    blurred_img = cv2.GaussianBlur(image, (5, 5), 0)
-    edges = cv2.Canny(blurred_img, 50, 150)
+    # Step 1: ワークの輪郭を検出する（背景を除外）
+    _, binary = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # ラベリングによる輪郭抽出
-    labeled_image = measure.label(edges, connectivity=2)
-    properties = measure.regionprops(labeled_image)
+    # ワークの最大の輪郭（外枠）を取得
+    if len(contours) > 0:
+        largest_contour = max(contours, key=cv2.contourArea)
+        mask = np.zeros_like(image)
+        cv2.drawContours(mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+        
+        # Step 2: ワーク内部でエッジ検出を行う
+        work_area = cv2.bitwise_and(image, mask)
+        blurred_img = cv2.GaussianBlur(work_area, (5, 5), 0)
+        edges = cv2.Canny(blurred_img, 50, 150)
     
-    # 欠陥候補の輪郭と面積を確認
-    defect_candidates = []
-    for prop in properties:
-        if prop.area >= MIN_DEFECT_AREA_PX:
-            defect_candidates.append(prop.bbox)  # bbox = (min_row, min_col, max_row, max_col)
-    
-    return defect_candidates
+        # ラベリングによる輪郭抽出
+        labeled_image = measure.label(edges, connectivity=2)
+        properties = measure.regionprops(labeled_image)
+        
+        # 欠陥候補の輪郭と面積を確認
+        defect_candidates = []
+        for prop in properties:
+            if prop.area >= MIN_DEFECT_AREA_PX:  # 欠陥が一定の大きさ以上の場合
+                defect_candidates.append(prop.bbox)  # bbox = (min_row, min_col, max_row, max_col)
+        
+        return defect_candidates
+    else:
+        return []  # 輪郭が見つからない場合は候補なし
 
 # 5. 画像切り出し
 def crop_defect_region(image, bbox):
@@ -156,49 +185,18 @@ process_ok_images()
 process_ng_images()
 
 print("処理が完了しました。")
-
-    
-    save_path = os.path.join(save_dir, filename)
-    cv2.imwrite(save_path, image)
-
-# OK画像に対する処理
-for filename, image in ok_images:
-    defect_candidates = detect_defect_candidates(image)
-    for i, bbox in enumerate(defect_candidates):
-        cropped_image = crop_defect_region(image, bbox)
-        save_cropped_image(cropped_image, f"{filename}_defect_{i}.jpg", "OK", is_ng=False)
-
-# NG画像に対する処理
-for defect_type, images in ng_images.items():
-    for filename, image in images:
-        defect_candidates = detect_defect_candidates(image)
-        for i, bbox in enumerate(defect_candidates):
-            cropped_image = crop_defect_region(image, bbox)
-            save_cropped_image(cropped_image, f"{filename}_defect_{i}.jpg", defect_type, is_ng=True)
-
-print("処理が完了しました。")
 ```
 
-### 各項目の説明
+### 改良点の説明
 
-1. **ライブラリのインポート**：
-   `requirements.txt` から必要なライブラリをインストールし、Pythonコード内で使用するライブラリをインポートします。
+1. **ワークの輪郭検出**：
+   - `cv2.findContours()` 関数を使って、ワーク全体の輪郭（最大の輪郭）を検出します。ワーク外の部分（背景）を除外して、ワーク内部だけを処理するようにしています。
 
-2. **パラメータの設定**：
-   - 画像スケールとして1pxあたりの物理的なサイズ（mm）を設定。
-   - φ0.5mm以上の欠陥を検出するために必要なピクセル数を計算し、基準とします。
+2. **ワーク内部での欠陥検出**：
+   - ワーク内部をマスクとして扱い、マスク内でエッジ検出を行うことで、小さな欠陥のみを検出します。
+   - `cv2.bitwise_and()` で、ワーク部分のみを抽出し、その領域で欠陥候補を探します。
 
-3. **データの読み込み**：
-   - OKとNGのディレクトリから画像を読み込み、OKデータとNGデータをそれぞれ格納します。
-   
-4. **欠陥候補の検出**：
-   - 画像処理を行い、エッジ検出を使って欠陥候補となる領域を抽出。
-   - ラベリングを行い、各領域の面積を計算してφ0.5mm以上の欠陥を検出。
+3. **欠陥の大きさに基づくフィルタリング**：
+   - `prop.area >= MIN_DEFECT_AREA_PX` で、欠陥領域が小さすぎないかをフィルタリングし、φ0.5mm以上の欠陥のみを対象とします。
 
-5. **画像切り出し**：
-   - 検出された欠陥領域を基に、画像を切り出します。
-
-6. **切り出した画像の保存**：
-   - 切り出した画像をOKまたはNGの対応するディレクトリに保存します。NGの場合は欠陥の種類別にディレクトリを分けています。
-
-このように、各項目が独立して動作しつつ、メモリや処理時間を効率的に使用できるよう工夫しています。
+これにより、ワークの全体ではなく、ワーク内の小さな欠陥に焦点を当てた欠陥検出が可能になります。
