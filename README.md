@@ -48,24 +48,6 @@
 
 ---
 
-以下は、指定された要件に基づいて、Pythonコードと `requirements.txt` の内容を含む実装です。処理は6つの項目に分けられ、処理時間とメモリ使用量を最小限に抑える工夫をしています。
-
-### 1. requirements.txt
-
-まずは必要なライブラリを `requirements.txt` に記載します。
-
-```txt
-opencv-python==4.5.3.56
-numpy==1.21.2
-matplotlib==3.4.3
-scikit-image==0.18.3
-```
-
-### 2. Pythonコード (`.ipynb`)
-
-次に、Jupyter NotebookにおけるPythonコードです。
-
-```python
 # 1. ライブラリのインポート
 %pip install -r requirements.txt
 
@@ -74,6 +56,7 @@ import cv2
 import numpy as np
 from skimage import measure
 import matplotlib.pyplot as plt
+import gc  # ガベージコレクションを利用するためのモジュール
 
 # 2. パラメータの設定
 # 画像のスケール（例: 1px = 0.01mm）
@@ -81,6 +64,7 @@ PIXEL_TO_MM = 0.01
 # 欠陥の最小径（0.5mm）
 MIN_DEFECT_DIAMETER_MM = 0.5
 MIN_DEFECT_AREA_PX = (MIN_DEFECT_DIAMETER_MM / PIXEL_TO_MM) ** 2 * np.pi  # 欠陥の最小面積(px²)
+BATCH_SIZE = 50  # メモリ節約のために一度に読み込む画像の数を制限
 
 # データのパス
 input_data_dir = r"../data/input"
@@ -92,22 +76,33 @@ ng_dir = os.path.join(input_data_dir, 'NG')
 output_ok_dir = os.path.join(output_data_dir, 'OK')
 output_ng_dir = os.path.join(output_data_dir, 'NG')
 
-# 3. データの読み込み
-def load_images_from_directory(directory):
-    images = []
-    for filename in os.listdir(directory):
-        if filename.endswith('.jpg'):
+# 3. データの読み込み（メモリ効率化のためバッチ処理）
+def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0.5):
+    filenames = [f for f in os.listdir(directory) if f.endswith('.jpg')]
+    for i in range(0, len(filenames), batch_size):
+        batch_filenames = filenames[i:i+batch_size]
+        images = []
+        for filename in batch_filenames:
             img_path = os.path.join(directory, filename)
             img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)  # 画像はグレースケールで読み込む
-            images.append((filename, img))
-    return images
+            if img is None:
+                continue
+            # 画像のリサイズ（メモリ節約のために縮小）
+            img_resized = cv2.resize(img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_AREA)
+            images.append((filename, img_resized))
+        yield images
+        gc.collect()  # バッチ処理の後にメモリを解放
 
-# OK画像とNG画像の読み込み
-ok_images = load_images_from_directory(ok_dir)
+# OK画像とNG画像のバッチ読み込み
+def process_ok_images():
+    for batch_images in load_images_from_directory(ok_dir):
+        process_images(batch_images, "OK", is_ng=False)
 
-# NG画像のサブディレクトリ（鋳巣、凹み、亀裂）から読み込み
-ng_subdirs = ['鋳巣', '凹み', '亀裂']
-ng_images = {subdir: load_images_from_directory(os.path.join(ng_dir, subdir)) for subdir in ng_subdirs}
+def process_ng_images():
+    for subdir in ['鋳巣', '凹み', '亀裂']:
+        subdir_path = os.path.join(ng_dir, subdir)
+        for batch_images in load_images_from_directory(subdir_path):
+            process_images(batch_images, subdir, is_ng=True)
 
 # 4. 欠陥候補の検出
 def detect_defect_candidates(image):
@@ -142,6 +137,26 @@ def save_cropped_image(image, filename, defect_type, is_ng=False):
     
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
+    
+    save_path = os.path.join(save_dir, filename)
+    cv2.imwrite(save_path, image)
+
+# 画像を処理する関数
+def process_images(batch_images, defect_type, is_ng=False):
+    for filename, image in batch_images:
+        defect_candidates = detect_defect_candidates(image)
+        for i, bbox in enumerate(defect_candidates):
+            cropped_image = crop_defect_region(image, bbox)
+            save_cropped_image(cropped_image, f"{filename}_defect_{i}.jpg", defect_type, is_ng)
+
+# OK画像の処理
+process_ok_images()
+
+# NG画像の処理
+process_ng_images()
+
+print("処理が完了しました。")
+
     
     save_path = os.path.join(save_dir, filename)
     cv2.imwrite(save_path, image)
