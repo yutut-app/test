@@ -96,8 +96,11 @@ output_ng_dir = os.path.join(output_data_dir, 'NG')
 os.makedirs(test_data_dir, exist_ok=True)
 
 # 3. データの読み込み（メモリ効率化のためバッチ処理）
+# 3. データの読み込み（メモリ効率化のためバッチ処理）
 def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0.5):
     filenames = [f for f in os.listdir(directory) if f.endswith('.jpg')]
+    print(f"Found {len(filenames)} images in {directory}")  # デバッグ用出力
+
     for i in range(0, len(filenames), batch_size):
         batch_filenames = filenames[i:i+batch_size]
         images = []
@@ -105,10 +108,12 @@ def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0
             img_path = os.path.join(directory, filename)
             img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)  # 画像はグレースケールで読み込む
             if img is None:
+                print(f"Warning: Failed to load image {img_path}")  # 読み込みに失敗した場合
                 continue
             # 画像のリサイズ（メモリ節約のために縮小）
             img_resized = cv2.resize(img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_AREA)
             images.append((filename, img_resized))
+        print(f"Batch size: {len(images)} images processed")  # デバッグ用出力
         yield images
         gc.collect()  # バッチ処理の後にメモリを解放
 
@@ -120,6 +125,7 @@ def process_ok_images():
 def process_ng_images():
     for subdir in ['鋳巣', '凹み', '亀裂']:
         subdir_path = os.path.join(ng_dir, subdir)
+        print(f"Processing NG images in {subdir_path}")
         for batch_images in load_images_from_directory(subdir_path):
             process_images(batch_images, subdir, is_ng=True)
 
