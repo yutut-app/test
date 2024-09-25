@@ -96,7 +96,6 @@ output_ng_dir = os.path.join(output_data_dir, 'NG')
 os.makedirs(test_data_dir, exist_ok=True)
 
 # 3. データの読み込み（メモリ効率化のためバッチ処理）
-# 3. データの読み込み（メモリ効率化のためバッチ処理）
 def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0.5):
     filenames = [f for f in os.listdir(directory) if f.endswith('.jpg')]
     print(f"Found {len(filenames)} images in {directory}")  # デバッグ用出力
