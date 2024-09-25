@@ -61,9 +61,6 @@
 3. **ワーク内部の欠陥検出**：
    ワーク全体の輪郭を利用して、その内側のみでエッジ検出を行うことで、ワーク内部の欠陥を見つけるようにします。
 
-以下、改良後のコードです。
-
-```python
 # 1. ライブラリのインポート
 %pip install -r requirements.txt
 
@@ -75,22 +72,28 @@ import matplotlib.pyplot as plt
 import gc  # ガベージコレクションを利用するためのモジュール
 
 # 2. パラメータの設定
-# 画像のスケール（例: 1px = 0.01mm）
-PIXEL_TO_MM = 0.01
-# 欠陥の最小径（0.5mm）
+# 1px = 0.0625mm
+PIXEL_TO_MM = 0.0625
+# 欠陥の最小径（0.5mm）と最大径（50mm）
 MIN_DEFECT_DIAMETER_MM = 0.5
+MAX_DEFECT_DIAMETER_MM = 50
 MIN_DEFECT_AREA_PX = (MIN_DEFECT_DIAMETER_MM / PIXEL_TO_MM) ** 2 * np.pi  # 欠陥の最小面積(px²)
+MAX_DEFECT_AREA_PX = (MAX_DEFECT_DIAMETER_MM / PIXEL_TO_MM) ** 2 * np.pi  # 欠陥の最大面積(px²)
 BATCH_SIZE = 50  # メモリ節約のために一度に読み込む画像の数を制限
 
 # データのパス
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
+test_data_dir = r"../data/output/test/work_frame"  # ワークの輪郭画像を保存するディレクトリ
 
 # OKとNGのディレクトリ設定
 ok_dir = os.path.join(input_data_dir, 'OK')
 ng_dir = os.path.join(input_data_dir, 'NG')
 output_ok_dir = os.path.join(output_data_dir, 'OK')
 output_ng_dir = os.path.join(output_data_dir, 'NG')
+
+# 必要なディレクトリを作成（存在しない場合）
+os.makedirs(test_data_dir, exist_ok=True)
 
 # 3. データの読み込み（メモリ効率化のためバッチ処理）
 def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0.5):
@@ -121,7 +124,7 @@ def process_ng_images():
             process_images(batch_images, subdir, is_ng=True)
 
 # 4. 欠陥候補の検出（ワークの中の小さな欠陥）
-def detect_defect_candidates(image):
+def detect_defect_candidates(image, filename):
     # Step 1: ワークの輪郭を検出する（背景を除外）
     _, binary = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -131,6 +134,11 @@ def detect_defect_candidates(image):
         largest_contour = max(contours, key=cv2.contourArea)
         mask = np.zeros_like(image)
         cv2.drawContours(mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+        
+        # ワーク輪郭画像を保存
+        work_contour_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)  # 輪郭を色付き画像に変換
+        cv2.drawContours(work_contour_image, [largest_contour], -1, (0, 255, 0), 2)
+        cv2.imwrite(os.path.join(test_data_dir, f"{filename}_work_contour.jpg"), work_contour_image)
         
         # Step 2: ワーク内部でエッジ検出を行う
         work_area = cv2.bitwise_and(image, mask)
@@ -144,7 +152,7 @@ def detect_defect_candidates(image):
         # 欠陥候補の輪郭と面積を確認
         defect_candidates = []
         for prop in properties:
-            if prop.area >= MIN_DEFECT_AREA_PX:  # 欠陥が一定の大きさ以上の場合
+            if MIN_DEFECT_AREA_PX <= prop.area <= MAX_DEFECT_AREA_PX:  # 欠陥が指定範囲内の大きさの場合
                 defect_candidates.append(prop.bbox)  # bbox = (min_row, min_col, max_row, max_col)
         
         return defect_candidates
@@ -173,7 +181,7 @@ def save_cropped_image(image, filename, defect_type, is_ng=False):
 # 画像を処理する関数
 def process_images(batch_images, defect_type, is_ng=False):
     for filename, image in batch_images:
-        defect_candidates = detect_defect_candidates(image)
+        defect_candidates = detect_defect_candidates(image, filename)
         for i, bbox in enumerate(defect_candidates):
             cropped_image = crop_defect_region(image, bbox)
             save_cropped_image(cropped_image, f"{filename}_defect_{i}.jpg", defect_type, is_ng)
@@ -185,18 +193,3 @@ process_ok_images()
 process_ng_images()
 
 print("処理が完了しました。")
-```
-
-### 改良点の説明
-
-1. **ワークの輪郭検出**：
-   - `cv2.findContours()` 関数を使って、ワーク全体の輪郭（最大の輪郭）を検出します。ワーク外の部分（背景）を除外して、ワーク内部だけを処理するようにしています。
-
-2. **ワーク内部での欠陥検出**：
-   - ワーク内部をマスクとして扱い、マスク内でエッジ検出を行うことで、小さな欠陥のみを検出します。
-   - `cv2.bitwise_and()` で、ワーク部分のみを抽出し、その領域で欠陥候補を探します。
-
-3. **欠陥の大きさに基づくフィルタリング**：
-   - `prop.area >= MIN_DEFECT_AREA_PX` で、欠陥領域が小さすぎないかをフィルタリングし、φ0.5mm以上の欠陥のみを対象とします。
-
-これにより、ワークの全体ではなく、ワーク内の小さな欠陥に焦点を当てた欠陥検出が可能になります。
