@@ -148,4 +148,31 @@ https://scikit-image.org/docs/stable/auto_examples/features_detection/plot_templ
 
 ---
 
-このスライドで、初学者にも分かりやすく、LinuxとWindowsの比較が説明できます。
+見逃し率（false negative rate）と見過ぎ率（false positive rate）は混同行列（Confusion Matrix）の要素と直接関連しています。混同行列は、4つの要素から構成されます：
+
+- **True Positive (TP)**: NG対象を正しくNGとして判断した数
+- **True Negative (TN)**: NG対象でないものを正しくOKとして判断した数
+- **False Positive (FP)**: NG対象でないものをNGとして誤って判断した数（見過ぎ）
+- **False Negative (FN)**: NG対象をOKとして誤って判断した数（見逃し）
+
+### 見逃し率（False Negative Rate, FNR）
+- 計算式:  
+  \[
+  \text{見逃し率} = \frac{\text{False Negative (FN)}}{\text{True Positive (TP)} + \text{False Negative (FN)}} = \frac{\text{FN}}{\text{全NGデータ数}}
+  \]
+  - 見逃し率は、NG対象を正しく検知できなかった割合を示します。
+
+### 見過ぎ率（False Positive Rate, FPR）
+- 計算式:  
+  \[
+  \text{見過ぎ率} = \frac{\text{False Positive (FP)}}{\text{True Negative (TN)} + \text{False Positive (FP)}} = \frac{\text{FP}}{\text{全OKデータ数}}
+  \]
+  - 見過ぎ率は、OK対象を誤ってNGと判断してしまった割合を示します。
+
+---
+
+まとめると、
+- **見逃し率** = 混同行列の **FN** を **TP + FN** で割った値
+- **見過ぎ率** = 混同行列の **FP** を **TN + FP** で割った値
+
+このように、見逃し率と見過ぎ率は混同行列のFalse NegativeやFalse Positiveに基づいて計算されます。
