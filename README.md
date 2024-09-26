@@ -46,14 +46,20 @@ ok_images = load_images_from_directory(os.path.join(input_data_dir, "OK"))
 
 #### 4. NG_label1の画像表示
 ```python
-# Display first NG image from label1 (porosity)
+# Display first NG image from label1 (porosity) with correct color
 if ng_images_label1:
     image_path = ng_images_label1[0]
     image = io.imread(image_path)
+    
+    # Check if image is in the correct color format (RGB)
+    if len(image.shape) == 3:  # This is for color images
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
     plt.imshow(image)
     plt.title(f"NG Label 1 (Porosity) - {os.path.basename(image_path)}")
     plt.axis('off')
     plt.show()
+
 ```
 
 ### requirements.txt
