@@ -1,4 +1,4 @@
-以下に、ステップ4.2（ワーク接合部の削除）を含めた全体の処理を示します。このステップでは、テンプレートマッチングを使用してワークの左右を判別し、対応する方向から3730ピクセルで切り出します。
+次の修正では、ワーク接合部の削除を「二直化した元画像（binarized_image）」と「キーエンス前処理画像（keyence_image_path）」の両方に適用します。
 
 ### .ipynb構成
 
@@ -19,11 +19,12 @@ import matplotlib.pyplot as plt
 # パラメータの設定
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
+template_dir = os.path.join(input_data_dir, "template")  # テンプレートディレクトリ
+right_template = os.path.join(template_dir, "right_keyence.jpg")
+left_template = os.path.join(template_dir, "left_keyence.jpg")
 ng_labels = ['label1', 'label2', 'label3']  # label1: porosity, label2: dents, label3: cracks (亀裂)
-work_right_dir = os.path.join(input_data_dir, "work_right")
-work_left_dir = os.path.join(input_data_dir, "work_left")
 threshold_value = 150  # 二直化のしきい値
-crop_width = 3730  # ワーク接合部を削除する際の見切り位置
+crop_offset = 1360  # ワーク接合部の削除時のオフセット値
 ```
 
 #### 3. データの読み込み
@@ -52,6 +53,10 @@ ng_images_label1 = load_origin_keyence_images(os.path.join(input_data_dir, "NG",
 ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK"))
 ```
 
+#### 4. 元画像からワークのH面領域を検出
+
+省略（H面の検出）。
+
 #### 4.1 二直化処理
 ```python
 # 二直化処理を元画像に適用し、matched_imagesを更新する
@@ -64,7 +69,7 @@ def binarize_images(matched_images, threshold):
         # 二直化処理を適用 (THRESH_BINARY)
         _, binarized_image = cv2.threshold(normal_image, threshold, 255, cv2.THRESH_BINARY)
 
-        # 更新された画像リストに追加
+        # H面が白色になるように処理する
         updated_images.append((binarized_image, keyence_image_path))
 
     return updated_images
@@ -73,64 +78,65 @@ def binarize_images(matched_images, threshold):
 matched_images = binarize_images(ng_images_label1, threshold_value)
 ```
 
-#### 4.2 ワーク接合部の削除（テンプレートマッチングを使用して左右を判定）
+#### 4.2 ワーク接合部の削除
 ```python
-# ワーク接合部を削除する関数
-def remove_joint_part(matched_images, work_right_template, work_left_template, crop_width):
+# テンプレートマッチングによってワークの左右を判定し、二直化画像とキーエンス画像の両方の接合部を削除する
+def remove_joint_area(matched_images, right_template, left_template):
     updated_images = []
+    
+    # テンプレート画像の読み込み
+    right_template_img = cv2.imread(right_template, cv2.IMREAD_GRAYSCALE)
+    left_template_img = cv2.imread(left_template, cv2.IMREAD_GRAYSCALE)
+
     for binarized_image, keyence_image_path in matched_images:
         # Keyence画像の読み込み
-        keyence_image = io.imread(keyence_image_path)
+        keyence_image = io.imread(keyence_image_path, as_gray=True)
 
-        # テンプレートマッチングを使用して右側か左側かを判定
-        result_right = cv2.matchTemplate(binarized_image, work_right_template, cv2.TM_CCOEFF)
-        result_left = cv2.matchTemplate(binarized_image, work_left_template, cv2.TM_CCOEFF)
+        # テンプレートマッチングを実行し、どちら側かを判定
+        right_res = cv2.matchTemplate(keyence_image, right_template_img, cv2.TM_CCOEFF)
+        left_res = cv2.matchTemplate(keyence_image, left_template_img, cv2.TM_CCOEFF)
 
-        # 結果に基づき、右側か左側を判断
-        min_val_right, max_val_right, min_loc_right, max_loc_right = cv2.minMaxLoc(result_right)
-        min_val_left, max_val_left, min_loc_left, max_loc_left = cv2.minMaxLoc(result_left)
+        # 最大値を持つマッチング結果に基づいて左右を判定
+        right_max_val = cv2.minMaxLoc(right_res)[1]
+        left_max_val = cv2.minMaxLoc(left_res)[1]
 
-        if max_val_right > max_val_left:
-            # 右側のワーク → 左から3730ピクセルで切り出す
-            binarized_image_cropped = binarized_image[:, :crop_width]
-            keyence_image_cropped = keyence_image[:, :crop_width]
+        # ワークが右側なら左から1360ピクセル見切る、左側なら右から1360ピクセル見切る
+        if right_max_val > left_max_val:
+            # ワークが右側
+            cropped_binarized_image = binarized_image[:, crop_offset:]
+            cropped_keyence_image = keyence_image[:, crop_offset:]
         else:
-            # 左側のワーク → 右から3730ピクセルで切り出す
-            binarized_image_cropped = binarized_image[:, -crop_width:]
-            keyence_image_cropped = keyence_image[:, -crop_width:]
+            # ワークが左側
+            cropped_binarized_image = binarized_image[:, :-crop_offset]
+            cropped_keyence_image = keyence_image[:, :-crop_offset]
 
-        # 切り出した画像を更新
-        updated_images.append((binarized_image_cropped, keyence_image_cropped))
+        updated_images.append((cropped_binarized_image, cropped_keyence_image))
 
     return updated_images
 
-# ワーク右側と左側のテンプレート画像を読み込む
-work_right_template = io.imread(os.path.join(work_right_dir, "template_right.jpg"), as_gray=True)
-work_left_template = io.imread(os.path.join(work_left_dir, "template_left.jpg"), as_gray=True)
-
-# ワーク接合部の削除処理を実行
-updated_images = remove_joint_part(matched_images, work_right_template, work_left_template, crop_width)
+# ワーク接合部を削除
+updated_images = remove_joint_area(matched_images, right_template, left_template)
 ```
 
 #### 5. 最初のペアの画像を表示
 ```python
 # 更新されたupdated_imagesの最初のペアを表示
 if updated_images:
-    binarized_image_cropped, keyence_image_cropped = updated_images[0]
+    cropped_binarized_image, cropped_keyence_image = updated_images[0]
 
     # 二直化された元画像とKeyence画像を表示
     plt.figure(figsize=(10, 5))
 
-    # 二直化された元画像
+    # ワーク接合部が削除された二直化画像
     plt.subplot(1, 2, 1)
-    plt.imshow(binarized_image_cropped, cmap='gray')
-    plt.title("Cropped Binarized Origin Image")
+    plt.imshow(cropped_binarized_image, cmap='gray')
+    plt.title("Cropped Binarized Image (Joint Removed)")
     plt.axis('off')
 
-    # Keyence画像
+    # ワーク接合部が削除されたKeyence画像
     plt.subplot(1, 2, 2)
-    plt.imshow(keyence_image_cropped, cmap='gray')
-    plt.title(f"Cropped Keyence Image")
+    plt.imshow(cropped_keyence_image, cmap='gray')
+    plt.title("Cropped Keyence Image (Joint Removed)")
     plt.axis('off')
 
     plt.show()
@@ -138,20 +144,12 @@ else:
     print("No updated images found.")
 ```
 
-### requirements.txt
-```plaintext
-opencv-python
-scikit-image
-matplotlib
-numpy
-```
-
 ### 説明
-1. **ライブラリのインポート**：ここには特に追加項目はありません。
-2. **パラメータの設定**：接合部削除のための`crop_width`（3730ピクセル）や、テンプレート画像のパスを設定します。
-3. **データの読み込み**：元画像とキーエンス画像のペアを読み込みます。
-4. **二直化処理**：しきい値を使用して元画像を二直化します。
-5. **ワーク接合部の削除**：テンプレートマッチングにより、ワークが右側か左側かを判定し、接合部を削除する処理を行います。
-6. **画像表示**：処理後の二直化された元画像とキーエンス画像を表示します。
+1. **ライブラリのインポート**：`cv2`と`skimage`を使用し、テンプレートマッチングと画像処理を行います。
+2. **パラメータの設定**：テンプレートマッチングに必要な左右のテンプレート画像と、接合部の見切りオフセット（1360ピクセル）を設定します。
+3. **データの読み込み**：`Normal`と`Shape`の画像をマッチングして読み込みます。
+4. **二直化処理**：`cv2.THRESH_BINARY`で元画像を二直化します。
+5. **ワーク接合部の削除**：テンプレートマッチングを用いて、ワークが左右どちら側かを判定し、二直化した元画像とキーエンス前処理画像の両方で接合部を見切ります。右側なら左から1360ピクセル、左側なら右から1360ピクセル削除します。
+6. **画像表示**：更新された最初のペア（接合部削除済みの二直化画像とKeyence画像）を表示します。
 
-これで、ワークの左右判定に基づいた接合部の削除を行い、メモリ効率のよい処理を実現しています。
+この実装により、両方の画像に対して接合部を適切に削除する処理が行われます。
