@@ -1,130 +1,100 @@
-項目4.1「二直化」の部分を実装し、元画像を二直化するコードを作成します。`cv2.threshold()`を使用して、元画像を二値化します。メモリ効率と実行速度を考慮しつつ、skimageを用いて画像を処理します。
+以下は、修正された.ipynbファイルで、元画像（Normal）とキーエンス前処理画像（Shape）が同じワークであることを認識し、それらを同時に処理するためのステップです。
 
-### .ipynbの構成
+### .ipynb構成
 
 #### 1. ライブラリのインポート
 ```python
-# ライブラリのインポート
+# Import necessary libraries
 %pip install -r requirements.txt
 
 import os
 import cv2
 import numpy as np
-from skimage import io
+from skimage import io, filters, feature, measure
 import matplotlib.pyplot as plt
 ```
 
 #### 2. パラメータの設定
 ```python
-# パラメータの設定
+# Set parameters
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
-
-ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
-threshold_value = 150  # 二直化のしきい値
-crop_size = 3730  # ワーク接合部を削除するためのクロップサイズ
+ng_labels = ['label1', 'label2', 'label3']  # label1: porosity, label2: dents, label3: cracks (亀裂)
+work_right_dir = os.path.join(input_data_dir, "work_right")
+work_left_dir = os.path.join(input_data_dir, "work_left")
 ```
 
 #### 3. データの読み込み
 ```python
-# データの読み込み
-def load_images_from_directory(directory):
-    image_paths = []
+# Function to load matching Normal and Shape images based on filename pattern
+def load_origin_keyence_images(directory):
+    normal_images = {}
+    shape_images = {}
     for root, dirs, files in os.walk(directory):
         for file in files:
-            if file.endswith(".jpg"):
-                image_paths.append(os.path.join(root, file))
-    return sorted(image_paths)
+            if "Normal" in file and file.endswith(".jpg"):
+                # Extract the base name to match with the Shape file
+                base_name = file.replace("Normal", "")
+                normal_images[base_name] = os.path.join(root, file)
+            elif "Shape" in file and file.endswith(".jpg"):
+                base_name = file.replace("Shape", "")
+                shape_images[base_name] = os.path.join(root, file)
+    
+    # Find matching Normal and Shape images
+    matched_images = []
+    for base_name in normal_images:
+        if base_name in shape_images:
+            matched_images.append((normal_images[base_name], shape_images[base_name]))
+    return matched_images
 
-# NGデータの読み込み (label1: 鋳巣)
-ng_images_label1 = load_images_from_directory(os.path.join(input_data_dir, "NG", "label1"))
+# Load NG images from label1 (porosity)
+ng_images_label1 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label1"))
 
-# ワーク画像の読み込み
-work_right_images = load_images_from_directory(os.path.join(input_data_dir, "work_right"))
-work_left_images = load_images_from_directory(os.path.join(input_data_dir, "work_left"))
+# Load OK images
+ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK"))
 ```
 
-#### 4. 元画像からワークのH面領域を検出
-このステップでは、H面の領域を検出する機能を後で実装する予定です。今はスキップします。
-
-#### 4.1 二直化
+#### 4. NG_label1の画像表示
 ```python
-# 4.1 二直化 (元画像の二直化)
-if len(ng_images_label1) >= 1:
-    # 最初の元画像を読み込む
-    origin_image_path = ng_images_label1[0]
-    origin_image = io.imread(origin_image_path, as_gray=True)  # グレースケールとして読み込む
+# Display first NG images from label1 (porosity) - both origin and Keyence processed images
+if ng_images_label1:
+    # Get the first pair of Normal and Shape images
+    origin_image_path, keyence_image_path = ng_images_label1[0]
     
-    # OpenCVの閾値処理を用いた二直化
-    _, binary_image = cv2.threshold((origin_image * 255).astype(np.uint8), threshold_value, 255, cv2.THRESH_BINARY)
-    
-    # 二直化した画像を表示
-    plt.imshow(binary_image, cmap='gray')
-    plt.title(f"Binary Image (Threshold {threshold_value}) - {os.path.basename(origin_image_path)}")
+    # Load the images
+    origin_image = io.imread(origin_image_path)
+    keyence_image = io.imread(keyence_image_path)
+
+    # Display original image (Normal)
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(origin_image, cmap='gray')
+    plt.title(f"Origin Image - {os.path.basename(origin_image_path)}")
     plt.axis('off')
+
+    # Display Keyence processed image (Shape)
+    plt.subplot(1, 2, 2)
+    plt.imshow(keyence_image, cmap='gray')
+    plt.title(f"Keyence Image - {os.path.basename(keyence_image_path)}")
+    plt.axis('off')
+
     plt.show()
 else:
-    print("NG_label1の画像が見つかりません。")
+    print("No images found in NG_label1.")
 ```
 
-
-#### 4.2 ワーク接合部の削除
-```python
-# 4.2 ワーク接合部の削除 (テンプレートマッチングとクロップ処理)
-
-def detect_work_side(image, template_right, template_left):
-    """
-    画像がワークの右側か左側かをテンプレートマッチングで検出する関数
-    """
-    # テンプレートマッチングで右側と左側を検出
-    res_right = cv2.matchTemplate(image, template_right, cv2.TM_CCOEFF)
-    res_left = cv2.matchTemplate(image, template_left, cv2.TM_CCOEFF)
-    
-    _, max_val_right, _, max_loc_right = cv2.minMaxLoc(res_right)
-    _, max_val_left, _, max_loc_left = cv2.minMaxLoc(res_left)
-
-    if max_val_right > max_val_left:
-        return "right", max_loc_right
-    else:
-        return "left", max_loc_left
-
-# テンプレート画像の読み込み (work_right, work_leftの最初の画像をテンプレートとして使用)
-template_right = io.imread(work_right_images[0], as_gray=True)
-template_left = io.imread(work_left_images[0], as_gray=True)
-
-# 二直化した元画像でテンプレートマッチングを実行してワークの左右を識別
-side, _ = detect_work_side(binary_image, template_right, template_left)
-
-# ワークの接合部を削除するクロップ処理
-if side == "right":
-    # ワークの右側の場合、左から3730ピクセルを削除
-    cropped_image = binary_image[:, crop_size:]
-else:
-    # ワークの左側の場合、右から3730ピクセルを削除
-    cropped_image = binary_image[:, :-crop_size]
-
-# クロップした画像を表示
-plt.imshow(cropped_image, cmap='gray')
-plt.title(f"Cropped Image ({side} side) - {os.path.basename(origin_image_path)}")
-plt.axis('off')
-plt.show()
+### requirements.txt
+```plaintext
+opencv-python
+scikit-image
+matplotlib
+numpy
 ```
 
-### 追加説明
-1. **ライブラリのインポート**：
-   OpenCVとskimageを引き続き使用します。テンプレートマッチングを行うために、OpenCVの`cv2.matchTemplate()`関数を使用します。
-   
-2. **パラメータの設定**：
-   ワーク接合部を削除するために、クロップサイズ（3730ピクセル）を指定しています。
+### 説明
+1. **ライブラリのインポート**では、`requirements.txt`から指定のライブラリをインポートし、`skimage`や`opencv`を使って画像処理を行います。
+2. **パラメータの設定**では、画像のディレクトリやラベル情報、ワーク側のディレクトリパスを設定します。
+3. **データの読み込み**では、`Normal`と`Shape`がペアになった画像をそれぞれ正しくマッチングして読み込みます。同じワークに対応する元画像（Normal）とキーエンス前処理画像（Shape）を基に、マッチングペアをリストに格納します。
+4. **NG_label1の画像表示**では、ペアとなったNormal（元画像）とShape（キーエンス前処理画像）の最初のセットを表示します。
 
-3. **テンプレートマッチング**：
-   ワークの右側か左側かを判定するために、テンプレートマッチングを使用します。`work_right`と`work_left`ディレクトリ内の画像をテンプレートとして、入力された画像をマッチングします。
-
-4. **ワーク接合部の削除**：
-   ワークが右側であれば、左から3730ピクセルを削除し、左側であれば、右から3730ピクセルを削除します。このクロップ処理によって、ワーク接合部が削除されます。
-
-### メモリと処理時間の工夫
-- 必要な領域のみをクロップして処理することで、メモリ使用量を抑えています。
-- テンプレートマッチングによってワークの側面を自動で検出し、手動での分類を不要にしています。
-
-このコードによって、テンプレートマッチングを使ってワークの左右を識別し、接合部の削除を行った後の二直化画像が表示されます。
+この構成で、元画像とキーエンス前処理画像が同じワークとして正しく処理されるようになり、次のステップに進める基盤が整います。
