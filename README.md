@@ -19,8 +19,9 @@ import matplotlib.pyplot as plt
 # パラメータの設定
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
-threshold_value = 150  # 二直化のしきい値
+
 ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
+threshold_value = 150  # 二直化のしきい値
 crop_size = 3730  # ワーク接合部を削除するためのクロップサイズ
 ```
 
@@ -37,6 +38,10 @@ def load_images_from_directory(directory):
 
 # NGデータの読み込み (label1: 鋳巣)
 ng_images_label1 = load_images_from_directory(os.path.join(input_data_dir, "NG", "label1"))
+
+# ワーク画像の読み込み
+work_right_images = load_images_from_directory(os.path.join(input_data_dir, "work_right"))
+work_left_images = load_images_from_directory(os.path.join(input_data_dir, "work_left"))
 ```
 
 #### 4. 元画像からワークのH面領域を検出
