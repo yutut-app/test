@@ -1,138 +1,102 @@
-# 1. ライブラリのインポート
-%pip install -r requirements.txt
-
-import os
+import streamlit as st
 import cv2
 import numpy as np
-import gc  # ガベージコレクションを利用するためのモジュール
+from skimage import measure
+import matplotlib.pyplot as plt
 
-# 2. パラメータの設定
-# 1px = 0.0625mm
-PIXEL_TO_MM = 0.0625
-# 切り取る範囲のサイズ (3730 x 3640 px) -> mmへの換算は必要な場合に考慮
-CUT_WIDTH = 3730
-CUT_HEIGHT = 3640
+# サイドバーで設定モードを選択
+st.sidebar.title("モード選択")
+mode = st.sidebar.selectbox("設定する機能を選択してください", ["エッジ検出パラメータ設定", "二値化パラメータ設定"])
 
-# データのパス
-input_data_dir = os.path.join("..", "data", "input")
-output_data_dir = os.path.join("..", "data", "output")
-template_right_dir = os.path.join(input_data_dir, 'work_frame_right')  # 右側ワークの参照画像
-template_left_dir = os.path.join(input_data_dir, 'work_frame_left')    # 左側ワークの参照画像
+# 画像のアップロード
+uploaded_file = st.sidebar.file_uploader("画像をアップロード", type=["jpg", "jpeg", "png"])
 
-# OKとNGのディレクトリ設定
-ok_dir = os.path.join(input_data_dir, 'OK')
-ng_dir = os.path.join(input_data_dir, 'NG')
-output_ok_dir = os.path.join(output_data_dir, 'OK')
-output_ng_dir = os.path.join(output_data_dir, 'NG')
+if uploaded_file is not None:
+    # 画像を読み込み
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, 1)
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# 必要なディレクトリを作成（存在しない場合）
-os.makedirs(output_ok_dir, exist_ok=True)
-os.makedirs(output_ng_dir, exist_ok=True)
+    if mode == "エッジ検出パラメータ設定":
+        # エッジ検出パラメータ設定
+        st.sidebar.title("エッジ検出パラメータ設定")
+        
+        # ガウシアンブラーのカーネルサイズ（奇数のみ）
+        blur_kernel_size = st.sidebar.slider("ガウシアンブラー カーネルサイズ", 1, 21, 5, step=2)
+        
+        # Canny エッジ検出の閾値
+        canny_threshold1 = st.sidebar.slider("Canny エッジ検出 閾値1", 0, 300, 50)
+        canny_threshold2 = st.sidebar.slider("Canny エッジ検出 閾値2", 0, 300, 150)
+        
+        # ガウシアンブラーを適用
+        blurred_img = cv2.GaussianBlur(gray_image, (blur_kernel_size, blur_kernel_size), 0)
+        
+        # Cannyエッジ検出
+        edges = cv2.Canny(blurred_img, canny_threshold1, canny_threshold2)
+        
+        # ラベリングによる輪郭抽出
+        labeled_image = measure.label(edges, connectivity=2)
+        properties = measure.regionprops(labeled_image)
+        
+        # 結果の表示
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
 
-# 3. テンプレート画像の読み込み
-def load_template_images():
-    right_template = []
-    left_template = []
+        # オリジナルの画像
+        ax[0].imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        ax[0].set_title("オリジナル画像")
+        ax[0].axis("off")
 
-    for filename in os.listdir(template_right_dir):
-        if filename.endswith('.jpg'):
-            img_path = os.path.join(template_right_dir, filename)
-            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-            if img is not None:
-                right_template.append(img)
+        # エッジ検出結果
+        ax[1].imshow(edges, cmap="gray")
+        ax[1].set_title("エッジ検出結果")
+        ax[1].axis("off")
 
-    for filename in os.listdir(template_left_dir):
-        if filename.endswith('.jpg'):
-            img_path = os.path.join(template_left_dir, filename)
-            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-            if img is not None:
-                left_template.append(img)
+        st.pyplot(fig)
 
-    return right_template, left_template
+        # 各ラベル領域をリスト化して表示
+        st.write(f"検出された領域数: {len(properties)}")
+        for i, prop in enumerate(properties):
+            st.write(f"領域 {i + 1}: 面積 = {prop.area}")
 
-# 4. テンプレートマッチングによる右側か左側かの認識
-def recognize_work_side(input_img, right_template, left_template):
-    # 入力画像と右側、左側のテンプレート画像を比較して、どちらに近いかを判断
-    right_match = 0
-    left_match = 0
+    elif mode == "二値化パラメータ設定":
+        # 二値化パラメータ設定
+        st.sidebar.title("二値化パラメータ設定")
 
-    # 右側テンプレートとの比較
-    for template in right_template:
-        res = cv2.matchTemplate(input_img, template, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(res)
-        right_match = max(right_match, max_val)
+        # 閾値の設定
+        threshold_value = st.sidebar.slider("二値化 閾値", 0, 255, 128)
+        
+        # 閾値処理のタイプ選択
+        threshold_type = st.sidebar.selectbox(
+            "閾値タイプ", 
+            ["THRESH_BINARY", "THRESH_BINARY_INV", "THRESH_TRUNC", "THRESH_TOZERO", "THRESH_TOZERO_INV"]
+        )
 
-    # 左側テンプレートとの比較
-    for template in left_template:
-        res = cv2.matchTemplate(input_img, template, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(res)
-        left_match = max(left_match, max_val)
+        # OpenCVの閾値タイプに対応する辞書
+        threshold_types = {
+            "THRESH_BINARY": cv2.THRESH_BINARY,
+            "THRESH_BINARY_INV": cv2.THRESH_BINARY_INV,
+            "THRESH_TRUNC": cv2.THRESH_TRUNC,
+            "THRESH_TOZERO": cv2.THRESH_TOZERO,
+            "THRESH_TOZERO_INV": cv2.THRESH_TOZERO_INV
+        }
+        
+        # 二値化処理
+        _, binary_image = cv2.threshold(gray_image, threshold_value, 255, threshold_types[threshold_type])
 
-    # 最大値を比較して、右側か左側かを判断
-    return 'right' if right_match > left_match else 'left'
+        # 結果の表示
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
 
-# 5. ワーク部分の切り出し
-def crop_work_region(image, work_side):
-    height, width = image.shape
+        # オリジナルの画像
+        ax[0].imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        ax[0].set_title("オリジナル画像")
+        ax[0].axis("off")
 
-    if work_side == 'right':
-        # 右側なら左下を基準として3730x3640を切り取り
-        cropped_image = image[height - CUT_HEIGHT:height, 0:CUT_WIDTH]
-    else:
-        # 左側なら右下を基準として3730x3640を切り取り
-        cropped_image = image[height - CUT_HEIGHT:height, width - CUT_WIDTH:width]
+        # 二値化結果
+        ax[1].imshow(binary_image, cmap="gray")
+        ax[1].set_title("二値化結果")
+        ax[1].axis("off")
 
-    return cropped_image
+        st.pyplot(fig)
 
-# 6. 切り出した画像の保存
-def save_cropped_image(image, filename, defect_type, is_ng=False):
-    if is_ng:
-        save_dir = os.path.join(output_ng_dir, defect_type)
-    else:
-        save_dir = output_ok_dir
-
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
-    save_path = os.path.join(save_dir, filename)
-    cv2.imwrite(save_path, image)
-
-# 7. データの読み込みとワーク部分の切り出し処理
-def process_images():
-    right_template, left_template = load_template_images()
-
-    # OK画像の処理
-    for filename in os.listdir(ok_dir):
-        if filename.endswith('.jpg'):
-            img_path = os.path.join(ok_dir, filename)
-            input_img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-            if input_img is None:
-                print(f"Warning: Failed to load image {img_path}")
-                continue
-
-            # ワークの左右を判定
-            work_side = recognize_work_side(input_img, right_template, left_template)
-            cropped_image = crop_work_region(input_img, work_side)
-            save_cropped_image(cropped_image, filename, "OK", is_ng=False)
-
-    # NG画像の処理
-    for defect_type in ['porosity', 'dent', 'crack']:
-        defect_dir = os.path.join(ng_dir, defect_type)
-        for filename in os.listdir(defect_dir):
-            if filename.endswith('.jpg'):
-                img_path = os.path.join(defect_dir, filename)
-                input_img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-                if input_img is None:
-                    print(f"Warning: Failed to load image {img_path}")
-                    continue
-
-                # ワークの左右を判定
-                work_side = recognize_work_side(input_img, right_template, left_template)
-                cropped_image = crop_work_region(input_img, work_side)
-                save_cropped_image(cropped_image, filename, defect_type, is_ng=True)
-
-# メイン処理の実行
-process_images()
-
-print("処理が完了しました。")
-
+else:
+    st.write("左のサイドバーから画像をアップロードしてください。")
