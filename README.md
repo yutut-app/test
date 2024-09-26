@@ -46,15 +46,32 @@ ok_images = load_images_from_directory(os.path.join(input_data_dir, "OK"))
 
 #### 4. NG_label1の画像表示
 ```python
-# Display first NG image from label1 (porosity) in grayscale
-if ng_images_label1:
-    image_path = ng_images_label1[0]
-    image = io.imread(image_path)
-    plt.imshow(image, cmap='gray')  # Ensure grayscale display
-    plt.title(f"NG Label 1 (Porosity) - {os.path.basename(image_path)}")
-    plt.axis('off')
-    plt.show()
+# Display first NG images from label1 (porosity) - both origin and keyence processed images
+if len(ng_images_label1) >= 2:
+    # First image is assumed to be the original image
+    origin_image_path = ng_images_label1[0]
+    origin_image = io.imread(origin_image_path)
+    
+    # Second image is assumed to be the Keyence processed image
+    keyence_image_path = ng_images_label1[1]
+    keyence_image = io.imread(keyence_image_path)
 
+    # Display original image (Normal)
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(origin_image, cmap='gray')
+    plt.title(f"Origin Image - {os.path.basename(origin_image_path)}")
+    plt.axis('off')
+
+    # Display Keyence processed image (Shape)
+    plt.subplot(1, 2, 2)
+    plt.imshow(keyence_image, cmap='gray')
+    plt.title(f"Keyence Image - {os.path.basename(keyence_image_path)}")
+    plt.axis('off')
+
+    plt.show()
+else:
+    print("Not enough images in NG_label1 for both origin and keyence images.")
 ```
 
 ### requirements.txt
