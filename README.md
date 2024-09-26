@@ -21,6 +21,7 @@ input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
 threshold_value = 150  # 二直化のしきい値
 ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
+crop_size = 3730  # ワーク接合部を削除するためのクロップサイズ
 ```
 
 #### 3. データの読み込み
