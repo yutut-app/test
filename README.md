@@ -1,61 +1,169 @@
-### 決定事項
-- 凹みと亀裂のデータについて、現状は先方にてワークに欠陥を入れて撮影し、提供していただく。(先方)
-- 1pxはおおよそ0.1mmという仕様で進める。(先方)
-- 請求書（実施内容報告書）は10/1〜10/3の間に送付する。(自社)
+# 1. ライブラリのインポート
+%pip install -r requirements.txt
 
-## ToDo
-### 先方
-- 凹みと亀裂のデータを準備し、撮影して提供する。
-- 検出精度の目標値を社内で確認する。
-- 1枚の画像あたりの処理時間を社内で検討し、進める。
-- 請求書（実施内容報告書）を10/1〜10/3に受け取る準備をする。
+import os
+import cv2
+import numpy as np
+from skimage import measure
+import matplotlib.pyplot as plt
+import gc  # ガベージコレクションを利用するためのモジュール
 
-### 自社
-- 特徴量による分析結果を1〜2週間以内に報告する。（凹みや亀裂のデータ次第で変更あり）
-- LinuxとWindowsのメリット・デメリットの提示と、コンテナを使用した移行について検討する。
-- 請求書（実施内容報告書）を10/1〜10/3の間に送付する。
+# 2. パラメータの設定
+# 1px = 0.0625mm
+PIXEL_TO_MM = 0.0625
+# 欠陥の最小径（0.5mm）と最大径（50mm）
+MIN_DEFECT_DIAMETER_MM = 0.5
+MAX_DEFECT_DIAMETER_MM = 50
+MIN_DEFECT_AREA_PX = (MIN_DEFECT_DIAMETER_MM / PIXEL_TO_MM) ** 2 * np.pi  # 欠陥の最小面積(px²)
+MAX_DEFECT_AREA_PX = (MAX_DEFECT_DIAMETER_MM / PIXEL_TO_MM) ** 2 * np.pi  # 欠陥の最大面積(px²)
+BATCH_SIZE = 50  # メモリ節約のために一度に読み込む画像の数を制限
 
-## 議事内容
-#### 会議の主題:
-- 分析案件の進捗報告および作業内容の確認
+# データのパス
+input_data_dir = os.path.join("..", "data", "input")
+output_data_dir = os.path.join("..", "data", "output")
+test_data_dir = os.path.join(output_data_dir, "test", "work_frame")  # ワークの輪郭画像を保存するディレクトリ
 
-#### 次回打ち合わせ：
-- 2024/10/3 11:00〜12:15
+# ワークのテンプレート画像
+template_right_dir = os.path.join(input_data_dir, 'work_frame_right')  # 右側のテンプレート
+template_left_dir = os.path.join(input_data_dir, 'work_frame_left')    # 左側のテンプレート
 
-### 1. 分析案件週次報告（報告：自社）
-1.1. スケジュール確認（自社）
-1.2. 作業タスク確認（自社）
-1.3. 進捗報告 (C36外観方法 - 分析方法提案)（自社）
-- 1.3.1. 提案するモデルフロー（自社）
-- 1.3.2. 性能指標の提案（自社）
-- 1.3.3. 現在進行中の作業内容（自社）
-- 1.3.4. LinuxとWindowsのメリット・デメリット（自社）
+# OKとNGのディレクトリ設定
+ok_dir = os.path.join(input_data_dir, 'OK')
+ng_dir = os.path.join(input_data_dir, 'NG')
+output_ok_dir = os.path.join(output_data_dir, 'OK')
+output_ng_dir = os.path.join(output_data_dir, 'NG')
 
-### 2. 質疑応答
-- **LinuxとWindowsのメリットデメリットにおいて、まずはLinuxで実装していただき、Windowsに移行することは可能でしょうか？** (先方)
-  →「コンテナ(Docker)を使用することで、比較的簡単に移行できます。Docker DesktopなどでLinux環境を仮想的に使用することで実現可能です。ただし同じ金額でライセンスを使用できる時間がWindowsの方が少ないため、考慮が必要です。」(自社)
+# 必要なディレクトリを作成（存在しない場合）
+os.makedirs(test_data_dir, exist_ok=True)
 
-- **提案していただいたモデルフローにおいて、特徴量による分析はルールベースで行うということですか？** (先方)
-  →「線状の欠陥のツールマークと円状の欠陥の水滴や鋳巣など、明らかに人間の目でわかる特徴があれば、振り分けを行います。」(自社)
+# 3. テンプレートマッチングを行う関数
+def template_matching(img, templates):
+    best_match_val = -1
+    best_match_loc = None
+    best_template = None
+    
+    for template_path in templates:
+        template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+        if template is None:
+            print(f"Warning: Failed to load template image {template_path}")
+            continue
 
-- **特徴量による分析で結果を提示していただけるまでの目安を教えてください** (先方)
-  →「凹みや亀裂のデータ次第ですが、目視で判断できる特徴量でうまく振り分けることができれば1〜2週間程度で結果が出せる見込みです。もし分析に時間がかかる場合は3週間ほどかかる可能性がありますが、進捗状況は都度報告いたします。」(自社)
+        # テンプレートマッチングを実行
+        res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
-### 3. 相談事項
-- **具体的な検出精度の目標値はございますか？** (自社)
-  →「現在社内で確認中です。」(先方)
+        if max_val > best_match_val:  # より良い一致を見つけた場合
+            best_match_val = max_val
+            best_match_loc = max_loc
+            best_template = template
 
-- **現状の精度と比較したいため、現状の精度の計算式と値をお伺いしたい** (自社)
-  →「本日提案していただいた性能指標を基に進めていただきたいです。」(先方)
+    return best_template, best_match_loc
 
-- **1枚の画像あたりの処理時間の目標値はありますか？** (自社)
-  →「社内で検討します。工程ではワークの右と左で10秒ほどで、1枚あたり5秒です。」(先方)
+# 4. データの読み込み（メモリ効率化のためバッチ処理）
+def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0.5):
+    filenames = [f for f in os.listdir(directory) if f.endswith('.jpg')]
+    print(f"Found {len(filenames)} images in {directory}")  # デバッグ用出力
 
-- **凹みと亀裂については、データ数はどのくらいをいただけますか？** (自社)
-  →「現状はありませんが、ワークに凹みと亀裂を間接的に入れて撮影いたします。」(先方)
+    for i in range(0, len(filenames), batch_size):
+        batch_filenames = filenames[i:i+batch_size]
+        images = []
+        for filename in batch_filenames:
+            img_path = os.path.join(directory, filename)
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)  # 画像はグレースケールで読み込む
+            if img is None:
+                print(f"Warning: Failed to load image {img_path}")  # 読み込みに失敗した場合
+                continue
+            # 画像のリサイズ（メモリ節約のために縮小）
+            img_resized = cv2.resize(img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_AREA)
+            images.append((filename, img_resized))
+        print(f"Batch size: {len(images)} images processed")  # デバッグ用出力
+        yield images
+        gc.collect()  # バッチ処理の後にメモリを解放
 
-- **いただいた画像において、1pxが実際の物体の長さは何mmですか？** (自社)
-  →「おおよそですが、1pxは0.1mmです。」(先方)
+# OK画像とNG画像のバッチ読み込み
+def process_ok_images():
+    for batch_images in load_images_from_directory(ok_dir):
+        process_images(batch_images, "OK", is_ng=False)
 
-- **事務的な内容ですが、請求書（実施内容報告書）は下期の予算にしたいため、10/1〜10/3の間に送付していただけますか？** (先方)
-  →「承知しました。」(自社)
+def process_ng_images():
+    for subdir in ['porosity', 'dent', 'crack']:  # 英語名に変更
+        subdir_path = os.path.join(ng_dir, subdir)
+        print(f"Processing NG images in {subdir_path}")
+        for batch_images in load_images_from_directory(subdir_path):
+            process_images(batch_images, subdir, is_ng=True)
+
+# 5. ワーク検出のためのテンプレートマッチング（右側と左側のワークをチェック）
+def detect_workpiece(image, filename):
+    # テンプレート画像を取得
+    templates = [os.path.join(template_right_dir, f) for f in os.listdir(template_right_dir) if f.endswith('.jpg')] + \
+                [os.path.join(template_left_dir, f) for f in os.listdir(template_left_dir) if f.endswith('.jpg')]
+    
+    best_template, best_loc = template_matching(image, templates)
+
+    if best_template is not None:
+        # テンプレートマッチング結果を描画
+        h, w = best_template.shape[:2]
+        cv2.rectangle(image, best_loc, (best_loc[0] + w, best_loc[1] + h), (0, 0, 255), 3)
+
+        # 検出結果を保存
+        cv2.imwrite(os.path.join(test_data_dir, f"{filename}_work_detected.jpg"), image)
+        return True
+    else:
+        print(f"No matching template found for {filename}")
+        return False
+
+# 6. 欠陥候補の検出（ワークの中の小さな欠陥）
+def detect_defect_candidates(image, filename):
+    if not detect_workpiece(image, filename):
+        return []  # ワークが検出できなかった場合は欠陥なし
+
+    # ワーク検出後に欠陥検出を行う（検出したワーク領域内でエッジ検出を行う）
+    blurred_img = cv2.GaussianBlur(image, (5, 5), 0)
+    edges = cv2.Canny(blurred_img, 50, 150)
+    
+    # ラベリングによる輪郭抽出
+    labeled_image = measure.label(edges, connectivity=2)
+    properties = measure.regionprops(labeled_image)
+    
+    # 欠陥候補の輪郭と面積を確認
+    defect_candidates = []
+    for prop in properties:
+        if MIN_DEFECT_AREA_PX <= prop.area <= MAX_DEFECT_AREA_PX:  # 欠陥が指定範囲内の大きさの場合
+            defect_candidates.append(prop.bbox)  # bbox = (min_row, min_col, max_row, max_col)
+
+    return defect_candidates
+
+# 7. 画像切り出し
+def crop_defect_region(image, bbox):
+    min_row, min_col, max_row, max_col = bbox
+    cropped_image = image[min_row:max_row, min_col:max_col]
+    return cropped_image
+
+# 8. 切り出した画像の保存
+def save_cropped_image(image, filename, defect_type, is_ng=False):
+    if is_ng:
+        save_dir = os.path.join(output_ng_dir, defect_type)
+    else:
+        save_dir = output_ok_dir
+    
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    save_path = os.path.join(save_dir, filename)
+    cv2.imwrite(save_path, image)
+
+# 画像を処理する関数
+def process_images(batch_images, defect_type, is_ng=False):
+    for filename, image in batch_images:
+        defect_candidates = detect_defect_candidates(image, filename)
+        for i, bbox in enumerate(defect_candidates):
+            cropped_image = crop_defect_region(image, bbox)
+            save_cropped_image(cropped_image, f"{filename}_defect_{i}.jpg", defect_type, is_ng)
+
+# OK画像の処理
+process_ok_images()
+
+# NG画像の処理
+process_ng_images()
+
+print("処理が完了しました。")
