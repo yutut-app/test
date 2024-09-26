@@ -62,23 +62,64 @@ else:
     print("NG_label1の画像が見つかりません。")
 ```
 
+
+#### 4.2 ワーク接合部の削除
+```python
+# 4.2 ワーク接合部の削除 (テンプレートマッチングとクロップ処理)
+
+def detect_work_side(image, template_right, template_left):
+    """
+    画像がワークの右側か左側かをテンプレートマッチングで検出する関数
+    """
+    # テンプレートマッチングで右側と左側を検出
+    res_right = cv2.matchTemplate(image, template_right, cv2.TM_CCOEFF)
+    res_left = cv2.matchTemplate(image, template_left, cv2.TM_CCOEFF)
+    
+    _, max_val_right, _, max_loc_right = cv2.minMaxLoc(res_right)
+    _, max_val_left, _, max_loc_left = cv2.minMaxLoc(res_left)
+
+    if max_val_right > max_val_left:
+        return "right", max_loc_right
+    else:
+        return "left", max_loc_left
+
+# テンプレート画像の読み込み (work_right, work_leftの最初の画像をテンプレートとして使用)
+template_right = io.imread(work_right_images[0], as_gray=True)
+template_left = io.imread(work_left_images[0], as_gray=True)
+
+# 二直化した元画像でテンプレートマッチングを実行してワークの左右を識別
+side, _ = detect_work_side(binary_image, template_right, template_left)
+
+# ワークの接合部を削除するクロップ処理
+if side == "right":
+    # ワークの右側の場合、左から3730ピクセルを削除
+    cropped_image = binary_image[:, crop_size:]
+else:
+    # ワークの左側の場合、右から3730ピクセルを削除
+    cropped_image = binary_image[:, :-crop_size]
+
+# クロップした画像を表示
+plt.imshow(cropped_image, cmap='gray')
+plt.title(f"Cropped Image ({side} side) - {os.path.basename(origin_image_path)}")
+plt.axis('off')
+plt.show()
+```
+
 ### 追加説明
 1. **ライブラリのインポート**：
-   必要なライブラリにOpenCV、skimage、matplotlibを追加します。`cv2`はOpenCVの関数で、二値化処理に使用します。
+   OpenCVとskimageを引き続き使用します。テンプレートマッチングを行うために、OpenCVの`cv2.matchTemplate()`関数を使用します。
    
 2. **パラメータの設定**：
-   二直化のために、しきい値150を設定しています。データのディレクトリパスやNGラベルも設定します。
+   ワーク接合部を削除するために、クロップサイズ（3730ピクセル）を指定しています。
 
-3. **データの読み込み**：
-   `load_images_from_directory`関数を使って、NGラベル1（鋳巣）の画像を読み込みます。
+3. **テンプレートマッチング**：
+   ワークの右側か左側かを判定するために、テンプレートマッチングを使用します。`work_right`と`work_left`ディレクトリ内の画像をテンプレートとして、入力された画像をマッチングします。
 
-4. **二直化処理**：
-   OpenCVの`cv2.threshold()`関数を使用して、元画像を二値化します。ここで、`as_gray=True`を指定してグレースケール画像として読み込んだ後、しきい値150で二値化しています。
-
-5. **画像の表示**：
-   二値化した画像を`matplotlib`を使用して表示します。`cmap='gray'`を指定してグレースケールのまま表示されるようにしています。
+4. **ワーク接合部の削除**：
+   ワークが右側であれば、左から3730ピクセルを削除し、左側であれば、右から3730ピクセルを削除します。このクロップ処理によって、ワーク接合部が削除されます。
 
 ### メモリと処理時間の工夫
-- 画像は`skimage.io.imread`を使用してグレースケールで読み込むことで、余計なカラー情報を省き、メモリ使用量を削減しています。
-- `cv2.threshold()`は高速で効率的な二直化処理が可能です。
-- 処理は1ワークずつ進めるように設計されています。
+- 必要な領域のみをクロップして処理することで、メモリ使用量を抑えています。
+- テンプレートマッチングによってワークの側面を自動で検出し、手動での分類を不要にしています。
+
+このコードによって、テンプレートマッチングを使ってワークの左右を識別し、接合部の削除を行った後の二直化画像が表示されます。
