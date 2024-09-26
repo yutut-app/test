@@ -86,6 +86,10 @@ input_data_dir = os.path.join("..", "data", "input")
 output_data_dir = os.path.join("..", "data", "output")
 test_data_dir = os.path.join(output_data_dir, "test", "work_frame")  # ワークの輪郭画像を保存するディレクトリ
 
+# ワークのテンプレート画像
+template_right_dir = os.path.join(input_data_dir, 'work_frame_right')  # 右側のテンプレート
+template_left_dir = os.path.join(input_data_dir, 'work_frame_left')    # 左側のテンプレート
+
 # OKとNGのディレクトリ設定
 ok_dir = os.path.join(input_data_dir, 'OK')
 ng_dir = os.path.join(input_data_dir, 'NG')
@@ -95,9 +99,31 @@ output_ng_dir = os.path.join(output_data_dir, 'NG')
 # 必要なディレクトリを作成（存在しない場合）
 os.makedirs(test_data_dir, exist_ok=True)
 
-# 3. データの読み込み（メモリ効率化のためバッチ処理）
+# 3. テンプレートマッチングを行う関数
+def template_matching(img, templates):
+    best_match_val = -1
+    best_match_loc = None
+    best_template = None
+    
+    for template_path in templates:
+        template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+        if template is None:
+            print(f"Warning: Failed to load template image {template_path}")
+            continue
+
+        # テンプレートマッチングを実行
+        res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+
+        if max_val > best_match_val:  # より良い一致を見つけた場合
+            best_match_val = max_val
+            best_match_loc = max_loc
+            best_template = template
+
+    return best_template, best_match_loc
+
+# 4. データの読み込み（メモリ効率化のためバッチ処理）
 def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0.5):
-    # ディレクトリ内のすべてのファイル名を取得
     filenames = [f for f in os.listdir(directory) if f.endswith('.jpg')]
     print(f"Found {len(filenames)} images in {directory}")  # デバッグ用出力
 
@@ -106,22 +132,13 @@ def load_images_from_directory(directory, batch_size=BATCH_SIZE, resize_factor=0
         images = []
         for filename in batch_filenames:
             img_path = os.path.join(directory, filename)
-            
-            # ファイルサイズが0の場合、スキップする
-            if os.path.getsize(img_path) == 0:
-                print(f"Warning: {img_path} is empty (0 bytes). Skipping this file.")
-                continue
-            
-            # 画像の読み込み
-            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)  # 画像はグレースケールで読み込む
             if img is None:
                 print(f"Warning: Failed to load image {img_path}")  # 読み込みに失敗した場合
                 continue
-            
             # 画像のリサイズ（メモリ節約のために縮小）
             img_resized = cv2.resize(img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_AREA)
             images.append((filename, img_resized))
-        
         print(f"Batch size: {len(images)} images processed")  # デバッグ用出力
         yield images
         gc.collect()  # バッチ処理の後にメモリを解放
@@ -132,55 +149,60 @@ def process_ok_images():
         process_images(batch_images, "OK", is_ng=False)
 
 def process_ng_images():
-    for subdir in ['鋳巣', '凹み', '亀裂']:
+    for subdir in ['porosity', 'dent', 'crack']:  # 英語名に変更
         subdir_path = os.path.join(ng_dir, subdir)
         print(f"Processing NG images in {subdir_path}")
         for batch_images in load_images_from_directory(subdir_path):
             process_images(batch_images, subdir, is_ng=True)
 
-# 4. 欠陥候補の検出（ワークの中の小さな欠陥）
-def detect_defect_candidates(image, filename):
-    # Step 1: ワークの輪郭を検出する（背景を除外）
-    _, binary = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# 5. ワーク検出のためのテンプレートマッチング（右側と左側のワークをチェック）
+def detect_workpiece(image, filename):
+    # テンプレート画像を取得
+    templates = [os.path.join(template_right_dir, f) for f in os.listdir(template_right_dir) if f.endswith('.jpg')] + \
+                [os.path.join(template_left_dir, f) for f in os.listdir(template_left_dir) if f.endswith('.jpg')]
     
-    # ワークの最大の輪郭（外枠）を取得
-    if len(contours) > 0:
-        largest_contour = max(contours, key=cv2.contourArea)
-        mask = np.zeros_like(image)
-        cv2.drawContours(mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
-        
-        # ワーク輪郭画像を保存
-        work_contour_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)  # 輪郭を色付き画像に変換
-        cv2.drawContours(work_contour_image, [largest_contour], -1, (0, 255, 0), 2)
-        cv2.imwrite(os.path.join(test_data_dir, f"{filename}_work_contour.jpg"), work_contour_image)
-        
-        # Step 2: ワーク内部でエッジ検出を行う
-        work_area = cv2.bitwise_and(image, mask)
-        blurred_img = cv2.GaussianBlur(work_area, (5, 5), 0)
-        edges = cv2.Canny(blurred_img, 50, 150)
-    
-        # ラベリングによる輪郭抽出
-        labeled_image = measure.label(edges, connectivity=2)
-        properties = measure.regionprops(labeled_image)
-        
-        # 欠陥候補の輪郭と面積を確認
-        defect_candidates = []
-        for prop in properties:
-            if MIN_DEFECT_AREA_PX <= prop.area <= MAX_DEFECT_AREA_PX:  # 欠陥が指定範囲内の大きさの場合
-                defect_candidates.append(prop.bbox)  # bbox = (min_row, min_col, max_row, max_col)
-        
-        return defect_candidates
-    else:
-        return []  # 輪郭が見つからない場合は候補なし
+    best_template, best_loc = template_matching(image, templates)
 
-# 5. 画像切り出し
+    if best_template is not None:
+        # テンプレートマッチング結果を描画
+        h, w = best_template.shape[:2]
+        cv2.rectangle(image, best_loc, (best_loc[0] + w, best_loc[1] + h), (0, 0, 255), 3)
+
+        # 検出結果を保存
+        cv2.imwrite(os.path.join(test_data_dir, f"{filename}_work_detected.jpg"), image)
+        return True
+    else:
+        print(f"No matching template found for {filename}")
+        return False
+
+# 6. 欠陥候補の検出（ワークの中の小さな欠陥）
+def detect_defect_candidates(image, filename):
+    if not detect_workpiece(image, filename):
+        return []  # ワークが検出できなかった場合は欠陥なし
+
+    # ワーク検出後に欠陥検出を行う（検出したワーク領域内でエッジ検出を行う）
+    blurred_img = cv2.GaussianBlur(image, (5, 5), 0)
+    edges = cv2.Canny(blurred_img, 50, 150)
+    
+    # ラベリングによる輪郭抽出
+    labeled_image = measure.label(edges, connectivity=2)
+    properties = measure.regionprops(labeled_image)
+    
+    # 欠陥候補の輪郭と面積を確認
+    defect_candidates = []
+    for prop in properties:
+        if MIN_DEFECT_AREA_PX <= prop.area <= MAX_DEFECT_AREA_PX:  # 欠陥が指定範囲内の大きさの場合
+            defect_candidates.append(prop.bbox)  # bbox = (min_row, min_col, max_row, max_col)
+
+    return defect_candidates
+
+# 7. 画像切り出し
 def crop_defect_region(image, bbox):
     min_row, min_col, max_row, max_col = bbox
     cropped_image = image[min_row:max_row, min_col:max_col]
     return cropped_image
 
-# 6. 切り出した画像の保存
+# 8. 切り出した画像の保存
 def save_cropped_image(image, filename, defect_type, is_ng=False):
     if is_ng:
         save_dir = os.path.join(output_ng_dir, defect_type)
@@ -208,3 +230,4 @@ process_ok_images()
 process_ng_images()
 
 print("処理が完了しました。")
+
