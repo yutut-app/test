@@ -143,51 +143,57 @@ binarized_ng_images_label3 = binarize_images(updated_ng_images_label3)
 binarized_ok_images = binarize_images(updated_ok_images)
 ```
 
-#### 6.1 ラベリング処理
+H面（白い領域）のみを対象に欠陥候補の検出を行うため、`binarized_image`での白い部分（H面）を使い、`cropped_keyence_image`と照らし合わせて処理を進めます。このために、以下の流れで処理を進めます。
+
+### 修正の要点
+1. **H面の検出**：`binarized_image`の白い領域をH面とし、この領域内でのみ欠陥候補を検出します。
+2. **キーエンス画像との対応**：`binarized_image`でH面が検出された部分にのみ、キーエンス画像上で欠陥候補をラベリングします。
+
+### 修正後のコード
+
+#### 6.1 ラベリング処理とH面の領域限定
 ```python
-# ラベリング処理
-def label_defects(binarized_image):
-    # ラベリングを行う
-    labeled_image, num_labels = measure.label(binarized_image, background=0, return_num=True)
+# H面の領域（白部分）を取得
+def get_h_surface_region(binarized_image):
+    # 白い部分（H面）を検出（ピクセル値が255の部分がH面）
+    h_surface_mask = binarized_image == 255
+    return h_surface_mask
+
+# ラベリング処理（H面の領域に限定）
+def label_defects_in_h_surface(binarized_image):
+    # H面の領域（白部分）を取得
+    h_surface_mask = get_h_surface_region(binarized_image)
+
+    # H面の領域内のみラベリングを行う
+    labeled_image, num_labels = measure.label(h_surface_mask, background=0, return_num=True)
     
     # 各欠陥領域のプロパティを取得
     properties = measure.regionprops(labeled_image)
     
     return labeled_image, properties
-
-# ラベリング結果に基づき、サイズ条件に合わない欠陥を除去
-def filter_defects_by_size(properties):
-    valid_defects = []
-    for prop in properties:
-        area_mm2 = prop.area * (pixel_to_mm ** 2)  # ピクセル面積からmm²に変換
-        defect_diameter_mm = 2 * np.sqrt(area_mm2 / np.pi)  # 面積から直径を計算
-        
-        if min_defect_size_mm <= defect_diameter_mm <= max_defect_size_mm:
-            valid_defects.append(prop)
-    return valid_defects
 ```
 
-#### 6.2 欠陥候補の中心座標の取得
+#### 6.2 欠陥候補の中心座標の取得と赤枠描画（H面に限定）
 ```python
-# 欠陥の中心座標を取得し、赤枠で囲む
-def draw_defect_boxes(image, defects):
+# 欠陥のバウンディングボックス（赤枠）を描画（H面領域に限定）
+def draw_defect_boxes_in_h_surface(image, defects):
     for defect in defects:
         minr, minc, maxr, maxc = defect.bbox  # ラベリングされた領域のバウンディングボックス
         image = cv2.rectangle(image, (minc, minr), (maxc, maxr), (0, 0, 255), 2)  # 赤枠で囲む
     return image
 
-# 全てのcropped_keyence_imageに対してラベリングと欠陥候補の描画を実行
-def process_labeled_images(binarized_image_pairs):
+# 全てのcropped_keyence_imageに対してH面限定のラベリングと欠陥候補の描画を実行
+def process_labeled_images_in_h_surface(binarized_image_pairs):
     processed_images = []
     for binarized_image, cropped_keyence_image in binarized_image_pairs:
-        # binarized_imageに対してラベリング処理を行う
-        labeled_image, properties = label_defects(binarized_image)
+        # binarized_imageに対してH面のみラベリング処理を行う
+        labeled_image, properties = label_defects_in_h_surface(binarized_image)
 
         # サイズフィルタを使用して有効な欠陥を取得
         valid_defects = filter_defects_by_size(properties)
 
-        # 欠陥のバウンディングボックス（赤枠）を描画
-        labeled_keyence_image = draw_defect_boxes(cropped_keyence_image, valid_defects)
+        # H面に基づき、欠陥のバウンディングボックス（赤枠）を描画
+        labeled_keyence_image = draw_defect_boxes_in_h_surface(cropped_keyence_image, valid_defects)
 
         # 処理後の画像ペアを保存
         processed_images.append((labeled_image, labeled_keyence_image))
@@ -195,11 +201,10 @@ def process_labeled_images(binarized_image_pairs):
     return processed_images
 
 # NGとOKの全てのペアに対してラベリング処理を実行
-labeled_ng_images_label1 = process_labeled_images(binarized_ng_images_label1)
-labeled_ng_images_label2 = process_labeled_images(binarized_ng_images_label2)
-labeled_ng_images_label3 = process_labeled_images(binarized_ng_images_label3)
-labeled_ok_images = process_labeled_images(binarized_ok_images)
-
+labeled_ng_images_label1 = process_labeled_images_in_h_surface(binarized_ng_images_label1)
+#labeled_ng_images_label2 = process_labeled_images_in_h_surface(binarized_ng_images_label2)
+#labeled_ng_images_label3 = process_labeled_images_in_h_surface(binarized_ng_images_label3)
+#labeled_ok_images = process_labeled_images_in_h_surface(binarized_ok_images)
 ```
 
 #### 7. 更新後の画像ペアの表示
@@ -212,13 +217,13 @@ if labeled_ng_images_label1:
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
     plt.imshow(labeled_image, cmap='gray')
-    plt.title("Labeled Binarized Image")
+    plt.title("Labeled Binarized Image (H Surface Only)")
     plt.axis('off')
 
-    # ラベリング後のキーエンス画像の表示
+    # ラベリング後のキーエンス画像の表示（赤枠で欠陥を表示）
     plt.subplot(1, 2, 2)
     plt.imshow(labeled_keyence_image, cmap='gray')
-    plt.title("Labeled Keyence Image")
+    plt.title("Labeled Keyence Image with Defect Boxes (H Surface Only)")
     plt.axis('off')
 
     plt.show()
@@ -226,13 +231,12 @@ else:
     print("No labeled images found.")
 ```
 
-### まとめ
+### 説明
 
-1. **ラベリング処理**では、`binarized_image`に基づいて各領域をラベリングし、各領域のプロパティ（面積、中心座標など）を取得します。
-2. **欠陥サイズのフィルタリング**では、φ0.5mm以下およびφ10mm以上の欠陥を除外し、残りの欠陥だけを扱います。
-3. **欠陥の中心座標の取得**では、有効な欠陥の中心座標を計算し、キーエンス前処理画像に描画します。
-4. **表示**では、ラベリング処理後の`binarized_image`とキーエンス画像の最初のペアを表示しています。
+1. **H面の領域限定ラベリング**：`get_h_surface_region`関数を使って、`binarized_image`内の白い領域（H面）を特定します。その領域に対してのみラベリング処理を行い、欠陥候補を検出します。
+2. **赤枠描画**：`draw_defect_boxes_in_h_surface`関数で、H面内に存在する有効な欠陥のみを赤枠で囲んで描画します。
+3. **ラベリング処理の流れ**：H面のみに対して欠陥の検出を行い、キーエンス前処理画像に欠陥を反映します。
+4. **結果表示**：最初のペアのラベリング後の画像と、赤枠で囲まれたキーエンス画像を表示します。
 
-この構成で、欠陥サイズのフィルタリングとラベリング処理が行われ、最初のペアの画像を正しく表示できるようになっています。
-
+これにより、H面に限定して欠陥候補を検出し、適切に赤枠で囲む処理が実行されるようになります。
 
