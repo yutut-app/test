@@ -77,7 +77,7 @@ def remove_mask_edges(labels, mask):
     
     return label_indices_to_exclude
 
-# ラベリング処理と欠陥候補の抽出（エッジ上の欠陥を除外）
+# ラベリング処理と欠陥候補の抽出
 def label_defects(edge_image, binarized_image, min_size, max_size):
     # ラベリング処理
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
@@ -104,11 +104,6 @@ def label_defects_in_images(edged_images):
         labeled_images.append((binarized_image, edge_image, defects))
     return labeled_images
 
-# NGとOK画像に対してラベリング処理を実行
-labeled_ng_images_label1 = label_defects_in_images(edged_ng_images_label1)
-labeled_ng_images_label2 = label_defects_in_images(edged_ng_images_label2)
-labeled_ng_images_label3 = label_defects_in_images(edged_ng_images_label3)
-labeled_ok_images = label_defects_in_images(edged_ok_images)
 
 ```
 
