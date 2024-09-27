@@ -151,7 +151,7 @@ binarized_ok_images = binarize_images(updated_ok_images)
 
 #### 6.1 エッジ検出
 ```python
-# エッジ検出を行う関数（解像度を変更せずに処理）
+# エッジ検出を行う関数
 def detect_edges(cropped_keyence_image, binarized_image):
     # H面のマスクを適用して背景を除去
     masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
@@ -169,7 +169,7 @@ def detect_edges_in_images(binarized_images):
     edged_images = []
     for binarized_image, cropped_keyence_image in binarized_images:
         edges = detect_edges(cropped_keyence_image, binarized_image)
-        edged_images.append((binarized_image, edges, cropped_keyence_image))  # 解像度を維持
+        edged_images.append((binarized_image, edges))
     return edged_images
 
 # NGとOK画像に対してエッジ検出を実行
