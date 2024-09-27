@@ -41,9 +41,61 @@ px_to_mm_ratio = 0.1  # 1ピクセル = 0.1mm
 
 #### 6.1 エッジ検出（続き）
 ```python
+# エッジ検出を行う関数
+def detect_edges(cropped_keyence_image, binarized_image):
+    # H面のマスクを適用して背景を除去
+    masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
+    
+    # ガウシアンブラーを適用
+    blurred_image = cv2.GaussianBlur(masked_image, gaussian_kernel_size, sigma)
+    
+    # エッジ検出
+    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+    
+    return edges
+
+# 全てのcropped_keyence_imageに対してエッジ検出を実行し、新しいリストを作成
+def detect_edges_in_images(binarized_images):
+    edged_images = []
+    for binarized_image, cropped_keyence_image in binarized_images:
+        edges = detect_edges(cropped_keyence_image, binarized_image)
+        edged_images.append((binarized_image, edges))
+    return edged_images
+
+# NGとOK画像に対してエッジ検出を実行
+edged_ng_images_label1 = detect_edges_in_images(binarized_ng_images_label1)
+edged_ng_images_label2 = detect_edges_in_images(binarized_ng_images_label2)
 edged_ng_images_label3 = detect_edges_in_images(binarized_ng_images_label3)
 edged_ok_images = detect_edges_in_images(binarized_ok_images)
+
 ```
+```python
+# 更新されたNG_label1の最初の画像ペアを表示
+if edged_ng_images_label1:
+    binarized_image, edge_image = edged_ng_images_label1[
+    # 更新されたNG_label1の最初の画像ペアを表示
+    binarized_image, edge_image = edged_ng_images_label1[0]
+    
+    # 二直化後の画像の表示
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(binarized_image, cmap='gray')
+    plt.title("Binarized Image")
+    plt.axis('off')
+
+    # エッジ検出後の画像の表示
+    plt.subplot(1, 2, 2)
+    plt.imshow(edge_image, cmap='gray')
+    plt.title("Edge Detection Image")
+    plt.axis('off')
+
+    plt.show()
+else:
+    print("No images found after edge detection.")
+
+
+```
+
 
 #### 6.2 ラベリング処理
 ```python
