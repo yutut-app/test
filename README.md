@@ -176,7 +176,23 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 
 #### 7. 更新した画像ペアの表示
 ```python
-# 更新されたNG_label1の最初の画像ペアを表示
-if edged_ng_images_label1:
-    binarized_image, edge_image = edged_ng_images_label1[
-これで、エッジ検出処理がすべてのキーエンス前処理画像に対して行われ、H面の白部分に基づいてエッジが抽出された結果を表示することができます。
+    # 更新されたNG_label1の最初の画像ペアを表示
+    binarized_image, edge_image = edged_ng_images_label1[0]
+    
+    # 二直化後の画像の表示
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(binarized_image, cmap='gray')
+    plt.title("Binarized Image")
+    plt.axis('off')
+
+    # エッジ検出後の画像の表示
+    plt.subplot(1, 2, 2)
+    plt.imshow(edge_image, cmap='gray')
+    plt.title("Edge Detection Image")
+    plt.axis('off')
+
+    plt.show()
+else:
+    print("No images found after edge detection.")
+```
