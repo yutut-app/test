@@ -1,6 +1,6 @@
-エラーメッセージから察するに、入力画像が1チャンネル（グレースケール画像）であるのに、`cv2.cvtColor`を使用して色空間変換を行おうとしていることが原因です。`cv2.cvtColor`は、3チャンネルのカラー画像に対して適用するもので、グレースケール画像には不要です。そのため、グレースケール画像の変換を行わないように修正し、また、`iterations`のパラメータ設定を追加します。
+以下は、項目6.1「ラベリング処理」と6.2「欠陥候補の中心座標の取得」を追加し、全てのキーエンス前処理画像（cropped_keyence_image）に対してラベリング処理を行い、`binarized_images`を更新するコードです。その後、更新された最初のペアの画像を表示します。
 
-### 修正後の.ipynb構成
+### .ipynb構成
 
 #### 1. ライブラリのインポート
 ```python
@@ -10,7 +10,7 @@
 import os
 import cv2
 import numpy as np
-from skimage import io, filters, feature, measure
+from skimage import io, measure, filters
 import matplotlib.pyplot as plt
 ```
 
@@ -28,6 +28,9 @@ threshold_value = 150  # 二直化しきい値
 kernel_size = (5, 5)  # カーネルサイズ
 iterations_open = 3  # 膨張処理の繰り返し回数
 iterations_close = 20  # 収縮処理の繰り返し回数
+min_defect_size_mm = 0.5  # 欠陥サイズの最小値（mm）
+max_defect_size_mm = 10  # 欠陥サイズの最大値（mm）
+pixel_to_mm = 0.1  # 1pxあたりのmm
 ```
 
 #### 3. データの読み込み
@@ -115,11 +118,8 @@ def binarize_image(image):
     else:
         gray_image = image
     
-    # 二直化処理
-    _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY)
-    
-    # 白黒反転
-    binary_image = cv2.bitwise_not(binary_image)
+    # 二直化処理（THRESH_BINARY_INVを使用）
+    _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY_INV)
     
     # カーネル作成と膨張・収縮処理
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
@@ -143,39 +143,96 @@ binarized_ng_images_label3 = binarize_images(updated_ng_images_label3)
 binarized_ok_images = binarize_images(updated_ok_images)
 ```
 
-#### 6. 更新した画像ペアの表示
+#### 6.1 ラベリング処理
 ```python
-# 更新されたNG_label1の最初の画像ペアを表示
-if binarized_ng_images_label1:
-    binarized_image, cropped_keyence_image = binarized_ng_images_label1[0]
+# ラベリング処理
+def label_defects(binarized_image):
+    # ラベリングを行う
+    labeled_image, num_labels = measure.label(binarized_image, background=0, return_num=True)
     
-    # 二直化後の画像の表示
+    # 各欠陥領域のプロパティを取得
+    properties = measure.regionprops(labeled_image)
+    
+    return labeled_image, properties
+
+# ラベリング結果に基づき、サイズ条件に合わない欠陥を除去
+def filter_defects_by_size(properties):
+    valid_defects = []
+    for prop in properties:
+        area_mm2 = prop.area * (pixel_to_mm ** 2)  # ピクセル面積からmm²に変換
+        defect_diameter_mm = 2 * np.sqrt(area_mm2 / np.pi)  # 面積から直径を計算
+        
+        if min_defect_size_mm <= defect_diameter_mm <= max_defect_size_mm:
+            valid_defects.append(prop)
+    return valid_defects
+```
+
+#### 6.2 欠陥候補の中心座標の取得
+```python
+# 欠陥の中心座標を取得し描画
+def draw_defect_centroids(image, defects):
+    for defect in defects:
+        centroid = defect.centroid
+        center = (int(centroid[1]), int(centroid[0]))  # (y, x) -> (x, y)に変換
+        image = cv2.circle(image, center, 5, (255, 0, 0), -1)  # 中心点を赤色で描画
+    return image
+
+# 全てのcropped_keyence_imageに対してラベリングと中心座標の取得を実行
+def process_labeled_images(binarized_image_pairs):
+    processed_images = []
+    for binarized_image, cropped_keyence_image in binarized_image_pairs:
+        # binarized_imageに対してラベリング処理を行う
+        labeled_image, properties = label_defects(binarized_image)
+
+        # サイズフィルタを使用して有効な欠陥を取得
+        valid_defects = filter_defects_by_size(properties)
+
+        # 欠陥の中心座標を取得し、cropped_keyence_imageに描画
+        labeled_keyence_image = draw_defect_centroids(cropped_keyence_image, valid_defects)
+
+        # 処理後の画像ペアを保存
+        processed_images.append((labeled_image, labeled_keyence_image))
+
+    return processed_images
+
+# NGとOKの全てのペアに対してラベリング処理を実行
+labeled_ng_images_label1 = process_labeled_images(binarized_ng_images_label1)
+labeled_ng_images_label2 = process_labeled_images(binarized_ng_images_label2)
+labeled_ng_images_label3 = process_labeled_images(binarized_ng_images_label3)
+labeled_ok_images = process_labeled_images(binarized_ok_images)
+```
+
+#### 7. 更新後の画像ペアの表示
+```python
+# 更新されたNG_label1の最初のペアを表示
+if labeled_ng_images_label1:
+    labeled_image, labeled_keyence_image = labeled_ng_images_label1[0]
+
+    # ラベリング後のbinarized_imageの表示
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
-    plt.imshow(binarized_image, cmap='gray')
-    plt.title("Binarized Origin Image")
+    plt.imshow(labeled_image, cmap='gray')
+    plt.title("Labeled Binarized Image")
     plt.axis('off')
 
-    # キーエンス画像の表示
+    # ラベリング後のキーエンス画像の表示
     plt.subplot(1, 2, 2)
-    plt.imshow(cropped_keyence_image, cmap='gray')
-    plt.title("Cropped Keyence Image")
+    plt.imshow(labeled_keyence_image, cmap='gray')
+    plt.title("Labeled Keyence Image")
     plt.axis('off')
 
     plt.show()
 else:
-    print("No images found after binarization.")
+    print("No labeled images found.")
 ```
 
-### requirements.txt
-```plaintext
-opencv-python
-scikit-image
-matplotlib
-numpy
-```
+### まとめ
 
-### 説明
-1. **エラーメッセージ修正**：グレースケール画像に対して`cv2.cvtColor`を使用しないように修正しました。
-2. **`iterations`をパラメータ化**：膨張・収縮の繰り返し回数もパラメータとして設定できるようにしました。
-3. **その他の修正**：`binarize_image`関数では、画像がすでにグレースケールの場合は色空間変換をスキップし、処理時間の短縮とメモリ効率を向上させました。
+1. **ラベリング処理**では、`binarized_image`に基づいて各領域をラベリングし、各領域のプロパティ（面積、中心座標など）を取得します。
+2. **欠陥サイズのフィルタリング**では、φ0.5mm以下およびφ10mm以上の欠陥を除外し、残りの欠陥だけを扱います。
+3. **欠陥の中心座標の取得**では、有効な欠陥の中心座標を計算し、キーエンス前処理画像に描画します。
+4. **表示**では、ラベリング処理後の`binarized_image`とキーエンス画像の最初のペアを表示しています。
+
+この構成で、欠陥サイズのフィルタリングとラベリング処理が行われ、最初のペアの画像を正しく表示できるようになっています。
+
+
