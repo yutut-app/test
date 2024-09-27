@@ -176,6 +176,10 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 
 #### 7. 更新した画像ペアの表示
 ```python
+# 更新されたNG_label1の最初の画像ペアを表示
+if edged_ng_images_label1:
+    binarized_image, edge_image = edged_ng_images_label1[
+
     # 更新されたNG_label1の最初の画像ペアを表示
     binarized_image, edge_image = edged_ng_images_label1[0]
     
