@@ -1,4 +1,4 @@
-以下は、項目6.1「エッジ検出」を追加し、全ての`cropped_keyence_image`に対してエッジ検出を行い、`binarized_images`を更新するコードです。また、更新後の最初のペアの画像を表示します。
+以下は、項目6.2「ラベリング処理」と項目6.3「欠陥候補の中心座標の取得」を追加したコードです。全ての`キーエンス前処理画像(edges)`に対してラベリング処理を行い、サイズフィルタリングによってφ0.5mm以下、φ10mm以上の欠陥を除外し、更新後の画像ペアを表示します。
 
 ### .ipynb構成
 
@@ -10,7 +10,7 @@
 import os
 import cv2
 import numpy as np
-from skimage import io, filters, feature, measure
+from skimage import io, measure, feature
 import matplotlib.pyplot as plt
 ```
 
@@ -32,6 +32,9 @@ gaussian_kernel_size = (7, 7)  # ガウシアンブラーのカーネルサイ�
 canny_min_threshold = 50  # エッジ検出の最小しきい値
 canny_max_threshold = 150  # エッジ検出の最大しきい値
 sigma = 5  # ガウシアンブラーの標準偏差
+min_defect_size_mm = 0.5  # 最小の欠陥サイズ(mm)
+max_defect_size_mm = 10.0  # 最大の欠陥サイズ(mm)
+pixel_to_mm_ratio = 0.1  # 1pxあたりのmm単位
 ```
 
 #### 3. データの読み込み
@@ -108,80 +111,65 @@ updated_ng_images_label3 = process_images(ng_images_label3)
 updated_ok_images = process_images(ok_images)
 ```
 
-#### 5.1 二直化によるマスクの作成
+#### 6.2 ラベリング処理と 6.3 欠陥候補の中心座標の取得
 ```python
-# 二直化とマスク作成
-def binarize_image(image):
-    # 画像がすでにグレースケールかどうか確認
-    if len(image.shape) == 3:
-        # グレースケールに変換
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray_image = image
+# ラベリング処理を行い、欠陥候補の中心座標を取得する関数
+def label_and_find_defects(edges, min_size_px, max_size_px):
+    # ラベリング処理を実行
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edges)
     
-    # 二直化処理（THRESH_BINARY_INVを使用）
-    _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY_INV)
+    # サイズフィルタリング
+    defects = []
+    for i in range(1, num_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        if min_size_px < area < max_size_px:
+            # 欠陥候補の中心座標と外接矩形の情報を保存
+            left, top, width, height = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP], stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+            center_x, center_y = centroids[i]
+            defects.append({
+                'center': (int(center_x), int(center_y)),
+                'bounding_box': (left, top, width, height)
+            })
     
-    # カーネル作成と膨張・収縮処理
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
-    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
-    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
-    
-    return binary_image
+    return defects
 
-# 全てのcropped_imageに対して二直化を実行し、新しいリストを作成
-def binarize_images(image_pairs):
-    binarized_images = []
-    for cropped_image, cropped_keyence_image in image_pairs:
-        binarized_image = binarize_image(cropped_image)
-        binarized_images.append((binarized_image, cropped_keyence_image))
-    return binarized_images
+# 外接矩形を赤枠で描画する関数
+def draw_defects_on_image(image, defects):
+    img_with_defects = image.copy()
+    for defect in defects:
+        left, top, width, height = defect['bounding_box']
+        # 赤枠で外接矩形を描画
+        cv2.rectangle(img_with_defects, (left, top), (left + width, top + height), (0, 0, 255), 2)
+        # 欠陥の中心座標を描画
+        center_x, center_y = defect['center']
+        cv2.circle(img_with_defects, (center_x, center_y), 3, (0, 0, 255), -1)
+    return img_with_defects
 
-# NGとOK画像に対して二直化を実行
-binarized_ng_images_label1 = binarize_images(updated_ng_images_label1)
-binarized_ng_images_label2 = binarize_images(updated_ng_images_label2)
-binarized_ng_images_label3 = binarize_images(updated_ng_images_label3)
-binarized_ok_images = binarize_images(updated_ok_images)
-```
+# 欠陥のサイズフィルタリング基準を設定
+min_size_px = int((min_defect_size_mm / pixel_to_mm_ratio) ** 2)
+max_size_px = int((max_defect_size_mm / pixel_to_mm_ratio) ** 2)
 
-#### 6.1 エッジ検出
-```python
-# エッジ検出を行う関数
-def detect_edges(cropped_keyence_image, binarized_image):
-    # H面のマスクを適用して背景を除去
-    masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
-    
-    # ガウシアンブラーを適用
-    blurred_image = cv2.GaussianBlur(masked_image, gaussian_kernel_size, sigma)
-    
-    # エッジ検出
-    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
-    
-    return edges
+# 全てのエッジ画像に対してラベリング処理を実行し、新しいリストを作成
+def label_defects_in_images(edged_images):
+    labeled_images = []
+    for binarized_image, edges in edged_images:
+        defects = label_and_find_defects(edges, min_size_px, max_size_px)
+        image_with_defects = draw_defects_on_image(edges, defects)
+        labeled_images.append((binarized_image, image_with_defects))
+    return labeled_images
 
-# 全てのcropped_keyence_imageに対してエッジ検出を実行し、新しいリストを作成
-def detect_edges_in_images(binarized_images):
-    edged_images = []
-    for binarized_image, cropped_keyence_image in binarized_images:
-        edges = detect_edges(cropped_keyence_image, binarized_image)
-        edged_images.append((binarized_image, edges))
-    return edged_images
-
-# NGとOK画像に対してエッジ検出を実行
-edged_ng_images_label1 = detect_edges_in_images(binarized_ng_images_label1)
-edged_ng_images_label2 = detect_edges_in_images(binarized_ng_images_label2)
-edged_ng_images_label3 = detect_edges_in_images(binarized_ng_images_label3)
-edged_ok_images = detect_edges_in_images(binarized_ok_images)
+# NGとOK画像に対してラベリング処理を実行
+labeled_ng_images_label1 = label_defects_in_images(edged_ng_images_label1)
+labeled_ng_images_label2 = label_defects_in_images(edged_ng_images_label2)
+labeled_ng_images_label3 = label_defects_in_images(edged_ng_images_label3)
+labeled_ok_images = label_defects_in_images(edged_ok_images)
 ```
 
 #### 7. 更新した画像ペアの表示
 ```python
 # 更新されたNG_label1の最初の画像ペアを表示
-if edged_ng_images_label1:
-    binarized_image, edge_image = edged_ng_images_label1[
-
-    # 更新されたNG_label1の最初の画像ペアを表示
-    binarized_image, edge_image = edged_ng_images_label1[0]
+if labeled_ng_images_label1:
+    binarized_image, image_with_defects = labeled_ng_images_label1[0]
     
     # 二直化後の画像の表示
     plt.figure(figsize=(10, 5))
@@ -190,13 +178,13 @@ if edged_ng_images_label1:
     plt.title("Binarized Image")
     plt.axis('off')
 
-    # エッジ検出後の画像の表示
+    # ラベリングと外接矩形を表示した画像の表示
     plt.subplot(1, 2, 2)
-    plt.imshow(edge_image, cmap='gray')
-    plt.title("Edge Detection Image")
+    plt.imshow(image_with_defects, cmap='gray')
+    plt.title("Labeled Defects with Bounding Boxes")
     plt.axis('off')
 
     plt.show()
 else:
-    print("No images found after edge detection.")
+    print("No images found after labeling.")
 ```
