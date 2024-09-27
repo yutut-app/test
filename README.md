@@ -7,16 +7,29 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 
 #### 6.2 ラベリング処理と6.3 欠陥候補の中心座標の取得
 ```python
+# マスクエッジを除外するための関数
+def remove_mask_edges(labels, mask):
+    # マスクのエッジ部分（境界領域）を検出
+    mask_edges = cv2.Canny(mask, 100, 200)
+    
+    # ラベルがマスクのエッジ部分に重なっているか確認
+    label_indices_to_exclude = np.unique(labels[mask_edges > 0])
+    
+    return label_indices_to_exclude
+
 # ラベリング処理と欠陥候補の抽出
-def label_defects(edge_image, min_size, max_size):
+def label_defects(edge_image, binarized_image, min_size, max_size):
     # ラベリング処理
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
+    
+    # マスクのエッジを除外
+    labels_to_exclude = remove_mask_edges(labels, binarized_image)
     
     # サイズフィルタリング：欠陥が最小サイズと最大サイズの範囲内にあるか確認
     defect_candidates = []
     for i in range(1, num_labels):
         size = stats[i, cv2.CC_STAT_AREA]
-        if min_size <= size <= max_size:
+        if min_size <= size <= max_size and i not in labels_to_exclude:
             x, y, w, h = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP], stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
             cx, cy = centroids[i]
             defect_candidates.append((x, y, w, h, cx, cy))
@@ -27,7 +40,7 @@ def label_defects(edge_image, min_size, max_size):
 def label_defects_in_images(edged_images):
     labeled_images = []
     for binarized_image, edge_image in edged_images:
-        defects = label_defects(edge_image, min_defect_size, max_defect_size)
+        defects = label_defects(edge_image, binarized_image, min_defect_size, max_defect_size)
         labeled_images.append((binarized_image, edge_image, defects))
     return labeled_images
 
@@ -36,6 +49,7 @@ labeled_ng_images_label1 = label_defects_in_images(edged_ng_images_label1)
 labeled_ng_images_label2 = label_defects_in_images(edged_ng_images_label2)
 labeled_ng_images_label3 = label_defects_in_images(edged_ng_images_label3)
 labeled_ok_images = label_defects_in_images(edged_ok_images)
+
 ```
 
 #### 7. 欠陥候補を赤枠で表示
@@ -60,11 +74,12 @@ if labeled_ng_images_label1:
     # 結果を表示
     plt.figure(figsize=(10, 5))
     plt.imshow(result_image)
-    plt.title("Detected Defects with Red Rectangles")
+    plt.title("Detected Defects with Red Rectangles (excluding mask edges)")
     plt.axis('off')
     plt.show()
 else:
     print("No defects found in the images.")
+
 ```
 
 ### 説明
