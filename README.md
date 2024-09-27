@@ -63,6 +63,7 @@ def detect_edges_and_texture(cropped_keyence_image, binarized_image):
     combined_edges = cv2.bitwise_or(edges, laplacian_edges)
     
     return combined_edges
+
 ```
 
 #### 6.2 ラベリング処理と6.3 欠陥候補の中心座標の取得
