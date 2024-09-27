@@ -1,4 +1,4 @@
-以下の.ipynbファイルでは、項目4「ワーク接合部の削除」を追加し、全ての元画像とキーエンス前処理画像に対して、左右どちらのワークかを識別し、接合部を削除する処理を行います。その後、`matched_images`を更新し、更新された最初のペアの画像を表示します。コメントは日本語で説明します。
+以下は、項目5.1「二直化によるマスクの作成」を追加し、全ての元画像（cropped_image）に対して二直化の処理を行い、`updated_images`を更新するコードです。その後、更新された最初のペアの画像を表示します。
 
 ### .ipynb構成
 
@@ -24,6 +24,8 @@ template_dir = os.path.join(input_data_dir, "template")
 right_template_path = os.path.join(template_dir, "right_keyence.jpg")
 left_template_path = os.path.join(template_dir, "left_keyence.jpg")
 crop_width = 1360  # ワーク接合部を削除するための幅
+threshold_value = 150  # 二直化しきい値
+kernel_size = (5, 5)  # カーネルサイズ
 ```
 
 #### 3. データの読み込み
@@ -100,20 +102,55 @@ updated_ng_images_label3 = process_images(ng_images_label3)
 updated_ok_images = process_images(ok_images)
 ```
 
-#### 5. 更新した画像ペアの表示
+#### 5.1 二直化によるマスクの作成
+```python
+# 二直化とマスク作成
+def binarize_image(image):
+    # 画像をグレースケールで読み込む
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # 二直化処理
+    _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY)
+    
+    # 白黒反転
+    binary_image = cv2.bitwise_not(binary_image)
+    
+    # カーネル作成と膨張・収縮処理
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=3)
+    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=20)
+    
+    return binary_image
+
+# 全てのcropped_imageに対して二直化を実行し、新しいリストを作成
+def binarize_images(image_pairs):
+    binarized_images = []
+    for cropped_image, cropped_keyence_image in image_pairs:
+        binarized_image = binarize_image(cropped_image)
+        binarized_images.append((binarized_image, cropped_keyence_image))
+    return binarized_images
+
+# NGとOK画像に対して二直化を実行
+binarized_ng_images_label1 = binarize_images(updated_ng_images_label1)
+binarized_ng_images_label2 = binarize_images(updated_ng_images_label2)
+binarized_ng_images_label3 = binarize_images(updated_ng_images_label3)
+binarized_ok_images = binarize_images(updated_ok_images)
+```
+
+#### 6. 更新した画像ペアの表示
 ```python
 # 更新されたNG_label1の最初の画像ペアを表示
-if updated_ng_images_label1:
-    cropped_origin_image, cropped_keyence_image = updated_ng_images_label1[0]
+if binarized_ng_images_label1:
+    binarized_image, cropped_keyence_image = binarized_ng_images_label1[0]
     
-    # 切り取った元画像の表示
+    # 二直化後の画像の表示
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
-    plt.imshow(cropped_origin_image, cmap='gray')
-    plt.title("Cropped Origin Image")
+    plt.imshow(binarized_image, cmap='gray')
+    plt.title("Binarized Origin Image")
     plt.axis('off')
 
-    # 切り取ったキーエンス画像の表示
+    # キーエンス画像の表示
     plt.subplot(1, 2, 2)
     plt.imshow(cropped_keyence_image, cmap='gray')
     plt.title("Cropped Keyence Image")
@@ -121,7 +158,7 @@ if updated_ng_images_label1:
 
     plt.show()
 else:
-    print("No images found after processing.")
+    print("No images found after binarization.")
 ```
 
 ### requirements.txt
@@ -134,9 +171,10 @@ numpy
 
 ### 説明
 1. **ライブラリのインポート**：`requirements.txt`から指定のライブラリをインポートし、`skimage`や`opencv`を使用して画像処理を行います。
-2. **パラメータの設定**：接合部の削除に使用する`crop_width`やテンプレート画像のパスを設定します。
-3. **データの読み込み**：同じワークに対応する`Normal`（元画像）と`Shape`（キーエンス前処理画像）をペアで読み込みます。
-4. **ワーク接合部の削除**：テンプレートマッチングを用いてワークの左右を判定し、接合部を削除します。処理後の画像ペアは`updated_images`に保存されます。
-5. **更新した画像ペアの表示**：接合部を削除した後の最初の画像ペアを表示します。
+2. **パラメータの設定**：二直化しきい値やカーネルサイズなどを設定します。
+3. **データの読み込み**：`Normal`（元画像）と`Shape`（キーエンス前処理画像）をペアで読み込みます。
+4. **ワーク接合部の削除**：テンプレートマッチングを使用してワークの左右を判定し、接合部を削除します。
+5. **二直化によるマスクの作成**：二直化を行い、元画像に対してマスクを作成します。
+6. **更新した画像ペアの表示**：二直化後の最初の画像ペアを表示します。
 
-これで、テンプレートマッチングを使用してワークの左右を判断し、接合部を削除した結果が得られ、最初のペアが正しく表示されるようになっています。
+これで、ワークの接合部削除後に二直化が行われ、最初のペアが正しく表示されるようになっています。
