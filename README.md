@@ -37,6 +37,7 @@ sigma = 3  # ガウシアンブラーの標準偏差 (低めに調整)
 min_defect_size = 5  # 最小欠陥サイズ（0.5mm = 5px）
 max_defect_size = 100  # 最大欠陥サイズ（10mm = 100px）
 texture_threshold = 15  # テクスチャの変化を検出するためのしきい値
+edge_margin = 5  # マスクのエッジ部分に持たせる余裕（ピクセル単位）
 ```
 
 #### 6.1 エッジ検出とテクスチャ検出の改良
@@ -152,26 +153,31 @@ else:
 
 ### 8. ワークのエッジと重なっている欠陥候補の除外処理
 ```python
-# マスクエッジと重なっている欠陥候補を除外する関数
-def remove_defects_on_mask_edge(defects, mask):
+# マスクエッジと重なっている欠陥候補を除外する関数（マージン付き）
+def remove_defects_on_mask_edge_with_margin(defects, mask, margin):
     # マスクエッジを検出（Cannyエッジ検出を使用）
     mask_edges = cv2.Canny(mask, 100, 200)
+    
+    # マスクエッジを膨張させ、左右に余裕を持たせる
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * margin + 1, 2 * margin + 1))
+    expanded_edges = cv2.dilate(mask_edges, kernel)
     
     # エッジと重なっている欠陥候補を除外
     filtered_defects = []
     for (x, y, w, h, cx, cy) in defects:
         # 欠陥候補の外接矩形がエッジと重なっているか確認
-        if np.any(mask_edges[y:y+h, x:x+w] > 0):
+        if np.any(expanded_edges[y:y+h, x:x+w] > 0):
             continue  # エッジと重なっている場合は除外
         filtered_defects.append((x, y, w, h, cx, cy))
     
     return filtered_defects
+
 ```
 
 #### 6.3 欠陥候補の中心座標取得にエッジ除去処理を統合
 ```python
-# 欠陥候補のラベリングとエッジとの重なりを確認
-def label_and_filter_defects(edge_image, binarized_image, min_size, max_size):
+# 改良された欠陥候補のラベリングとエッジとの重なりを確認（マージン付き）
+def label_and_filter_defects_with_margin(edge_image, binarized_image, min_size, max_size, margin):
     # ラベリング処理
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
     
@@ -187,29 +193,24 @@ def label_and_filter_defects(edge_image, binarized_image, min_size, max_size):
             cx, cy = centroids[i]
             defect_candidates.append((x, y, w, h, cx, cy))
     
-    # ワークのエッジと重なっている欠陥候補を除外
-    filtered_defects = remove_defects_on_mask_edge(defect_candidates, binarized_image)
+    # ワークのエッジと重なっている欠陥候補を除外（マージン付き）
+    filtered_defects = remove_defects_on_mask_edge_with_margin(defect_candidates, binarized_image, margin)
     
     return filtered_defects
 
-# 全てのedge_imageに対してラベリング処理を実行し、ワークエッジの欠陥候補を除外
-def label_defects_in_images_with_edge_removal(edged_images):
+# 全てのedge_imageに対してラベリング処理を実行し、ワークエッジの欠陥候補を除外（マージン付き）
+def label_defects_in_images_with_margin(edged_images, margin):
     labeled_images = []
     for binarized_image, edge_image in edged_images:
-        defects = label_and_filter_defects(edge_image, binarized_image, min_defect_size, max_defect_size)
+        defects = label_and_filter_defects_with_margin(edge_image, binarized_image, min_defect_size, max_defect_size, margin)
         labeled_images.append((binarized_image, edge_image, defects))
     return labeled_images
 
-# NGとOK画像に対して処理を実行
-labeled_ng_images_label1 = label_defects_in_images_with_edge_removal(edged_ng_images_label1)
-labeled_ng_images_label2 = label_defects_in_images_with_edge_removal(edged_ng_images_label2)
-labeled_ng_images_label3 = label_defects_in_images_with_edge_removal(edged_ng_images_label3)
-labeled_ok_images = label_defects_in_images_with_edge_removal(edged_ok_images)
 ```
 
 #### 7. 欠陥候補の表示（エッジ除去後）
 ```python
-# 欠陥候補を赤枠で表示する関数（エッジ重複を除去後）
+# 欠陥候補を赤枠で表示する関数（マージン付きエッジ除去後）
 def draw_defects(image, defects):
     result_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)  # グレースケールをRGBに変換
     for (x, y, w, h, cx, cy) in defects:
@@ -229,11 +230,12 @@ if labeled_ng_images_label1:
     # 結果を表示
     plt.figure(figsize=(10, 5))
     plt.imshow(result_image)
-    plt.title("Detected Defects with Red Rectangles (after edge exclusion)")
+    plt.title("Detected Defects with Red Rectangles (after edge exclusion with margin)")
     plt.axis('off')
     plt.show()
 else:
     print("No defects found in the images.")
+
 ```
 
 ### 説明
