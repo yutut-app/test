@@ -169,15 +169,14 @@ def filter_defects_by_size(properties):
 
 #### 6.2 欠陥候補の中心座標の取得
 ```python
-# 欠陥の中心座標を取得し描画
-def draw_defect_centroids(image, defects):
+# 欠陥の中心座標を取得し、赤枠で囲む
+def draw_defect_boxes(image, defects):
     for defect in defects:
-        centroid = defect.centroid
-        center = (int(centroid[1]), int(centroid[0]))  # (y, x) -> (x, y)に変換
-        image = cv2.circle(image, center, 5, (255, 0, 0), -1)  # 中心点を赤色で描画
+        minr, minc, maxr, maxc = defect.bbox  # ラベリングされた領域のバウンディングボックス
+        image = cv2.rectangle(image, (minc, minr), (maxc, maxr), (0, 0, 255), 2)  # 赤枠で囲む
     return image
 
-# 全てのcropped_keyence_imageに対してラベリングと中心座標の取得を実行
+# 全てのcropped_keyence_imageに対してラベリングと欠陥候補の描画を実行
 def process_labeled_images(binarized_image_pairs):
     processed_images = []
     for binarized_image, cropped_keyence_image in binarized_image_pairs:
@@ -187,8 +186,8 @@ def process_labeled_images(binarized_image_pairs):
         # サイズフィルタを使用して有効な欠陥を取得
         valid_defects = filter_defects_by_size(properties)
 
-        # 欠陥の中心座標を取得し、cropped_keyence_imageに描画
-        labeled_keyence_image = draw_defect_centroids(cropped_keyence_image, valid_defects)
+        # 欠陥のバウンディングボックス（赤枠）を描画
+        labeled_keyence_image = draw_defect_boxes(cropped_keyence_image, valid_defects)
 
         # 処理後の画像ペアを保存
         processed_images.append((labeled_image, labeled_keyence_image))
@@ -200,6 +199,7 @@ labeled_ng_images_label1 = process_labeled_images(binarized_ng_images_label1)
 labeled_ng_images_label2 = process_labeled_images(binarized_ng_images_label2)
 labeled_ng_images_label3 = process_labeled_images(binarized_ng_images_label3)
 labeled_ok_images = process_labeled_images(binarized_ok_images)
+
 ```
 
 #### 7. 更新後の画像ペアの表示
