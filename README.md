@@ -67,17 +67,7 @@ def detect_edges_and_texture(cropped_keyence_image, binarized_image):
 
 #### 6.2 ラベリング処理と6.3 欠陥候補の中心座標の取得
 ```python
-# マスクエッジを除外するための関数
-def remove_mask_edges(labels, mask):
-    # マスクのエッジ部分（境界領域）を検出
-    mask_edges = cv2.Canny(mask, 100, 200)
-    
-    # ラベルがマスクのエッジ部分に重なっているか確認
-    label_indices_to_exclude = np.unique(labels[mask_edges > 0])
-    
-    return label_indices_to_exclude
-
-# ラベリング処理と欠陥候補の抽出
+# 改良されたラベリング処理
 def label_defects(edge_image, binarized_image, min_size, max_size):
     # ラベリング処理
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
@@ -103,8 +93,6 @@ def label_defects_in_images(edged_images):
         defects = label_defects(edge_image, binarized_image, min_defect_size, max_defect_size)
         labeled_images.append((binarized_image, edge_image, defects))
     return labeled_images
-
-
 ```
 
 #### 7. 欠陥候補を赤枠で表示（改良後）
@@ -129,11 +117,12 @@ if labeled_ng_images_label1:
     # 結果を表示
     plt.figure(figsize=(10, 5))
     plt.imshow(result_image)
-    plt.title("Detected Defects with Red Rectangles (excluding mask edges)")
+    plt.title("Detected Defects with Red Rectangles (including texture detection)")
     plt.axis('off')
     plt.show()
 else:
     print("No defects found in the images.")
+
 
 ```
 
