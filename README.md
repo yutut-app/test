@@ -1,10 +1,10 @@
-以下のコードは、指定された処理を実行するための.ipynbファイルで、元画像（Normal）とキーエンス前処理画像（Shape）のワーク接合部の削除を行い、テンプレートマッチングによってワークが左右どちらにあるかを判定します。さらに、`updated_images`リストを更新し、最初のペアの画像を表示します。
+以下の内容で、ワーク接合部の削除とペア画像の処理を行い、テンプレートマッチングで左右判別を加えた.ipynbファイルのコードを生成します。
 
 ### .ipynb構成
 
 #### 1. ライブラリのインポート
 ```python
-# 必要なライブラリのインポート
+# ライブラリのインポート
 %pip install -r requirements.txt
 
 import os
@@ -20,14 +20,16 @@ import matplotlib.pyplot as plt
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
 ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
-work_right_dir = os.path.join(input_data_dir, "work_right")
-work_left_dir = os.path.join(input_data_dir, "work_left")
-crop_px = 1360  # ワークの接合部の切り出し量
+template_dir = os.path.join(input_data_dir, "template")
+right_template_path = os.path.join(template_dir, "right_keyence.jpg")
+left_template_path = os.path.join(template_dir, "left_keyence.jpg")
+
+crop_size = 1360  # ワーク接合部の削除に使用するピクセル数
 ```
 
 #### 3. データの読み込み
 ```python
-# Normal(元画像)とShape(キーエンス前処理画像)を一致させて読み込む関数
+# ファイル名を基にorigin(元画像)とshape(キーエンス画像)をペアで読み込む関数
 def load_origin_keyence_images(directory):
     normal_images = {}
     shape_images = {}
@@ -40,79 +42,87 @@ def load_origin_keyence_images(directory):
                 base_name = file.replace("Shape", "")
                 shape_images[base_name] = os.path.join(root, file)
     
-    # NormalとShapeが一致したペアを作成
+    # NormalとShapeのマッチングペアをリストで返す
     matched_images = []
     for base_name in normal_images:
         if base_name in shape_images:
             matched_images.append((normal_images[base_name], shape_images[base_name]))
     return matched_images
 
-# NG画像とOK画像を読み込む
+# NG画像をそれぞれのラベルから読み込み
 ng_images_label1 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label1"))
 ng_images_label2 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label2"))
 ng_images_label3 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label3"))
+
+# OK画像を読み込み
 ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK"))
 ```
 
-#### 4. ワーク接合部の削除（テンプレートマッチング）
+#### 4. ワーク接合部の削除
 ```python
-# テンプレートマッチングでワークの右側・左側を判定し、接合部を削除する関数
-def remove_joint_part(image, template_right, template_left):
-    # テンプレートマッチングを実施して右側か左側かを判定
-    result_right = cv2.matchTemplate(image, template_right, cv2.TM_CCOEFF)
-    _, _, _, max_loc_right = cv2.minMaxLoc(result_right)
+# テンプレートマッチングによって左右を判別し、接合部を削除する関数
+def remove_joint_part(origin_image, keyence_image):
+    # キーエンス画像を用いてテンプレートマッチングを実施
+    keyence_img_cv = cv2.imread(keyence_image, cv2.IMREAD_UNCHANGED)
     
-    result_left = cv2.matchTemplate(image, template_left, cv2.TM_CCOEFF)
-    _, _, _, max_loc_left = cv2.minMaxLoc(result_left)
+    # 右側テンプレートでマッチング
+    template_right = cv2.imread(right_template_path, cv2.IMREAD_UNCHANGED)
+    res_right = cv2.matchTemplate(keyence_img_cv, template_right, cv2.TM_CCOEFF)
+    _, max_val_right, _, max_loc_right = cv2.minMaxLoc(res_right)
+    
+    # 左側テンプレートでマッチング
+    template_left = cv2.imread(left_template_path, cv2.IMREAD_UNCHANGED)
+    res_left = cv2.matchTemplate(keyence_img_cv, template_left, cv2.TM_CCOEFF)
+    _, max_val_left, _, max_loc_left = cv2.minMaxLoc(res_left)
 
-    # 右側と左側のマッチ結果を比較
-    if max_loc_right[0] > max_loc_left[0]:  # 右側のテンプレートが優勢
-        return image[:, crop_px:]  # 左から1360ピクセルを切り出す
-    else:  # 左側のテンプレートが優勢
-        return image[:, :-crop_px]  # 右から1360ピクセルを切り出す
+    # 右側が一致した場合
+    if max_val_right > max_val_left:
+        # 左側から1360ピクセルカット
+        cropped_origin = origin_image[:, crop_size:]
+        cropped_keyence = keyence_img_cv[:, crop_size:]
+    else:
+        # 右側から1360ピクセルカット
+        cropped_origin = origin_image[:, :-crop_size]
+        cropped_keyence = keyence_img_cv[:, :-crop_size]
 
-# テンプレート画像を読み込む
-template_right = io.imread(os.path.join(work_right_dir, "template_right.jpg"), as_gray=True)
-template_left = io.imread(os.path.join(work_left_dir, "template_left.jpg"), as_gray=True)
+    return cropped_origin, cropped_keyence
 
-# updated_imagesリストを初期化
+# ワーク接合部の削除を全てのNG画像とOK画像に対して実行
 updated_images = []
-for origin_image_path, keyence_image_path in ng_images_label1 + ng_images_label2 + ng_images_label3 + ok_images:
-    # 画像を読み込む
-    origin_image = io.imread(origin_image_path, as_gray=True)
-    keyence_image = io.imread(keyence_image_path, as_gray=True)
-
-    # ワーク接合部を削除
-    cropped_origin = remove_joint_part(origin_image, template_right, template_left)
-    cropped_keyence = remove_joint_part(keyence_image, template_right, template_left)
+for images_pair in ng_images_label1 + ng_images_label2 + ng_images_label3 + ok_images:
+    origin_image_path, keyence_image_path = images_pair
+    origin_image = io.imread(origin_image_path)
+    keyence_image = io.imread(keyence_image_path)
     
-    # updated_imagesに追加
+    # ワーク接合部を削除
+    cropped_origin, cropped_keyence = remove_joint_part(origin_image, keyence_image)
+    
+    # 更新された画像をリストに追加
     updated_images.append((cropped_origin, cropped_keyence))
 ```
 
 #### 5. 更新された画像の表示
 ```python
-# 最初のペアの更新された画像を表示
+# 更新された最初のペアの画像を表示
 if updated_images:
     cropped_origin_image, cropped_keyence_image = updated_images[0]
-    
+
+    # 元画像 (cropped_origin_image) の表示
     plt.figure(figsize=(10, 5))
-    
-    # 元画像の表示
     plt.subplot(1, 2, 1)
     plt.imshow(cropped_origin_image, cmap='gray')
     plt.title("Cropped Origin Image")
     plt.axis('off')
-    
-    # キーエンス前処理画像の表示
+
+    # キーエンス処理画像 (cropped_keyence_image) の表示
     plt.subplot(1, 2, 2)
     plt.imshow(cropped_keyence_image, cmap='gray')
     plt.title("Cropped Keyence Image")
     plt.axis('off')
-    
+
     plt.show()
 else:
-    print("No images to display.")
+    print("更新された画像がありません。")
 ```
 
 ### requirements.txt
@@ -124,10 +134,10 @@ numpy
 ```
 
 ### 説明
-1. **ライブラリのインポート**では、`requirements.txt`から必要なライブラリをインポートしています。画像処理に`opencv`と`skimage`を使用します。
-2. **パラメータの設定**で、画像ディレクトリや切り出し量を指定しています。
-3. **データの読み込み**では、NormalとShapeの画像をペアにして読み込んでいます。
-4. **ワーク接合部の削除**では、テンプレートマッチングによってワークが右側か左側かを判定し、指定した範囲を切り出します。
-5. **画像の表示**では、接合部を削除した最初の画像ペアを表示します。
+1. **ライブラリのインポート**では、`requirements.txt`に基づいて必要なライブラリをインポートしています。
+2. **パラメータの設定**で、入力・出力ディレクトリやテンプレート画像のパス、切り出すサイズを定義しています。
+3. **データの読み込み**で、`Normal`と`Shape`画像のペアをマッチングし、NGとOKの画像を読み込んでいます。
+4. **ワーク接合部の削除**で、テンプレートマッチングによって画像が左右どちらのワークかを判別し、接合部を削除する処理を行っています。
+5. **更新された画像の表示**では、最初のペア画像を表示しています。
 
-このコードは、効率を考慮しつつ少ないメモリで処理できるよう設計されています。
+これにより、接合部の削除が行われ、左右の判別に基づいた画像処理が実施されています。
