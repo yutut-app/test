@@ -1,4 +1,4 @@
-以下は、項目5「キーエンス前処理画像から欠陥候補を検出」を追加し、`cropped_keyence_image`で欠陥候補の中心を検出する処理を行うコードです。
+以下は、ステップ5（キーエンス前処理画像から欠陥候補を検出）、ステップ6（画像の切り出し）、ステップ7（画像の保存）を追加した.ipynbの全体構成です。すべてのキーエンス前処理画像に対して欠陥候補を検出し、H面領域を基に画像を切り出して保存します。
 
 ### .ipynb構成
 
@@ -10,7 +10,7 @@
 import os
 import cv2
 import numpy as np
-from skimage import io, feature, filters, measure
+from skimage import io, filters, feature, measure
 import matplotlib.pyplot as plt
 ```
 
@@ -26,9 +26,11 @@ ng_labels = ['label1', 'label2', 'label3']  # label1: porosity, label2: dents, l
 threshold_value = 150  # 二直化のしきい値
 crop_offset = 1360  # ワーク接合部の削除時のオフセット値
 gaussian_kernel_size = (7, 7)  # ガウシアンブラーのカーネルサイズ
-sigma = 5  # ガウシアンブラーのsigma
-edge_min_val = 50  # エッジ検出の最小値
-edge_max_val = 150  # エッジ検出の最大値
+sigma_value = 5  # ガウシアンブラーのσ
+edge_threshold_min = 50  # エッジ検出の最小閾値
+edge_threshold_max = 150  # エッジ検出の最大閾値
+min_defect_diameter = 5  # 欠陥の最小直径 (px)
+max_defect_diameter = 100  # 欠陥の最大直径 (px)
 ```
 
 #### 3. データの読み込み
@@ -59,7 +61,7 @@ ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK"))
 
 #### 4. 元画像からワークのH面領域を検出
 
-省略（H面の検出）。
+H面検出は前提とする処理のため、ここでは省略。
 
 #### 4.1 二直化処理
 ```python
@@ -73,6 +75,7 @@ def binarize_images(matched_images, threshold):
         # 二直化処理を適用 (THRESH_BINARY)
         _, binarized_image = cv2.threshold(normal_image, threshold, 255, cv2.THRESH_BINARY)
 
+        # H面が白色になるように処理する
         updated_images.append((binarized_image, keyence_image_path))
 
     return updated_images
@@ -121,48 +124,53 @@ updated_images = remove_joint_area(matched_images, right_template, left_template
 
 #### 5. キーエンス前処理画像から欠陥候補を検出
 ```python
-# H面領域で欠陥候補を検出する処理
-def detect_defects(updated_images, gaussian_kernel_size, sigma, edge_min_val, edge_max_val):
+# H面(白部分)に基づいて欠陥候補を検出する
+def detect_defects(cropped_binarized_image, cropped_keyence_image, gaussian_kernel_size, sigma_value, edge_threshold_min, edge_threshold_max, min_defect_diameter, max_defect_diameter):
+    # ガウシアンブラーを適用
+    blurred_image = cv2.GaussianBlur(cropped_keyence_image, gaussian_kernel_size, sigma_value)
+
+    # エッジ検出を実行
+    edges = feature.canny(blurred_image, sigma=sigma_value, low_threshold=edge_threshold_min / 255, high_threshold=edge_threshold_max / 255)
+
+    # H面の白部分の領域を特定し、欠陥候補を検出
+    labels = measure.label(cropped_binarized_image, connectivity=2)
+    regions = measure.regionprops(labels)
+
     defect_candidates = []
 
-    for cropped_binarized_image, cropped_keyence_image in updated_images:
-        # ガウシアンブラーを適用してノイズを低減
-        blurred_keyence_image = cv2.GaussianBlur(cropped_keyence_image, gaussian_kernel_size, sigma)
-        
-        # エッジ検出を実行
-        edges = feature.canny(blurred_keyence_image, sigma=sigma, low_threshold=edge_min_val / 255, high_threshold=edge_max_val / 255)
-
-        # H面(白部分)と対応させ、欠陥候補を検出
-        labeled_binarized = measure.label(cropped_binarized_image)
-        regions = measure.regionprops(labeled_binarized)
-
-        for region in regions:
-            # H面にある領域に限定
-            if np.any(edges[region.coords[:, 0], region.coords[:, 1]]):
-                defect_candidates.append(region.centroid)  # 欠陥候補の中心を記録
+    for region in regions:
+        # 欠陥候補のサイズが基準内か確認 (φ0.5mm以下、φ10mm以上は除外)
+        if min_defect_diameter <= region.equivalent_diameter <= max_defect_diameter:
+            defect_candidates.append(region.centroid)  # 欠陥候補の中心を取得
 
     return defect_candidates
-
-# 欠陥候補を検出
-defect_candidates = detect_defects(updated_images, gaussian_kernel_size, sigma, edge_min_val, edge_max_val)
-
-# 欠陥候補を確認
-print("Detected defect candidates (centroids):", defect_candidates)
 ```
 
 #### 6. 画像の切り出し
-
-次の項目で処理します。
+```python
+# 欠陥候補を中心に10px * 10pxの正方形を切り出し
+def crop_defect_regions(cropped_keyence_image, defect_candidates, output_dir):
+    for i, (y, x) in enumerate(defect_candidates):
+        # 10px * 10pxで切り出す
+        cropped_region = cropped_keyence_image[int(y)-5:int(y)+5, int(x)-5:int(x)+5]
+        
+        # ワークごとのディレクトリを作成して保存
+        defect_dir = os.path.join(output_dir, f"defect_{i}")
+        os.makedirs(defect_dir, exist_ok=True)
+        
+        # 画像の保存
+        output_path = os.path.join(defect_dir, f"defect_{i}.jpg")
+        io.imsave(output_path, cropped_region)
+```
 
 #### 7. 画像の保存
-
-次の項目で処理します。
+```python
+# 欠陥候補の検出、画像の切り出しと保存を行う
+for binarized_image, keyence_image in updated_images:
+    defect_candidates = detect_defects(binarized_image, keyence_image, gaussian_kernel_size, sigma_value, edge_threshold_min, edge_threshold_max, min_defect_diameter, max_defect_diameter)
+    crop_defect_regions(keyence_image, defect_candidates, output_data_dir)
+```
 
 ### 説明
-1. **ライブラリのインポート**：OpenCVや`skimage`を使用して画像処理とエッジ検出を行います。
-2. **パラメータの設定**：エッジ検出やガウシアンブラーのパラメータを設定します。
-3. **データの読み込み**：`Normal`と`Shape`画像のペアをマッチングして読み込みます。
-4. **二直化処理とワーク接合部の削除**：二直化画像とキーエンス画像の両方に対して、ワーク接合部を削除する処理を行います。
-5. **欠陥候補の検出**：`cropped_binarized_image`でH面（白領域）を特定し、`cropped_keyence_image`に対してガウシアンブラーとエッジ検出を適用して欠陥候補の中心（`centroid`）を検出します。
-
-この構成で、欠陥候補を検出する準備が整いました。
+1. **ライブラリのインポート**：必要なライブラリをすべてインポートしています。
+2. **パラメータの設定**：欠陥候
