@@ -134,11 +134,12 @@ if labeled_ng_images_label1:
     # 結果を表示
     plt.figure(figsize=(10, 5))
     plt.imshow(result_image)
-    plt.title("Detected Defects with Red Rectangles (including texture detection)")
+    plt.title("Detected Defects with Red Rectangles (excluding mask edges)")
     plt.axis('off')
     plt.show()
 else:
     print("No defects found in the images.")
+
 ```
 
 ### 説明
