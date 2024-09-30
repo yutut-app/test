@@ -1,7 +1,28 @@
 ```python
-    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
-    
-    return combined_edges
+# パラメータの設定
+input_data_dir = r"../data/input"
+output_data_dir = r"../data/output"
+ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
+template_dir = os.path.join(input_data_dir, "template")
+right_template_path = os.path.join(template_dir, "right_keyence.jpg")
+left_template_path = os.path.join(template_dir, "left_keyence.jpg")
+crop_width = 1360  # ワーク接合部を削除するための幅
+threshold_value = 150  # 二直化しきい値
+kernel_size = (5, 5)  # カーネルサイズ
+iterations_open = 3  # 膨張処理の繰り返し回数
+iterations_close = 20  # 収縮処理の繰り返し回数
+gaussian_kernel_size = (7, 7)  # ガウシアンブラーのカーネルサイズ
+canny_min_threshold = 30  # エッジ検出の最小しきい値
+canny_max_threshold = 120  # エッジ検出の最大しきい値
+sigma = 3  # ガウシアンブラーの標準偏差
+min_defect_size = 5  # 最小欠陥サイズ（0.5mm = 5px）
+max_defect_size = 100  # 最大欠陥サイズ（10mm = 100px）
+texture_threshold = 15  # テクスチャの変化を検出するためのしきい値
+edge_margin = 5  # マスクのエッジ部分に持たせる余裕（ピクセル単位）
+edge_completion_kernel_size = (3, 3)  # エッジ補完に使用するカーネルサイズ
+canny_edge_min = 100  # フィルタリング時のCannyエッジ検出の最小しきい値
+canny_edge_max = 200  # フィルタリング時のCannyエッジ検出の最大しきい値
+
 ```
 
 ---
