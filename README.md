@@ -2,54 +2,27 @@
 
 ### 7.1 欠陥候補の保存（外接矩形を切り出し、100倍に拡大）
 ```python
-import os
-
-# 欠陥候補を保存する関数
-def save_defect_candidates(image, defects, original_image_name, output_dir):
-    # 保存ディレクトリが存在しない場合は作成
-    defect_dir = os.path.join(output_dir, "defect_candidate")
-    if not os.path.exists(defect_dir):
-        os.makedirs(defect_dir)
+# 園検出を行う関数
+def detect_circles(cropped_keyence_image, binarized_image):
+    # H面のマスクを適用して背景を除去
+    masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
     
-    # 元画像ごとにディレクトリを作成
-    image_base_name = os.path.splitext(original_image_name)[0]
-    image_save_dir = os.path.join(defect_dir, image_base_name)
-    if not os.path.exists(image_save_dir):
-        os.makedirs(image_save_dir)
+    # ガウシアンブラーを適用してノイズを除去
+    blurred_image = cv2.GaussianBlur(masked_image, gaussian_kernel_size, sigma)
     
-    # 欠陥候補を外接矩形で切り出し、100倍に拡大して保存
-    for i, (x, y, w, h, cx, cy) in enumerate(defects):
-        # 欠陥候補の切り出し
-        defect_crop = image[y:y+h, x:x+w]
-        
-        # 100倍に拡大
-        enlarged_defect = cv2.resize(defect_crop, (w*100, h*100), interpolation=cv2.INTER_LINEAR)
-        
-        # ファイル名を作成して保存
-        defect_filename = f"defect_{i+1}.png"
-        defect_filepath = os.path.join(image_save_dir, defect_filename)
-        cv2.imwrite(defect_filepath, enlarged_defect)
-```
+    # 園検出を行う（Hough Circle Transformを使用）
+    circles = cv2.HoughCircles(blurred_image, cv2.HOUGH_GRADIENT, dp=1.2, minDist=30, 
+                               param1=canny_min_threshold, param2=canny_max_threshold, 
+                               minRadius=min_defect_size, maxRadius=max_defect_size)
+    
+    # 園検出結果を返す
+    if circles is not None:
+        circles = np.round(circles[0, :]).astype("int")
+    else:
+        circles = []
+    
+    return circles
 
-#### 7.1 欠陥候補の保存処理の統合
-```python
-# 欠陥候補を保存する処理を統合
-def save_defects_for_all_images(labeled_images, original_images, output_dir):
-    for (binarized_image, edge_image, defects), original_image_path in zip(labeled_images, original_images):
-        # 元画像のファイル名を取得
-        original_image_name = os.path.basename(original_image_path)
-        
-        # 欠陥候補を保存
-        save_defect_candidates(edge_image, defects, original_image_name, output_dir)
-```
-
-### 処理の統合
-```python
-# NGとOK画像に対して処理を実行し、欠陥候補を保存
-save_defects_for_all_images(labeled_ng_images_label1, [img[0] for img in ng_images_label1], output_data_dir)
-save_defects_for_all_images(labeled_ng_images_label2, [img[0] for img in ng_images_label2], output_data_dir)
-save_defects_for_all_images(labeled_ng_images_label3, [img[0] for img in ng_images_label3], output_data_dir)
-save_defects_for_all_images(labeled_ok_images, [img[0] for img in ok_images], output_data_dir)
 ```
 
 ### 説明
