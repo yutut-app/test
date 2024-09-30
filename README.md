@@ -104,6 +104,7 @@ def draw_bounding_boxes(image, defects):
 欠陥候補の中心座標を基に200px x 200pxの正方形として切り出し、それを10倍に拡大して保存します。さらに、欠陥候補の情報をCSVに保存します。
 
 ```python
+# 欠陥候補を保存する関数
 def save_defect_images_and_csv(defects, original_image, image_name, output_dir, image_label):
     defect_dir = os.path.join(output_dir, "defect_candidate", image_name)
     if not os.path.exists(defect_dir):
@@ -116,10 +117,26 @@ def save_defect_images_and_csv(defects, original_image, image_name, output_dir, 
         half_size = 100
         top_left_x = int(cx) - half_size
         top_left_y = int(cy) - half_size
-        cropped_image = original_image[top_left_y:top_left_y + 200, top_left_x:top_left_x + 200]
+        bottom_right_x = int(cx) + half_size
+        bottom_right_y = int(cy) + half_size
+        
+        # 正方形を切り出す際に画像の範囲外になる場合を補完
+        canvas = np.zeros((200, 200, 3), dtype=np.uint8)  # 黒色の200px x 200pxキャンバス
+        cut_top_left_x = max(0, top_left_x)
+        cut_top_left_y = max(0, top_left_y)
+        cut_bottom_right_x = min(original_image.shape[1], bottom_right_x)
+        cut_bottom_right_y = min(original_image.shape[0], bottom_right_y)
+        
+        # オリジナル画像から切り出し
+        cropped_part = original_image[cut_top_left_y:cut_bottom_right_y, cut_top_left_x:cut_bottom_right_x]
+        
+        # キャンバスの対応する位置に欠陥部分を貼り付け
+        start_x = max(0, -top_left_x)  # 画像が範囲外の場合はキャンバスの開始位置を調整
+        start_y = max(0, -top_left_y)
+        canvas[start_y:start_y + cropped_part.shape[0], start_x:start_x + cropped_part.shape[1]] = cropped_part
         
         # 10倍に拡大
-        enlarged_image = cv2.resize(cropped_image, (2000, 2000), interpolation=cv2.INTER_LINEAR)
+        enlarged_image = cv2.resize(canvas, (2000, 2000), interpolation=cv2.INTER_LINEAR)
         
         # 画像の保存
         defect_filename = f"defect_{i+1}.png"
@@ -141,6 +158,7 @@ def save_defect_images_and_csv(defects, original_image, image_name, output_dir, 
     csv_filepath = os.path.join(defect_dir, f"{image_name}_defects.csv")
     df = pd.DataFrame(defect_data)
     df.to_csv(csv_filepath, index=False)
+
 ```
 
 ---
