@@ -129,16 +129,18 @@ def save_defect_images_and_csv(defects, cropped_keyence_image, image_name, outpu
         cut_bottom_right_x = min(cropped_keyence_image.shape[1], bottom_right_x)
         cut_bottom_right_y = min(cropped_keyence_image.shape[0], bottom_right_y)
         
-        # cropped_keyence_imageから欠陥部分を切り出し
+        # cropped_keyence_imageから切り出し
         cropped_part = cropped_keyence_image[cut_top_left_y:cut_bottom_right_y, cut_top_left_x:cut_bottom_right_x]
         
-        # モノクロ画像対応: チャンネル数が不足している場合、RGB形式に変換
-        if cropped_part.ndim == 2:  # グレースケール（2次元配列）の場合
+        # キャンバスの対応する位置に欠陥部分を貼り付け (グレースケール画像にRGB画像を保持するための対応)
+        start_x = max(0, -top_left_x)
+        start_y = max(0, -top_left_y)
+        
+        # エラー修正: モノクロ画像にも対応
+        if cropped_part.ndim == 2:
             cropped_part = cv2.cvtColor(cropped_part, cv2.COLOR_GRAY2RGB)
         
-        # キャンバスの対応する位置に欠陥部分を貼り付け
-        start_x = max(0, -top_left_x)  # 画像が範囲外の場合はキャンバスの開始位置を調整
-        start_y = max(0, -top_left_y)
+        # キャンバスの該当部分に欠陥部分を埋め込む
         canvas[start_y:start_y + cropped_part.shape[0], start_x:start_x + cropped_part.shape[1]] = cropped_part
         
         # 10倍に拡大
@@ -165,8 +167,6 @@ def save_defect_images_and_csv(defects, cropped_keyence_image, image_name, outpu
     df = pd.DataFrame(defect_data)
     df.to_csv(csv_filepath, index=False)
 
-
-
 ```
 
 ---
@@ -177,11 +177,13 @@ NGとOK画像に対してエッジ検出から欠陥候補の保存までの処�
 ```python
 def process_and_save_defects(labeled_images, original_images, output_dir, image_label):
     for (binarized_image, edge_image, defects), original_image_path in zip(labeled_images, original_images):
-        # 画像名を取得
-        image_name = os.path.splitext(os.path.basename(original_image_path))[0]
+        # 画像名を取得 (エラー修正部分)
+        image_name = os.path.basename(original_image_path)  # ベース名だけを取得
+        image_name = os.path.splitext(image_name)[0]  # 拡張子を削除してファイル名を取得
         
-        # 欠陥候補を保存
+        # 欠陥候補を保存（cropped_keyence_imageから切り出し）
         save_defect_images_and_csv(defects, edge_image, image_name, output_dir, image_label)
+
 
 # NGとOK画像に対して欠陥候補の処理と保存を実行
 process_and_save_defects(labeled_ng_images_label1, [img[0] for img in ng_images_label1], output_data_dir, 1)
