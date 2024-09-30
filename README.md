@@ -120,8 +120,11 @@ def save_defect_images_and_csv(defects, cropped_keyence_image, image_name, outpu
         bottom_right_x = int(cx) + half_size
         bottom_right_y = int(cy) + half_size
         
-        # キャンバスの作成: RGB画像として黒色のキャンバス (エラー解消のため)
-        canvas = np.zeros((200, 200, 3), dtype=np.uint8)  # 黒色の200px x 200pxキャンバス
+        # キャンバスの作成: 画像の次元数に応じて黒色キャンバスを作成 (RGB or Grayscale)
+        if cropped_keyence_image.ndim == 3:  # RGB画像の場合
+            canvas = np.zeros((200, 200, 3), dtype=np.uint8)  # 黒色の200px x 200pxキャンバス
+        else:  # グレースケール画像の場合
+            canvas = np.zeros((200, 200), dtype=np.uint8)  # 黒色の200px x 200pxキャンバス
         
         # 切り出す範囲を調整
         cut_top_left_x = max(0, top_left_x)
@@ -129,19 +132,19 @@ def save_defect_images_and_csv(defects, cropped_keyence_image, image_name, outpu
         cut_bottom_right_x = min(cropped_keyence_image.shape[1], bottom_right_x)
         cut_bottom_right_y = min(cropped_keyence_image.shape[0], bottom_right_y)
         
-        # cropped_keyence_imageから切り出し
+        # cropped_keyence_imageから欠陥部分を切り出し
         cropped_part = cropped_keyence_image[cut_top_left_y:cut_bottom_right_y, cut_top_left_x:cut_bottom_right_x]
         
-        # キャンバスの対応する位置に欠陥部分を貼り付け (グレースケール画像にRGB画像を保持するための対応)
+        # キャンバスの対応する位置に欠陥部分を貼り付け (グレースケール画像かRGB画像かで対応)
         start_x = max(0, -top_left_x)
         start_y = max(0, -top_left_y)
         
-        # エラー修正: モノクロ画像にも対応
-        if cropped_part.ndim == 2:
-            cropped_part = cv2.cvtColor(cropped_part, cv2.COLOR_GRAY2RGB)
-        
-        # キャンバスの該当部分に欠陥部分を埋め込む
-        canvas[start_y:start_y + cropped_part.shape[0], start_x:start_x + cropped_part.shape[1]] = cropped_part
+        # モノクロ画像の場合は、直接貼り付け
+        if cropped_keyence_image.ndim == 2:
+            canvas[start_y:start_y + cropped_part.shape[0], start_x:start_x + cropped_part.shape[1]] = cropped_part
+        # RGB画像の場合は、3チャンネルをコピー
+        elif cropped_keyence_image.ndim == 3:
+            canvas[start_y:start_y + cropped_part.shape[0], start_x:start_x + cropped_part.shape[1], :] = cropped_part
         
         # 10倍に拡大
         enlarged_image = cv2.resize(canvas, (2000, 2000), interpolation=cv2.INTER_LINEAR)
@@ -166,6 +169,7 @@ def save_defect_images_and_csv(defects, cropped_keyence_image, image_name, outpu
     csv_filepath = os.path.join(defect_dir, f"{image_name}_defects.csv")
     df = pd.DataFrame(defect_data)
     df.to_csv(csv_filepath, index=False)
+
 
 ```
 
