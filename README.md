@@ -104,8 +104,8 @@ def draw_bounding_boxes(image, defects):
 欠陥候補の中心座標を基に200px x 200pxの正方形として切り出し、それを10倍に拡大して保存します。さらに、欠陥候補の情報をCSVに保存します。
 
 ```python
-# 欠陥候補を保存する関数
-def save_defect_images_and_csv(defects, original_image, image_name, output_dir, image_label):
+# 欠陥候補を保存する関数 (cropped_keyence_image からの切り出し)
+def save_defect_images_and_csv(defects, cropped_keyence_image, image_name, output_dir, image_label):
     defect_dir = os.path.join(output_dir, "defect_candidate", image_name)
     if not os.path.exists(defect_dir):
         os.makedirs(defect_dir)
@@ -120,19 +120,27 @@ def save_defect_images_and_csv(defects, original_image, image_name, output_dir, 
         bottom_right_x = int(cx) + half_size
         bottom_right_y = int(cy) + half_size
         
-        # 正方形を切り出す際に画像の範囲外になる場合を補完
+        # キャンバスの作成: RGB画像として黒色のキャンバス (エラー解消のため)
         canvas = np.zeros((200, 200, 3), dtype=np.uint8)  # 黒色の200px x 200pxキャンバス
+        
+        # 切り出す範囲を調整
         cut_top_left_x = max(0, top_left_x)
         cut_top_left_y = max(0, top_left_y)
-        cut_bottom_right_x = min(original_image.shape[1], bottom_right_x)
-        cut_bottom_right_y = min(original_image.shape[0], bottom_right_y)
+        cut_bottom_right_x = min(cropped_keyence_image.shape[1], bottom_right_x)
+        cut_bottom_right_y = min(cropped_keyence_image.shape[0], bottom_right_y)
         
-        # オリジナル画像から切り出し
-        cropped_part = original_image[cut_top_left_y:cut_bottom_right_y, cut_top_left_x:cut_bottom_right_x]
+        # cropped_keyence_imageから切り出し
+        cropped_part = cropped_keyence_image[cut_top_left_y:cut_bottom_right_y, cut_top_left_x:cut_bottom_right_x]
         
-        # キャンバスの対応する位置に欠陥部分を貼り付け
-        start_x = max(0, -top_left_x)  # 画像が範囲外の場合はキャンバスの開始位置を調整
+        # キャンバスの対応する位置に欠陥部分を貼り付け (グレースケール画像にRGB画像を保持するための対応)
+        start_x = max(0, -top_left_x)
         start_y = max(0, -top_left_y)
+        
+        # エラー修正: モノクロ画像にも対応
+        if cropped_part.ndim == 2:
+            cropped_part = cv2.cvtColor(cropped_part, cv2.COLOR_GRAY2RGB)
+        
+        # キャンバスの該当部分に欠陥部分を埋め込む
         canvas[start_y:start_y + cropped_part.shape[0], start_x:start_x + cropped_part.shape[1]] = cropped_part
         
         # 10倍に拡大
