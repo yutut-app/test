@@ -32,9 +32,9 @@ canny_edge_max = 200  # フィルタリング時のCannyエッジ検出の最大
 欠陥候補のエッジを補完し、隣接するピクセルのグループを一つの領域として識別します。その後、欠陥候補の中心座標と特徴量を抽出し、ラベリングされた画像を可視化します。
 
 ```python
-def complete_edges_and_extract_defects(edge_image, binarized_image):
+def complete_edges_and_extract_defects(edge_image, binarized_image, kernel_size):
     # 膨張・収縮処理でエッジを補完
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
     completed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel, iterations=2)
     
     # ラベリング処理
@@ -53,6 +53,7 @@ def complete_edges_and_extract_defects(edge_image, binarized_image):
         cv2.circle(labeled_image, (int(cx), int(cy)), 3, (0, 0, 255), -1)
     
     return labeled_image, defect_candidates
+
 ```
 
 ---
@@ -62,9 +63,16 @@ def complete_edges_and_extract_defects(edge_image, binarized_image):
 マスクのエッジと重なっている欠陥候補を除外し、各ラベル領域のサイズをチェックして指定範囲内の欠陥候補のみを抽出します。さらに、欠陥候補の中心を基に200px x 200pxのバウンディングボックスを画像内に加え、ラベル付けされた画像を可視化します。
 
 ```python
-def filter_defects(defects, mask, min_size, max_size):
+def filter_defects(defects, mask, min_size, max_size, canny_edge_min, canny_edge_max):
     filtered_defects = []
-    mask_edges = cv2.Canny(mask, 100, 200)
+    mask_edges = cv2.Canny(mask, canny_edge_min, canny_edge_max)
+    
+    # マスクエッジの可視化
+    plt.figure(figsize=(10, 5))
+    plt.imshow(mask_edges, cmap='gray')
+    plt.title("Mask Edges")
+    plt.axis('off')
+    plt.show()
     
     for (x, y, w, h, cx, cy) in defects:
         # 欠陥候補の外接矩形がエッジと重なっているか確認
