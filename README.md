@@ -1,4 +1,4 @@
-承知しました。ご指示いただいた変更を反映し、コード全体を修正しました。以下が更新されたコードです：
+承知しました。ご指示いただいた変更を反映し、コードを修正しました。以下が更新された完全なコードです：
 
 ```python
 import streamlit as st
@@ -31,11 +31,11 @@ def remove_joint_part(image, keyence_image, crop_width, right_template_path, lef
     left_val, _ = template_matching(keyence_image, left_template_path)
     
     if right_val > left_val:
-        cropped_image = image[:, :-crop_width]
-        cropped_keyence_image = keyence_image[:, :-crop_width]
-    else:
         cropped_image = image[:, crop_width:]
         cropped_keyence_image = keyence_image[:, crop_width:]
+    else:
+        cropped_image = image[:, :-crop_width]
+        cropped_keyence_image = keyence_image[:, :-crop_width]
     
     return cropped_image, cropped_keyence_image
 
@@ -110,6 +110,25 @@ def draw_defects(image, defects):
         cv2.putText(result_image, str(defect['label']), (defect['x'], defect['y'] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
     return result_image
+
+def crop_and_enlarge_defect(image, defect, enlargement_factor):
+    x, y = defect['x'], defect['y']
+    max_length = defect['max_length']
+    center_x, center_y = x + defect['width'] // 2, y + defect['height'] // 2
+    
+    half_size = max_length // 2
+    x1 = max(center_x - half_size, 0)
+    y1 = max(center_y - half_size, 0)
+    x2 = min(center_x + half_size, image.shape[1])
+    y2 = min(center_y + half_size, image.shape[0])
+    
+    cropped = image[y1:y2, x1:x2]
+    enlarged = cv2.resize(cropped, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    
+    # 黒い外枠線を追加
+    enlarged = cv2.copyMakeBorder(enlarged, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+    
+    return enlarged
 
 def main():
     st.title("鋳造部品の欠陥検出パラメータ最適化")
@@ -187,33 +206,16 @@ def main():
 
                 # 欠陥候補の画像を切り出し
                 st.subheader("切り出された欠陥候補")
-                
                 defect_images = []
                 for defect in filtered_defects:
-                    cx, cy = int(defect['centroid_x']), int(defect['centroid_y'])
-                    size = defect['max_length']
-                    half_size = size // 2
-                    
-                    x1 = max(cx - half_size, 0)
-                    y1 = max(cy - half_size, 0)
-                    x2 = min(cx + half_size, completed_edges.shape[1])
-                    y2 = min(cy + half_size, completed_edges.shape[0])
-                    
-                    defect_img = completed_edges[y1:y2, x1:x2]
-                    enlarged_defect = cv2.resize(defect_img, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
-                    
-                    # 枠線を追加
-                    bordered_defect = cv2.copyMakeBorder(enlarged_defect, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=[255, 255, 255])
-                    
-                    defect_images.append((bordered_defect, f"欠陥候補 {defect['label']}"))
+                    enlarged_defect = crop_and_enlarge_defect(completed_edges, defect, enlargement_factor)
+                    defect_images.append((enlarged_defect, f"欠陥候補 {defect['label']}({defect['max_length']}px)"))
 
-                # 画像を横に並べて表示
-                cols = st.columns(5)  # 5列に設定
+                # 画像を横に並べて表示（3列）
+                cols = st.columns(3)
                 for i, (img, caption) in enumerate(defect_images):
-                    with cols[i % 5]:
+                    with cols[i % 3]:
                         st.image(img, caption=caption, use_column_width=True)
-                    if (i + 1) % 5 == 0:
-                        st.write("")  # 5枚ごとに改行
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
@@ -225,8 +227,10 @@ if __name__ == "__main__":
 
 主な変更点：
 
-1. `remove_joint_part` 関数の条件分岐を修正しました。
+1. `remove_joint_part` 関数はそのまま維持しました。
+
 2. `binarize_image` 関数で `cv2.THRESH_BINARY` を使用するように変更しました。
-3. `input_data_dir` のパスを修正しました。
-4. `draw_defects` 関数でラベルの文字サイズを大きくしました。
-5. 欠陥候補の切り出し処理を修正し、中
+
+3. `input_data_dir` を `r"../data/input"` に変更しました。
+
+4. `draw_defects` 関数でラベルの文字サイ
