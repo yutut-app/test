@@ -284,13 +284,26 @@ def label_and_measure_defects(edge_image):
     
     return defects
 
-def process_images_for_labeling(edged_images):
-    labeled_images = []
-    for binarized_image, edge_image in edged_images:
-        completed_edges = complete_edges(edge_image, binarized_image)
-        defects = label_and_measure_defects(completed_edges)
-        labeled_images.append((binarized_image, completed_edges, defects))
-    return labeled_images
+def process_images_for_filtering(labeled_images, image_type):
+    filtered_images = []
+    for i, (binarized_image, edge_image, defects) in enumerate(labeled_images):
+        filtered_defects = remove_defects_on_mask_edge(defects, binarized_image)
+        filtered_defects = filter_defects_by_max_length(filtered_defects, min_defect_size, max_defect_size)
+        
+        # ラベルを振り直す
+        for j, defect in enumerate(filtered_defects, 1):
+            defect['label'] = j
+        
+        image_name = f"{image_type}_{i}"
+        filtered_images.append((image_name, binarized_image, edge_image, filtered_defects))
+    return filtered_images
+
+# フィルタリングの実行
+filtered_ng_images_label1 = process_images_for_filtering(labeled_ng_images_label1, "ng_label1")
+#filtered_ng_images_label2 = process_images_for_filtering(labeled_ng_images_label2, "ng_label2")
+#filtered_ng_images_label3 = process_images_for_filtering(labeled_ng_images_label3, "ng_label3")
+#filtered_ok_images = process_images_for_filtering(labeled_ok_images, "ok")
+
 ```
 
 説明:
@@ -333,7 +346,7 @@ def visualize_filtered_defects(image, defects, mask):
     
     # マスクのエッジを可視化
     mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
-    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
+    ax.imshow(mask_edges, alpha=0.3, cmap='gray')
     
     for defect in defects:
         rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
@@ -379,24 +392,26 @@ def save_defect_image(image, defect, output_dir, image_name, defect_number):
     defect_image = image[y1:y2, x1:x2]
     enlarged_image = cv2.resize(defect_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
     
-    output_filename = f"{image_name}_defect_{defect_number}.png"
+    output_filename = f"defect_{defect_number}.png"
     output_path = os.path.join(output_dir, output_filename)
     cv2.imwrite(output_path, enlarged_image)
     
     return output_filename
 
-def process_images_for_saving(filtered_images, output_dir, image_label):
+def process_images_for_saving(filtered_images, base_output_dir, image_label):
     all_defects_data = []
     
-    for i, (binarized_image, edge_image, defects) in enumerate(filtered_images):
-        image_name = f"image_{i}"
+    for image_name, binarized_image, edge_image, defects in filtered_images:
+        image_type = image_name.split('_')[0]
+        output_dir = os.path.join(base_output_dir, image_type, image_name)
+        os.makedirs(output_dir, exist_ok=True)
         
-        for j, defect in enumerate(defects):
-            output_filename = save_defect_image(edge_image, defect, output_dir, image_name, j)
+        for defect in defects:
+            output_filename = save_defect_image(edge_image, defect, output_dir, image_name, defect['label'])
             
             defect_data = {
                 'image_name': image_name,
-                'defect_image': output_filename,
+                'defect_image': os.path.join(image_type, image_name, output_filename),
                 'Image_label': image_label,
                 'defect_label': 0,  # デフォルトで0（OK）とする
             }
