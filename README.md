@@ -234,6 +234,12 @@ def process_images_for_labeling(edged_images):
         defects = label_and_measure_defects(completed_edges, binarized_image)
         labeled_images.append((binarized_image, completed_edges, defects))
     return labeled_images
+
+# NGとOK画像に対してラベリング処理を実行
+labeled_ng_images_label1 = process_images_for_labeling(edged_ng_images_label1)
+#labeled_ng_images_label2 = process_images_for_labeling(edged_ng_images_label2)
+#labeled_ng_images_label3 = process_images_for_labeling(edged_ng_images_label3)
+#labeled_ok_images = process_images_for_labeling(edged_ok_images)
 ```
 
 # 8. 欠陥候補のフィルタリング
