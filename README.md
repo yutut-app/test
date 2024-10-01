@@ -1,12 +1,10 @@
-承知しました。ご指示いただいた変更に基づいて、Streamlitアプリケーションのコードを修正します。以下が更新されたコードです：
-
-```python
 import streamlit as st
 import cv2
 import numpy as np
 from skimage import measure
 from skimage.morphology import skeletonize
 import os
+import math
 
 def load_image(image_file):
     img = cv2.imdecode(np.frombuffer(image_file.read(), np.uint8), 1)
@@ -30,16 +28,16 @@ def remove_joint_part(image, keyence_image, crop_width, right_template_path, lef
     left_val, _ = template_matching(keyence_image, left_template_path)
     
     if right_val > left_val:
-        cropped_image = image[:, crop_width:]
-        cropped_keyence_image = keyence_image[:, crop_width:]
-    else:
         cropped_image = image[:, :-crop_width]
         cropped_keyence_image = keyence_image[:, :-crop_width]
+    else:
+        cropped_image = image[:, crop_width:]
+        cropped_keyence_image = keyence_image[:, crop_width:]
     
     return cropped_image, cropped_keyence_image
 
 def binarize_image(image, threshold_value, kernel_size, iterations_open, iterations_close):
-    _, binary_image = cv2.threshold(image, threshold_value, 255, cv2.THRESH_BINARY_INV)
+    _, binary_image = cv2.threshold(image, threshold_value, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
     binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
     binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
@@ -107,7 +105,7 @@ def draw_defects(image, defects):
         cv2.rectangle(result_image, (defect['x'], defect['y']), 
                       (defect['x'] + defect['width'], defect['y'] + defect['height']), (0, 255, 0), 2)
         cv2.putText(result_image, str(defect['label']), (defect['x'], defect['y'] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
     return result_image
 
 def main():
@@ -120,7 +118,7 @@ def main():
         normal_img = load_image(normal_image)
         shape_img = load_image(shape_image)
 
-        input_data_dir = "data/input"
+        input_data_dir = r"../data/input"
         template_dir = os.path.join(input_data_dir, "template")
         right_template_path = os.path.join(template_dir, "right_keyence.jpg")
         left_template_path = os.path.join(template_dir, "left_keyence.jpg")
@@ -186,11 +184,19 @@ def main():
 
                 # 欠陥候補の画像を切り出し
                 st.subheader("切り出された欠陥候補")
+                defect_images = []
                 for defect in filtered_defects:
                     x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
-                    defect_img = cropped_shape[y:y+h, x:x+w]
+                    defect_img = completed_edges[y:y+h, x:x+w]
                     enlarged_defect = cv2.resize(defect_img, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
-                    display_image(enlarged_defect, f"欠陥候補 {defect['label']}")
+                    defect_images.append((enlarged_defect, f"欠陥候補 {defect['label']}"))
+
+                # 5個ずつ縦に並べて表示
+                for i in range(0, len(defect_images), 5):
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    for j, col in enumerate([col1, col2, col3, col4, col5]):
+                        if i + j < len(defect_images):
+                            col.image(defect_images[i+j][0], caption=defect_images[i+j][1])
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
@@ -198,20 +204,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-
-主な変更点：
-
-1. `create_mask_edge_margin` 関数を修正し、`mask_edge_min_threshold` と `mask_edge_max_threshold` を引数として追加しました。
-
-2. `complete_edges` 関数を修正し、マスクエッジに関するパラメータを引数として追加しました。
-
-3. `label_and_measure_defects` 関数を修正し、マスクエッジを考慮するようにしました。また、defect_infoに多くの特徴量を追加しました。
-
-4. `remove_defects_on_mask_edge` 関数を削除し、マスクエッジの考慮を `label_and_measure_defects` 関数内で行うようにしました。
-
-5. フィルタリング処理を簡略化し、`filter_defects_by_max_length` 関数のみを使用するようにしました。
-
-6. メイン処理部分で、これらの変更を反映させ、処理の流れを調整しました。
-
-これらの変更により、.ipynbファイルの処理と一致するようになり、マスクエッジの考慮やフィルタリングがより適切に行われるようになりました。
