@@ -231,29 +231,26 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 この項目では、エッジの補完を行い、欠陥候補の中心座標を取得します。
 
 ```python
-def complete_edges(edge_image):
-    # エッジの補完処理（例：モルフォロジー演算を使用）
-    kernel = np.ones((3,3), np.uint8)
-    completed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel, iterations=2)
-    return completed_edges
+from skimage import measure
 
 def label_and_measure_defects(edge_image):
+    # エッジ画像を二値化
+    binary_edge_image = (edge_image > 0).astype(np.uint8)
+
     # ラベリング処理
-    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
+    labels = measure.label(binary_edge_image, connectivity=2)
     
     # 欠陥候補の情報を抽出
     defects = []
-    for i in range(1, num_labels):  # 0はバックグラウンドなのでスキップ
-        x, y, w, h, area = stats[i]
-        cx, cy = centroids[i]
-        
-        # skimage.measure.regionpropsを使用して追加の特徴量を計算
-        region = measure.regionprops(labels == i)[0]
+    for region in measure.regionprops(labels):
+        y, x = region.bbox[0], region.bbox[1]
+        h, w = region.bbox[2] - y, region.bbox[3] - x
         
         defect_info = {
-            'label': i,
+            'label': region.label,
             'x': x, 'y': y, 'width': w, 'height': h,
-            'area': area, 'centroid_x': cx, 'centroid_y': cy,
+            'area': region.area,
+            'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
             'perimeter': region.perimeter,
             'eccentricity': region.eccentricity,
             'orientation': region.orientation,
@@ -261,7 +258,7 @@ def label_and_measure_defects(edge_image):
             'minor_axis_length': region.minor_axis_length,
             'solidity': region.solidity,
             'extent': region.extent,
-            'aspect_ratio': max(w, h) / min(w, h),
+            'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
         }
         defects.append(defect_info)
     
@@ -274,6 +271,7 @@ def process_images_for_labeling(edged_images):
         defects = label_and_measure_defects(completed_edges)
         labeled_images.append((binarized_image, completed_edges, defects))
     return labeled_images
+
 
 # NGとOK画像に対してラベリング処理を実行
 labeled_ng_images_label1 = process_images_for_labeling(edged_ng_images_label1)
