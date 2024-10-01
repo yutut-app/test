@@ -1,231 +1,130 @@
-はい、承知しました。以下に、各項目のMarkdownを第三者（未経験者など）にも理解しやすい形で日本語で生成します。
+以下に、要求された機能を持つStreamlitアプリケーションのPythonコードを示します。このコードは、画像処理パラメータの最適化を行うためのインタラクティブなUIを提供します。
 
-# 鋳造部品の欠陥検出システム
+```python
+import streamlit as st
+import cv2
+import numpy as np
+from skimage import measure
+from skimage.morphology import skeletonize
+import matplotlib.pyplot as plt
+import io
+import base64
 
-## 1. ライブラリのインポート
+def main():
+    st.title("鋳造部品の欠陥検出システム - パラメータ最適化")
 
-この項目では、プロジェクトで使用する必要なライブラリをインポートします。
+    # 1. 画像のアップロード
+    st.header("1. 画像のアップロード")
+    normal_image = st.file_uploader("元画像（Normal）をアップロード", type=['jpg', 'png'])
+    shape_image = st.file_uploader("キーエンス前処理画像（Shape）をアップロード", type=['jpg', 'png'])
 
-**目的**:
-- 画像処理、データ分析、機械学習に必要なツールを準備する
+    if normal_image is not None and shape_image is not None:
+        normal_img = cv2.imdecode(np.frombuffer(normal_image.read(), np.uint8), 1)
+        shape_img = cv2.imdecode(np.frombuffer(shape_image.read(), np.uint8), 1)
 
-**説明**:
-- `os`: ファイルやディレクトリの操作に使用
-- `cv2`: OpenCVライブラリ。画像処理の主要な機能を提供
-- `numpy`: 数値計算や配列操作に使用
-- `skimage`: 画像処理のための追加機能を提供
-- `matplotlib`: グラフや画像の表示に使用
-- `pandas`: データ分析やCSVファイルの操作に使用
+        # パラメータの設定
+        st.sidebar.header("パラメータ設定")
 
-これらのライブラリをインポートすることで、以降のコードで各ライブラリの機能を簡単に使用できるようになります。
+        # 2. ワーク接合部の削除
+        st.header("2. ワーク接合部の削除")
+        crop_width = st.sidebar.slider("ワーク接合部を削除するための幅", 0, 2000, 1360)
+        
+        cropped_normal = normal_img[:, crop_width:]
+        cropped_shape = shape_img[:, crop_width:]
+        
+        st.image(cropped_normal, caption="ワーク接合部削除後の元画像", use_column_width=True)
+        st.image(cropped_shape, caption="ワーク接合部削除後のキーエンス前処理画像", use_column_width=True)
 
-## 2. パラメータの設定
+        # 3. 二値化によるマスクの作成
+        st.header("3. 二値化によるマスクの作成")
+        threshold_value = st.sidebar.slider("二値化しきい値", 0, 255, 190)
+        kernel_size = st.sidebar.slider("カーネルサイズ", 1, 10, 3)
+        iterations_open = st.sidebar.slider("膨張処理の繰り返し回数", 0, 50, 20)
+        iterations_close = st.sidebar.slider("収縮処理の繰り返し回数", 0, 50, 20)
 
-この項目では、プロジェクト全体で使用する様々な設定値（パラメータ）を定義します。
+        gray_normal = cv2.cvtColor(cropped_normal, cv2.COLOR_BGR2GRAY)
+        _, binary_mask = cv2.threshold(gray_normal, threshold_value, 255, cv2.THRESH_BINARY_INV)
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
 
-**目的**:
-- 画像処理や欠陥検出に必要な各種設定値を一箇所で管理する
-- パラメータを変更することで、プログラムの挙動を簡単に調整できるようにする
+        st.image(mask, caption="二値化マスク", use_column_width=True)
 
-**詳細説明**:
+        # 4. エッジ検出とテクスチャ検出
+        st.header("4. エッジ検出とテクスチャ検出")
+        gaussian_kernel_size = st.sidebar.slider("ガウシアンブラーのカーネルサイズ", 1, 21, 9, step=2)
+        sigma = st.sidebar.slider("ガウシアンブラーの標準偏差", 0.1, 10.0, 3.0, step=0.1)
+        canny_min_threshold = st.sidebar.slider("Cannyエッジ検出の最小しきい値", 0, 255, 50)
+        canny_max_threshold = st.sidebar.slider("Cannyエッジ検出の最大しきい値", 0, 255, 150)
+        texture_threshold = st.sidebar.slider("テクスチャ検出の閾値", 0, 50, 4)
 
-1. ディレクトリとファイルパス:
-   - `input_data_dir`: 入力データが格納されているフォルダのパス
-   - `output_data_dir`: 処理結果を保存するフォルダのパス
-   - `template_dir`: テンプレート画像が格納されているフォルダのパス
-   - `right_template_path`, `left_template_path`: 右側と左側のワークのテンプレート画像のパス
+        masked_shape = cv2.bitwise_and(cropped_shape, cropped_shape, mask=mask)
+        blurred = cv2.GaussianBlur(masked_shape, (gaussian_kernel_size, gaussian_kernel_size), sigma)
+        edges = cv2.Canny(blurred, canny_min_threshold, canny_max_threshold)
+        laplacian = cv2.Laplacian(blurred, cv2.CV_64F)
+        texture = np.uint8(np.absolute(laplacian) > texture_threshold) * 255
+        combined_edges = cv2.bitwise_or(edges, texture)
 
-2. ラベル定義:
-   - `ng_labels`: 欠陥の種類を示すラベルのリスト（例：鋳巣、凹み、亀裂）
+        st.image(combined_edges, caption="エッジ検出とテクスチャ検出結果", use_column_width=True)
 
-3. 画像処理パラメータ:
-   - `crop_width`: ワーク接合部を削除するための幅（ピクセル単位）
-   - `threshold_value`: 二値化の閾値（0-255の範囲）
-   - `kernel_size`: モルフォロジー演算に使用するカーネルのサイズ
-   - `iterations_open`, `iterations_close`: 膨張・収縮処理の繰り返し回数
-   - `gaussian_kernel_size`: ガウシアンブラーのカーネルサイズ
-   - `canny_min_threshold`, `canny_max_threshold`: Cannyエッジ検出の最小・最大閾値
-   - `sigma`: ガウシアンブラーの標準偏差
+        # 5. エッジの補完とラベリング処理
+        st.header("5. エッジの補完とラベリング処理")
+        edge_close_kernel_size = st.sidebar.slider("エッジ補完のカーネルサイズ", 1, 10, 3)
+        edge_close_iterations = st.sidebar.slider("エッジ補完の繰り返し回数", 0, 20, 5)
+        mask_edge_min_threshold = st.sidebar.slider("マスクエッジ検出の最小閾値", 0, 255, 50)
+        mask_edge_max_threshold = st.sidebar.slider("マスクエッジ検出の最大閾値", 0, 255, 150)
+        mask_edge_margin = st.sidebar.slider("マスクエッジの余裕幅", 0, 100, 50)
 
-4. 欠陥サイズパラメータ:
-   - `min_defect_size`: 検出する最小欠陥サイズ（ピクセル単位）
-   - `max_defect_size`: 検出する最大欠陥サイズ（ピクセル単位）
+        mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+        kernel = np.ones((mask_edge_margin*2+1, mask_edge_margin*2+1), np.uint8)
+        dilated_mask_edges = cv2.dilate(mask_edges, kernel, iterations=1)
 
-5. テクスチャ検出パラメータ:
-   - `texture_threshold`: テクスチャの変化を検出するための閾値
+        st.image(dilated_mask_edges, caption="マスクエッジ（余裕幅付き）", use_column_width=True)
 
-6. エッジ補完パラメータ:
-   - `edge_close_kernel_size`: エッジ補完に使用するカーネルのサイズ
-   - `edge_close_iterations`: エッジ補完の繰り返し回数
+        # 6. 欠陥候補のフィルタリング
+        st.header("6. 欠陥候補のフィルタリング")
+        min_defect_size = st.sidebar.slider("最小欠陥サイズ", 1, 50, 5)
+        max_defect_size = st.sidebar.slider("最大欠陥サイズ", 50, 500, 100)
 
-7. マスクエッジ検出パラメータ:
-   - `mask_edge_min_threshold`, `mask_edge_max_threshold`: マスクエッジ検出の最小・最大閾値
-   - `mask_edge_margin`: マスクエッジの余裕幅（ピクセル単位）
+        labels = measure.label(combined_edges)
+        regions = measure.regionprops(labels)
+        filtered_image = np.zeros_like(combined_edges)
 
-8. 欠陥候補の保存パラメータ:
-   - `enlargement_factor`: 欠陥候補画像の拡大倍率
+        for region in regions:
+            if min_defect_size <= region.area <= max_defect_size:
+                filtered_image[labels == region.label] = 255
 
-これらのパラメータを適切に設定することで、画像処理の精度や欠陥検出の感度を調整することができます。例えば、`min_defect_size`を小さくすると、より小さな欠陥も検出できるようになりますが、同時にノイズも検出してしまう可能性が高くなります。逆に大きくすると、小さな欠陥は見逃されますが、確実な大きな欠陥のみを検出できます。
+        st.image(filtered_image, caption="フィルタリング後の欠陥候補", use_column_width=True)
 
-プログラムの動作を変更したい場合は、これらのパラメータを変更することで対応できます。例えば、検出感度を上げたい場合は`threshold_value`を下げるなどの調整が可能です。
+        # 7. 欠陥候補の画像を切り出し
+        st.header("7. 欠陥候補の画像の切り出し")
+        enlargement_factor = st.sidebar.slider("欠陥候補画像の拡大倍率", 1, 20, 10)
 
-## 7. エッジの補完とラベリング処理
+        defect_images = []
+        for region in measure.regionprops(measure.label(filtered_image)):
+            y, x, y2, x2 = region.bbox
+            defect = cropped_shape[y:y2, x:x2]
+            enlarged = cv2.resize(defect, (0,0), fx=enlargement_factor, fy=enlargement_factor)
+            defect_images.append(enlarged)
 
-この項目では、検出されたエッジを補完し、欠陥候補にラベルを付ける処理を行います。
+        cols = st.columns(3)
+        for i, defect_img in enumerate(defect_images):
+            cols[i % 3].image(defect_img, caption=f"欠陥候補 {i+1}", use_column_width=True)
 
-**目的**:
-- 途切れたエッジを接続し、欠陥の形状をより正確に捉える
-- 各欠陥候補を個別に識別し、その特徴量を計算する
+if __name__ == "__main__":
+    main()
+```
 
-**詳細説明**:
+このコードは以下の機能を提供します：
 
-1. `create_mask_edge_margin` 関数:
-   - 目的: マスクのエッジに余裕を持たせる
-   - 処理内容:
-     a. 入力されたマスク画像のエッジを検出
-     b. 検出されたエッジを指定された幅だけ膨張させる
-   - この処理により、マスクのエッジ付近での誤検出を減らすことができる
+1. 元画像とキーエンス前処理画像のアップロード
+2. ワーク接合部の削除と結果の表示
+3. 二値化によるマスク作成と結果の表示
+4. エッジ検出とテクスチャ検出の実行と結果の表示
+5. エッジの補完とラベリング処理（マスクエッジの表示）
+6. 欠陥候補のフィルタリングと結果の表示
+7. 欠陥候補の画像切り出しと表示
 
-2. `complete_edges` 関数:
-   - 目的: 途切れたエッジを接続し、欠陥の形状をより正確に捉える
-   - 処理内容:
-     a. マスクのエッジに余裕を持たせる（`create_mask_edge_margin`を使用）
-     b. 入力されたエッジ画像をスケルトン化（細線化）する
-     c. スケルトン化されたエッジに対してモルフォロジー演算（クロージング）を適用し、途切れたエッジを接続
-     d. 元のエッジと接続したエッジの和集合を取る
-     e. マスクのエッジ（余裕を持たせたもの）を維持しつつ、補完されたエッジを出力
+各処理段階でパラメータを調整できるUIがサイドバーに用意されており、パラメータの変更がリアルタイムで結果に反映されます。
 
-3. `label_and_measure_defects` 関数:
-   - 目的: 欠陥候補のラベリングと特徴量計算を行う
-   - 処理内容:
-     a. 入力されたエッジ画像を二値化
-     b. 二値化された画像に対して連結成分のラベリングを実行
-     c. 各ラベル付けされた領域（欠陥候補）に対して以下の特徴量を計算:
-        - 位置（x, y座標）
-        - サイズ（幅、高さ）
-        - 面積
-        - 重心座標
-        - 周囲長
-        - 偏心率
-        - 向き
-        - 長軸長、短軸長
-        - 凸性
-        - 範囲
-        - アスペクト比
-        - 最大長さ
-
-4. `process_images_for_labeling` 関数:
-   - 目的: 全画像に対してエッジ補完とラベリング処理を実行する
-   - 処理内容:
-     a. 入力された画像ペア（二値化画像とエッジ画像）それぞれに対して:
-        - エッジの補完を実行（`complete_edges`を使用）
-        - 補完されたエッジに対してラベリングと特徴量計算を実行（`label_and_measure_defects`を使用）
-     b. 処理結果（二値化画像、補完されたエッジ画像、欠陥候補リスト）を返す
-
-これらの処理により、欠陥の形状がより正確に捉えられ、後続の分析に必要な特徴量が計算されます。例えば、途切れていたエッジが接続されることで、本来一つの大きな欠陥であったものが正しく一つの欠陥として検出されるようになります。また、計算された特徴量（面積、周囲長、偏心率など）は、後の欠陥の分類や重要度の判定に使用されます。
-
-## 8. 欠陥候補のフィルタリング
-
-この項目では、検出された欠陥候補から不要なものを除外する処理を行います。
-
-**目的**:
-- マスクのエッジと重なる誤検出を除去する
-- 指定されたサイズ範囲内の欠陥候補のみを抽出する
-- 真の欠陥候補のみを後続の処理に渡すことで、分析の精度を向上させる
-
-**詳細説明**:
-
-1. `remove_defects_on_mask_edge` 関数:
-   - 目的: マスクのエッジと重なる欠陥候補を除外する
-   - 処理内容:
-     a. 入力されたマスク画像のエッジを検出
-     b. 各欠陥候補に対して:
-        - 欠陥候補の領域（外接矩形）がマスクのエッジと重なっているかチェック
-        - 重なっていない場合のみ、その欠陥候補を保持
-   - この処理により、ワークの端部分での誤検出を減らすことができる
-
-2. `filter_defects_by_max_length` 関数:
-   - 目的: 指定されたサイズ範囲内の欠陥候補のみを抽出する
-   - 処理内容:
-     - 各欠陥候補に対して:
-       - 欠陥の最大長さ（幅と高さの大きい方）が指定された範囲内にあるかチェック
-       - 範囲内の場合のみ、その欠陥候補を保持
-   - この処理により、小さすぎる欠陥（ノイズの可能性が高い）や大きすぎる欠陥（誤検出の可能性が高い）を除外できる
-
-3. `process_images_for_filtering` 関数:
-   - 目的: 全画像に対してフィルタリング処理を実行する
-   - 処理内容:
-     a. 入力された画像データ（二値化画像、エッジ画像、欠陥リスト）それぞれに対して:
-        - マスクエッジ上の欠陥を除外（`remove_defects_on_mask_edge`を使用）
-        - サイズによるフィルタリングを実行（`filter_defects_by_max_length`を使用）
-        - フィルタリング後の欠陥候補に対して、ラベルを1から順に振り直す
-     b. 処理結果（画像名、二値化画像、エッジ画像、フィルタリング後の欠陥リスト）を返す
-
-これらの処理により、誤検出を減らし、分析対象となる真の欠陥候補のみを抽出することができます。例えば、ワークの端に現れる影や反射による誤検出が除去され、また製品の仕様上許容される範囲の小さな傷なども除外されます。これにより、後続の分析や判定処理の精度が向上し、真に重要な欠陥のみに注目することができます。
-
-## 9. 欠陥候補の画像の保存とCSV出力
-
-この項目では、フィルタリングされた欠陥候補の画像を保存し、その特徴量をCSVファイルに出力します。
-
-**目的**:
-- 検出された欠陥候補を個別の画像として保存し、後で視覚的に確認できるようにする
-- 欠陥候補の特徴量をCSVファイルとして出力し、後続の分析や機械学習に使用できるようにする
-- データの永続化と共有を可能にする
-
-**詳細説明**:
-
-はい、申し訳ありません。続きを説明いたします。
-
-1. `save_defect_image` 関数（続き）:
-   - 処理内容（続き）:
-     b. 切り出した画像を指定された倍率（`enlargement_factor`）で拡大する
-     c. 拡大した画像を指定されたディレクトリに保存する
-     d. 保存したファイル名を返す
-   - この処理により、小さな欠陥も詳細に観察できるようになり、後での目視確認が容易になります
-
-2. `process_images_for_saving` 関数:
-   - 目的: 全ての画像の欠陥候補を保存し、特徴量データを収集する
-   - 処理内容:
-     a. 入力された画像データ（画像名、二値化画像、エッジ画像、欠陥リスト）それぞれに対して:
-        - 画像タイプ（NG_label1, NG_label2, NG_label3, OK）に基づいてサブディレクトリを作成
-        - 各欠陥候補に対して:
-          * 欠陥画像を切り出して保存（`save_defect_image`を使用）
-          * 欠陥の特徴量データを辞書形式で格納
-            - 画像名
-            - 保存した欠陥画像のファイルパス
-            - 画像ラベル（NG: 1, OK: 0）
-            - 欠陥ラベル（デフォルトで0、後で手動で更新可能）
-            - その他の特徴量（面積、周囲長、偏心率など）
-     b. 全ての欠陥候補の特徴量データをリストとして返す
-
-3. メイン処理部分:
-   - 目的: 全ての画像タイプ（NG_label1, NG_label2, NG_label3, OK）に対して保存処理を実行し、結果をCSVファイルに出力する
-   - 処理内容:
-     a. 出力ディレクトリを作成
-     b. 各画像タイプに対して`process_images_for_saving`を実行
-     c. 全ての欠陥候補データを1つのリストにまとめる
-     d. データをPandasのDataFrameに変換
-     e. DataFrameをCSVファイルとして出力
-
-4. CSV出力:
-   - 目的: 欠陥候補の特徴量データを表形式で保存し、後続の分析や機械学習に使用できるようにする
-   - 出力内容:
-     - 画像名
-     - 欠陥画像ファイルパス
-     - 画像ラベル（NG/OK）
-     - 欠陥ラベル
-     - その他の特徴量（x座標, y座標, 幅, 高さ, 面積, 周囲長, 偏心率, 方向, 長軸長, 短軸長, 凸性, 範囲, アスペクト比, 最大長さなど）
-
-remove_defects_on_mask_edge 関数:
-
-目的: マスクのエッジと重なる欠陥候補を除外する
-処理内容:
-a. 入力されたマスク画像のエッジを検出
-
-
-
-
-remove_defects_on_mask_edge 関数:
-
-目的: マスクのエッジと重なる欠陥候補を除外する
-
+このアプリケーションを実行するには、必要なライブラリ（streamlit, opencv-python, numpy, scikit-image, matplotlib）をインストールし、このコードを`app.py`として保存した後、コマンドラインで`streamlit run app.py`を実行してください。
