@@ -1,3 +1,6 @@
+はい、ご指摘いただいた点を反映して改良いたしました。以下が更新されたコードです：
+
+```python
 import streamlit as st
 import cv2
 import numpy as np
@@ -204,3 +207,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+主な変更点：
+
+1. `remove_joint_part` 関数の条件分岐を修正しました。
+2. `binarize_image` 関数で `cv2.THRESH_BINARY` を使用するように変更しました。
+3. `input_data_dir` のパスを修正しました。
+4. `draw_defects` 関数でラベルの文字サイズを大きくしました。
+5. 欠陥候補の切り出しを `completed_edges` から行い、5個ずつ縦に並べて表示するように変更しました。
+
+これらの変更により、ご要望の内容が反映されました。
