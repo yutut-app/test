@@ -40,40 +40,33 @@ from scipy import ndimage
 この項目では、プロジェクト全体で使用する様々なパラメータを設定します。
 
 ```python
-# 入出力ディレクトリ
+# 既存のパラメータ
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
-
-# NGラベル
-ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
-
-# テンプレート画像のパス
+ng_labels = ['label1', 'label2', 'label3']
 template_dir = os.path.join(input_data_dir, "template")
 right_template_path = os.path.join(template_dir, "right_keyence.jpg")
 left_template_path = os.path.join(template_dir, "left_keyence.jpg")
-
-# 画像処理パラメータ
-crop_width = 1360  # ワーク接合部を削除するための幅
-threshold_value = 150  # 二値化しきい値
-kernel_size = (5, 5)  # カーネルサイズ
-iterations_open = 3  # 膨張処理の繰り返し回数
-iterations_close = 20  # 収縮処理の繰り返し回数
-gaussian_kernel_size = (7, 7)  # ガウシアンブラーのカーネルサイズ
-canny_min_threshold = 30  # エッジ検出の最小しきい値
-canny_max_threshold = 120  # エッジ検出の最大しきい値
-sigma = 3  # ガウシアンブラーの標準偏差
-
-# 欠陥サイズの範囲
-min_defect_size = 5  # 最小欠陥サイズ（0.5mm = 5px）
-max_defect_size = 100  # 最大欠陥サイズ（10mm = 100px）
-
-# テクスチャ検出のパラメータ
-texture_threshold = 15  # テクスチャの変化を検出するためのしきい値
+crop_width = 1360
+threshold_value = 150
+kernel_size = (5, 5)
+iterations_open = 3
+iterations_close = 20
+gaussian_kernel_size = (7, 7)
+canny_min_threshold = 30
+canny_max_threshold = 120
+sigma = 3
+min_defect_size = 5
+max_defect_size = 100
+texture_threshold = 15
 
 # 新しいパラメータ
-bounding_box_size = 200  # バウンディングボックスのサイズ
-crop_size = 100  # 切り出すサイズ
-enlarge_factor = 10  # 拡大倍率
+edge_completion_kernel = np.ones((3, 3), np.uint8)
+edge_completion_iterations = 2
+visualization_figsize = (75, 80)
+visualization_title_fontsize = 100
+defect_crop_size_multiplier = 2
+defect_enlargement_factor = 10
 ```
 
 説明:
