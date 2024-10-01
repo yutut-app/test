@@ -1,4 +1,4 @@
-了解しました。ipynbの変更に合わせてStreamlitアプリを改良します。以下に、修正したコードを示します。
+承知しました。ご指示いただいた変更に基づいて、Streamlitアプリケーションのコードを修正します。以下が更新されたコードです：
 
 ```python
 import streamlit as st
@@ -7,7 +7,6 @@ import numpy as np
 from skimage import measure
 from skimage.morphology import skeletonize
 import os
-import matplotlib.pyplot as plt
 
 def load_image(image_file):
     img = cv2.imdecode(np.frombuffer(image_file.read(), np.uint8), 1)
@@ -102,23 +101,14 @@ def label_and_measure_defects(edge_image, mask, mask_edge_margin, mask_edge_min_
 def filter_defects_by_max_length(defects, min_size, max_size):
     return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
 
-def visualize_filtered_defects(image, defects, mask, mask_edge_margin, mask_edge_min_threshold, mask_edge_max_threshold):
-    fig, ax = plt.subplots(figsize=(20, 20))
-    ax.imshow(image, cmap='gray')
-    
-    # マスクのエッジを可視化
-    mask_edges = create_mask_edge_margin(mask, mask_edge_margin, mask_edge_min_threshold, mask_edge_max_threshold)
-    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
-    
+def draw_defects(image, defects):
+    result_image = image.copy()
     for defect in defects:
-        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
-                             fill=False, edgecolor='red', linewidth=2)
-        ax.add_patch(rect)
-        ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
-    
-    plt.title("Filtered Defects with Mask Edges", fontsize=20)
-    plt.axis('off')
-    return fig
+        cv2.rectangle(result_image, (defect['x'], defect['y']), 
+                      (defect['x'] + defect['width'], defect['y'] + defect['height']), (0, 255, 0), 2)
+        cv2.putText(result_image, str(defect['label']), (defect['x'], defect['y'] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+    return result_image
 
 def main():
     st.title("鋳造部品の欠陥検出パラメータ最適化")
@@ -154,6 +144,7 @@ def main():
         mask_edge_margin = st.sidebar.slider("Mask Edge Margin", 1, 100, 50)
         min_defect_size = st.sidebar.slider("Min Defect Size", 1, 50, 5)
         max_defect_size = st.sidebar.slider("Max Defect Size", 51, 500, 100)
+        enlargement_factor = st.sidebar.slider("Enlargement Factor", 1, 20, 10)
 
         if st.button("処理を実行"):
             try:
@@ -184,10 +175,22 @@ def main():
 
                 # 欠陥候補のフィルタリング
                 filtered_defects = filter_defects_by_max_length(defects, min_defect_size, max_defect_size)
+                
+                # ラベルの振り直し
+                for i, defect in enumerate(filtered_defects, 1):
+                    defect['label'] = i
 
-                # フィルタリング結果の可視化
-                fig = visualize_filtered_defects(completed_edges, filtered_defects, mask, mask_edge_margin, mask_edge_min_threshold, mask_edge_max_threshold)
-                st.pyplot(fig)
+                result_image = draw_defects(cropped_shape, filtered_defects)
+                st.subheader("欠陥候補")
+                display_image(result_image, "検出された欠陥候補")
+
+                # 欠陥候補の画像を切り出し
+                st.subheader("切り出された欠陥候補")
+                for defect in filtered_defects:
+                    x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
+                    defect_img = cropped_shape[y:y+h, x:x+w]
+                    enlarged_defect = cv2.resize(defect_img, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+                    display_image(enlarged_defect, f"欠陥候補 {defect['label']}")
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
@@ -197,13 +200,18 @@ if __name__ == "__main__":
     main()
 ```
 
-このコードでは以下の変更を行いました：
+主な変更点：
 
 1. `create_mask_edge_margin` 関数を修正し、`mask_edge_min_threshold` と `mask_edge_max_threshold` を引数として追加しました。
-2. `complete_edges` 関数を修正し、新しい `create_mask_edge_margin` 関数に対応するようにしました。
-3. `label_and_measure_defects` 関数を修正し、マスクエッジを考慮するようにしました。
-4. `filter_defects_by_max_length` 関数を追加し、指定されたサイズ範囲内の欠陥候補のみを抽出するようにしました。
-5. `visualize_filtered_defects` 関数を追加し、フィルタリング結果を可視化するようにしました。
-6. メイン処理部分で、新しい関数を使用するように修正しました。
 
-これらの変更により、ipynbの処理と同じ結果が得られるようになり、Streamlitアプリ上で欠陥検出のパラメータを調整しながら結果を確認できるようになりました。
+2. `complete_edges` 関数を修正し、マスクエッジに関するパラメータを引数として追加しました。
+
+3. `label_and_measure_defects` 関数を修正し、マスクエッジを考慮するようにしました。また、defect_infoに多くの特徴量を追加しました。
+
+4. `remove_defects_on_mask_edge` 関数を削除し、マスクエッジの考慮を `label_and_measure_defects` 関数内で行うようにしました。
+
+5. フィルタリング処理を簡略化し、`filter_defects_by_max_length` 関数のみを使用するようにしました。
+
+6. メイン処理部分で、これらの変更を反映させ、処理の流れを調整しました。
+
+これらの変更により、.ipynbファイルの処理と一致するようになり、マスクエッジの考慮やフィルタリングがより適切に行われるようになりました。
