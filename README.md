@@ -245,55 +245,53 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 ```python
 def complete_edges_and_label(edge_image):
     # エッジの補完
-    filled_edges = ndimage.binary_fill_holes(edge_image)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, edge_closing_kernel_size)
+    closed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel)
     
     # ラベリング処理
-    labeled_image, num_features = ndimage.label(filled_edges)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(closed_edges)
     
-    return labeled_image, num_features
-
-def get_defect_info(labeled_image):
-    props = measure.regionprops(labeled_image)
+    # 欠陥候補の情報を抽出
     defects = []
-    for prop in props:
-        centroid = prop.centroid
-        bbox = prop.bbox
-        area = prop.area
+    for i in range(1, num_labels):  # 0はbackgroundなのでスキップ
+        x, y, w, h, area = stats[i]
+        cx, cy = centroids[i]
         defects.append({
-            'centroid': centroid,
-            'bbox': bbox,
+            'label': i,
+            'x': x, 'y': y, 'width': w, 'height': h,
             'area': area,
-            'properties': prop
+            'centroid_x': cx, 'centroid_y': cy
         })
-    return defects
+    
+    return closed_edges, defects
 
-def process_and_label_images(edged_images):
+def process_images_for_labeling(edged_images):
     labeled_images = []
     for binarized_image, edge_image in edged_images:
-        labeled_image, num_features = complete_edges_and_label(edge_image)
-        defects = get_defect_info(labeled_image)
-        labeled_images.append((binarized_image, edge_image, labeled_image, defects))
+        closed_edges, defects = complete_edges_and_label(edge_image)
+        labeled_images.append((binarized_image, closed_edges, defects))
     return labeled_images
 
-# NGとOK画像に対してラベリング処理を実行
-labeled_ng_images_label1 = process_and_label_images(edged_ng_images_label1)
-labeled_ng_images_label2 = process_and_label_images(edged_ng_images_label2)
-labeled_ng_images_label3 = process_and_label_images(edged_ng_images_label3)
-labeled_ok_images = process_and_label_images(edged_ok_images)
+# NGとOK画像に対してエッジ補完とラベリングを実行
+labeled_ng_images_label1 = process_images_for_labeling(edged_ng_images_label1)
+labeled_ng_images_label2 = process_images_for_labeling(edged_ng_images_label2)
+labeled_ng_images_label3 = process_images_for_labeling(edged_ng_images_label3)
+labeled_ok_images = process_images_for_labeling(edged_ok_images)
 
-# ラベリング画像の可視化
-def visualize_labeled_image(labeled_image):
-    plt.figure(figsize=(10, 10))
+# ラベリングした画像の可視化
+def visualize_labeled_image(labeled_image, defects):
+    plt.figure(figsize=(12, 8))
     plt.imshow(labeled_image, cmap='nipy_spectral')
-    plt.colorbar()
-    plt.title('Labeled Image')
+    for defect in defects:
+        plt.plot(defect['centroid_x'], defect['centroid_y'], 'ro')
+    plt.title("Labeled Image with Defect Centroids")
     plt.axis('off')
     plt.show()
 
-# 最初のNG画像のラベリング結果を可視化
+# 最初のNG画像を可視化
 if labeled_ng_images_label1:
-    _, _, labeled_image, _ = labeled_ng_images_label1[0]
-    visualize_labeled_image(labeled_image)
+    binarized_image, closed_edges, defects = labeled_ng_images_label1[0]
+    visualize_labeled_image(closed_edges, defects)
 ```
 
 説明:
