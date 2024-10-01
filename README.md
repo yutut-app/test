@@ -60,13 +60,13 @@ min_defect_size = 5
 max_defect_size = 100
 texture_threshold = 15
 
-# エッジ補完用パラメータ
-edge_closing_kernel_size = (3, 3)
-edge_closing_iterations = 2
+# エッジ補完のパラメータ
+edge_close_kernel_size = (3, 3)  # エッジ補完のカーネルサイズ
+edge_close_iterations = 2  # エッジ補完の繰り返し回数
 
-# マスクエッジ検出用パラメータ
-mask_edge_low_threshold = 100
-mask_edge_high_threshold = 200
+# マスクエッジ検出のパラメータ
+mask_edge_min_threshold = 100
+mask_edge_max_threshold = 200
 
 # 欠陥候補の保存パラメータ
 enlargement_factor = 10  # 欠陥候補画像の拡大倍率
@@ -239,15 +239,27 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 この項目では、エッジの補完を行い、欠陥候補の中心座標を取得します。
 
 ```python
-def complete_edges(edge_image):
-    kernel = np.ones(edge_closing_kernel_size, np.uint8)
-    completed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel, iterations=edge_closing_iterations)
+def complete_edges(edge_image, mask):
+    # マスクのエッジを検出
+    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+    
+    # エッジの補完処理
+    kernel = np.ones(edge_close_kernel_size, np.uint8)
+    completed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel, iterations=edge_close_iterations)
+    
+    # マスクのエッジを維持
+    completed_edges = np.where(mask_edges > 0, edge_image, completed_edges)
+    
     return completed_edges
 
 def label_and_measure_defects(edge_image):
+    # エッジ画像を二値化
     binary_edge_image = (edge_image > 0).astype(np.uint8)
+
+    # ラベリング処理
     labels = measure.label(binary_edge_image, connectivity=2)
     
+    # 欠陥候補の情報を抽出
     defects = []
     for region in measure.regionprops(labels):
         y, x = region.bbox[0], region.bbox[1]
@@ -266,6 +278,7 @@ def label_and_measure_defects(edge_image):
             'solidity': region.solidity,
             'extent': region.extent,
             'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
+            'max_length': max(w, h)
         }
         defects.append(defect_info)
     
@@ -274,36 +287,10 @@ def label_and_measure_defects(edge_image):
 def process_images_for_labeling(edged_images):
     labeled_images = []
     for binarized_image, edge_image in edged_images:
-        completed_edges = complete_edges(edge_image)
+        completed_edges = complete_edges(edge_image, binarized_image)
         defects = label_and_measure_defects(completed_edges)
         labeled_images.append((binarized_image, completed_edges, defects))
     return labeled_images
-
-
-# NGとOK画像に対してラベリング処理を実行
-labeled_ng_images_label1 = process_images_for_labeling(edged_ng_images_label1)
-#labeled_ng_images_label2 = process_images_for_labeling(edged_ng_images_label2)
-#labeled_ng_images_label3 = process_images_for_labeling(edged_ng_images_label3)
-#labeled_ok_images = process_images_for_labeling(edged_ok_images)
-
-# ラベリング結果の可視化（例：最初のNG画像）
-def visualize_labeling(image, defects):
-    fig, ax = plt.subplots(figsize=(20, 20))
-    ax.imshow(image, cmap='gray')
-    
-    for defect in defects:
-        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
-                             fill=False, edgecolor='red', linewidth=2)
-        ax.add_patch(rect)
-        ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
-    
-    plt.title("Labeled Defects", fontsize=20)
-    plt.axis('off')
-    plt.show()
-
-if labeled_ng_images_label1:
-    _, edge_image, defects = labeled_ng_images_label1[0]
-    visualize_labeling(edge_image, defects)
 ```
 
 説明:
@@ -318,7 +305,7 @@ if labeled_ng_images_label1:
 
 ```python
 def remove_defects_on_mask_edge(defects, mask):
-    mask_edges = cv2.Canny(mask, mask_edge_low_threshold, mask_edge_high_threshold)
+    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
     
     filtered_defects = []
     for defect in defects:
@@ -326,40 +313,36 @@ def remove_defects_on_mask_edge(defects, mask):
         if not np.any(mask_edges[y:y+h, x:x+w] > 0):
             filtered_defects.append(defect)
     
-    return filtered_defects, mask_edges
+    return filtered_defects
 
-def filter_defects_by_size(defects, min_size, max_size):
-    return [defect for defect in defects if min_size <= max(defect['width'], defect['height']) <= max_size]
+def filter_defects_by_max_length(defects, min_size, max_size):
+    return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
 
 def process_images_for_filtering(labeled_images):
     filtered_images = []
     for binarized_image, edge_image, defects in labeled_images:
-        filtered_defects, mask_edges = remove_defects_on_mask_edge(defects, binarized_image)
-        filtered_defects = filter_defects_by_size(filtered_defects, min_defect_size, max_defect_size)
-        filtered_images.append((binarized_image, edge_image, filtered_defects, mask_edges))
+        filtered_defects = remove_defects_on_mask_edge(defects, binarized_image)
+        filtered_defects = filter_defects_by_max_length(filtered_defects, min_defect_size, max_defect_size)
+        filtered_images.append((binarized_image, edge_image, filtered_defects))
     return filtered_images
 
 # フィルタリング結果の可視化
-def visualize_filtered_defects(image, defects, mask_edges):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
+def visualize_filtered_defects(image, defects, mask):
+    fig, ax = plt.subplots(figsize=(20, 20))
+    ax.imshow(image, cmap='gray')
     
-    # マスクエッジの可視化
-    ax1.imshow(mask_edges, cmap='gray')
-    ax1.set_title("Mask Edges", fontsize=20)
-    ax1.axis('off')
+    # マスクのエッジを可視化
+    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
     
-    # 欠陥候補の可視化
-    ax2.imshow(image, cmap='gray')
     for defect in defects:
         rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
                              fill=False, edgecolor='red', linewidth=2)
-        ax2.add_patch(rect)
-        ax2.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
+        ax.add_patch(rect)
+        ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
     
-    ax2.set_title("Filtered Defects", fontsize=20)
-    ax2.axis('off')
-    
-    plt.tight_layout()
+    plt.title("Filtered Defects with Mask Edges", fontsize=20)
+    plt.axis('off')
     plt.show()
 
 # フィルタリングの実行と可視化
@@ -369,8 +352,8 @@ filtered_ng_images_label1 = process_images_for_filtering(labeled_ng_images_label
 #filtered_ok_images = process_images_for_filtering(labeled_ok_images)
 
 if filtered_ng_images_label1:
-    binarized_image, edge_image, filtered_defects, mask_edges = filtered_ng_images_label1[0]
-    visualize_filtered_defects(edge_image, filtered_defects, mask_edges)
+    binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
+    visualize_filtered_defects(edge_image, filtered_defects, binarized_image)
 ```
 
 説明:
