@@ -1,6 +1,9 @@
 申し訳ありません。エラーの原因を修正し、テンプレート画像のパスも正しく設定します。以下に、修正した完全なコードを示します。
 
 ```python
+申し訳ありません。ご指摘の内容が完全には反映されていませんでした。以下に、ご要望の内容を反映した完全なコードを示します。
+
+```python
 import streamlit as st
 import cv2
 import numpy as np
@@ -71,27 +74,50 @@ def complete_edges(edge_image, mask, edge_close_kernel_size, edge_close_iteratio
     completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
     return completed_edges.astype(np.uint8)
 
-def label_and_measure_defects(edge_image, min_defect_size, max_defect_size):
+def label_and_measure_defects(edge_image):
     binary_edge_image = (edge_image > 0).astype(np.uint8)
     labels = measure.label(binary_edge_image, connectivity=2)
     defects = []
     for region in measure.regionprops(labels):
-        if min_defect_size <= region.area <= max_defect_size:
-            y, x = region.bbox[0], region.bbox[1]
-            h, w = region.bbox[2] - y, region.bbox[3] - x
-            defect_info = {
-                'label': region.label,
-                'x': x, 'y': y, 'width': w, 'height': h,
-                'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
-            }
-            defects.append(defect_info)
+        y, x = region.bbox[0], region.bbox[1]
+        h, w = region.bbox[2] - y, region.bbox[3] - x
+        defect_info = {
+            'label': region.label,
+            'x': x, 'y': y, 'width': w, 'height': h,
+            'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
+            'max_length': max(w, h)
+        }
+        defects.append(defect_info)
     return defects
+
+def remove_defects_on_mask_edge(defects, mask, mask_edge_min_threshold, mask_edge_max_threshold):
+    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+    filtered_defects = []
+    for defect in defects:
+        x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
+        if not np.any(mask_edges[y:y+h, x:x+w] > 0):
+            filtered_defects.append(defect)
+    return filtered_defects
+
+def filter_defects_by_max_length(defects, min_size, max_size):
+    return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+
+def process_images_for_filtering(binarized_image, edge_image, defects, min_defect_size, max_defect_size, mask_edge_min_threshold, mask_edge_max_threshold):
+    filtered_defects = remove_defects_on_mask_edge(defects, binarized_image, mask_edge_min_threshold, mask_edge_max_threshold)
+    filtered_defects = filter_defects_by_max_length(filtered_defects, min_defect_size, max_defect_size)
+    
+    for j, defect in enumerate(filtered_defects, 1):
+        defect['label'] = j
+    
+    return filtered_defects
 
 def draw_defects(image, defects):
     result_image = image.copy()
     for defect in defects:
         cv2.rectangle(result_image, (defect['x'], defect['y']), 
                       (defect['x'] + defect['width'], defect['y'] + defect['height']), (0, 255, 0), 2)
+        cv2.putText(result_image, str(defect['label']), (defect['x'], defect['y'] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
     return result_image
 
 def main():
@@ -154,19 +180,22 @@ def main():
                 st.subheader("エッジ補完結果")
                 display_image(completed_edges, "補完されたエッジ")
 
+                # 欠陥候補のラベリング
+                defects = label_and_measure_defects(completed_edges)
+
                 # 欠陥候補のフィルタリング
-                defects = label_and_measure_defects(completed_edges, min_defect_size, max_defect_size)
-                result_image = draw_defects(cropped_shape, defects)
+                filtered_defects = process_images_for_filtering(mask, completed_edges, defects, min_defect_size, max_defect_size, mask_edge_min_threshold, mask_edge_max_threshold)
+                result_image = draw_defects(cropped_shape, filtered_defects)
                 st.subheader("欠陥候補")
                 display_image(result_image, "検出された欠陥候補")
 
                 # 欠陥候補の画像を切り出し
                 st.subheader("切り出された欠陥候補")
-                for i, defect in enumerate(defects):
+                for i, defect in enumerate(filtered_defects):
                     x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
                     defect_img = cropped_shape[y:y+h, x:x+w]
                     enlarged_defect = cv2.resize(defect_img, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
-                    display_image(enlarged_defect, f"欠陥候補 {i+1}")
+                    display_image(enlarged_defect, f"欠陥候補 {defect['label']}")
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
@@ -174,6 +203,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+このコードでは以下の変更を行いました：
+
+1. `label_and_measure_defects` 関数に `max_length` の計算を追加しました。
+2. `remove_defects_on_mask_edge` 関数を追加し、マスクのエッジと重なる欠陥候補を除外するようにしました。
+3. `filter_defects_by_max_length` 関数を追加し、指定されたサイズ範囲内の欠陥候補のみを抽出するようにしました。
+4. `process_images_for_filtering` 関数を修正し、上記の2つのフィルタリング処理を適用するようにしました。
+5. メイン処理部分で、ラベリングとフィルタリングのステップを分離し、フィルタリング後の欠陥候補を表示するようにしました。
+6. `draw_defects` 関数を修正し、欠陥候補にラベル番号を表示するようにしました。
+
+これらの変更により、ご要望の内容が全て反映されています。欠陥候補のフィルタリングがより厳密に行われ、マスクのエッジと重なる欠陥候補や指定サイズ範囲外の欠陥候補が除外されるよう
 ```
 
 この修正版では以下の変更を行いました：
