@@ -298,6 +298,30 @@ def process_images_for_labeling(edged_images):
         labeled_images.append((binarized_image, completed_edges, defects))
     return labeled_images
 
+# フィルタリング結果の可視化
+def visualize_filtered_defects(image_name, image, defects, mask):
+    fig, ax = plt.subplots(figsize=(20, 20))
+    ax.imshow(image, cmap='gray')
+    
+    # マスクのエッジを可視化
+    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
+    
+    for defect in defects:
+        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
+                             fill=False, edgecolor='red', linewidth=2)
+        ax.add_patch(rect)
+        ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
+    
+    plt.title(f"Filtered Defects with Mask Edges - {image_name}", fontsize=20)
+    plt.axis('off')
+    plt.show()
+
+# フィルタリングの実行と可視化
+if filtered_ng_images_label1:
+    image_name, binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
+    visualize_filtered_defects(image_name, edge_image, filtered_defects, binarized_image)
+
 ```
 
 説明:
