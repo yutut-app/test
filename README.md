@@ -20,10 +20,11 @@
 import os
 import cv2
 import numpy as np
-from skimage import io, filters, feature, measure, skeletonize
+from skimage import io, measure
 import matplotlib.pyplot as plt
 import pandas as pd
-from scipy import ndimage
+from skimage.morphology import skeletonize
+from scipy.ndimage import binary_dilation
 ```
 
 説明:
@@ -70,6 +71,9 @@ mask_edge_max_threshold = 200
 
 # 欠陥候補の保存パラメータ
 enlargement_factor = 10  # 欠陥候補画像の拡大倍率
+
+# マスクエッジの余裕幅
+mask_edge_margin = 5  # マスクエッジの中心線から左右に5ピクセルの余裕を持たせる
 ```
 
 説明:
@@ -243,6 +247,9 @@ def complete_edges(edge_image, mask):
     # マスクのエッジを検出
     mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
     
+    # マスクエッジに余裕を持たせる
+    dilated_mask_edges = binary_dilation(mask_edges, iterations=mask_edge_margin)
+    
     # エッジの細線化
     skeleton = skeletonize(edge_image > 0)
     
@@ -253,8 +260,8 @@ def complete_edges(edge_image, mask):
     # 元のエッジと接続したスケルトンの和集合を取る
     completed_edges = np.maximum(edge_image, connected_skeleton * 255)
     
-    # マスクのエッジを維持
-    completed_edges = np.where(mask_edges > 0, edge_image, completed_edges)
+    # マスクのエッジを維持（余裕を持たせたエッジを使用）
+    completed_edges = np.where(dilated_mask_edges > 0, edge_image, completed_edges)
     
     return completed_edges.astype(np.uint8)
 
@@ -303,9 +310,12 @@ def visualize_filtered_defects(image_name, image, defects, mask):
     fig, ax = plt.subplots(figsize=(20, 20))
     ax.imshow(image, cmap='gray')
     
-    # マスクのエッジを可視化
+    # マスクのエッジを検出し、余裕を持たせる
     mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
-    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
+    dilated_mask_edges = binary_dilation(mask_edges, iterations=mask_edge_margin)
+    
+    # 拡張されたマスクエッジを可視化
+    ax.imshow(dilated_mask_edges, alpha=0.3, cmap='cool')
     
     for defect in defects:
         rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
@@ -313,7 +323,7 @@ def visualize_filtered_defects(image_name, image, defects, mask):
         ax.add_patch(rect)
         ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
     
-    plt.title(f"Filtered Defects with Mask Edges - {image_name}", fontsize=20)
+    plt.title(f"Filtered Defects with Extended Mask Edges - {image_name}", fontsize=20)
     plt.axis('off')
     plt.show()
 
