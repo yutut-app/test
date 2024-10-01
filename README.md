@@ -1,4 +1,4 @@
-はい、ご要望に沿って改良したコードと詳細な説明を提供いたします。全ての項目を省略せずに説明します。
+はい、ご要望に沿って改良したコードを作成し、1から全て省略せずに説明いたします。
 
 # 目次
 
@@ -14,6 +14,8 @@
 
 # 1. ライブラリのインポート
 
+この項目では、プロジェクトで使用する必要なライブラリをインポートします。
+
 ```python
 import os
 import cv2
@@ -21,26 +23,36 @@ import numpy as np
 from skimage import io, filters, feature, measure
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy import ndimage
 ```
 
-この部分では、プロジェクトで必要なライブラリをインポートしています。
-
+説明:
 - `os`: ファイルやディレクトリの操作に使用します。
 - `cv2`: OpenCVライブラリで、画像処理の主要な機能を提供します。
 - `numpy`: 数値計算や配列操作に使用します。
 - `skimage`: 画像処理のための追加機能を提供します。
 - `matplotlib`: グラフや画像の表示に使用します。
-- `pandas`: データ分析や操作のためのライブラリです。CSVファイルの作成に使用します。
+- `pandas`: データ解析や操作のためのライブラリです。
+- `scipy.ndimage`: 多次元画像の処理に使用します。
 
 # 2. パラメータの設定
 
+この項目では、プロジェクト全体で使用する様々なパラメータを設定します。
+
 ```python
+# 入出力ディレクトリ
 input_data_dir = r"../data/input"
 output_data_dir = r"../data/output"
+
+# NGラベル
 ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
+
+# テンプレート画像のパス
 template_dir = os.path.join(input_data_dir, "template")
 right_template_path = os.path.join(template_dir, "right_keyence.jpg")
 left_template_path = os.path.join(template_dir, "left_keyence.jpg")
+
+# 画像処理パラメータ
 crop_width = 1360  # ワーク接合部を削除するための幅
 threshold_value = 150  # 二値化しきい値
 kernel_size = (5, 5)  # カーネルサイズ
@@ -50,17 +62,30 @@ gaussian_kernel_size = (7, 7)  # ガウシアンブラーのカーネルサイ�
 canny_min_threshold = 30  # エッジ検出の最小しきい値
 canny_max_threshold = 120  # エッジ検出の最大しきい値
 sigma = 3  # ガウシアンブラーの標準偏差
+
+# 欠陥サイズの範囲
 min_defect_size = 5  # 最小欠陥サイズ（0.5mm = 5px）
 max_defect_size = 100  # 最大欠陥サイズ（10mm = 100px）
+
+# テクスチャ検出のパラメータ
 texture_threshold = 15  # テクスチャの変化を検出するためのしきい値
+
+# 新しいパラメータ
 bounding_box_size = 200  # バウンディングボックスのサイズ
-crop_size = 100  # 欠陥候補切り出しサイズ
+crop_size = 100  # 切り出すサイズ
 enlarge_factor = 10  # 拡大倍率
 ```
 
-これらのパラメータは、画像処理や欠陥検出の各段階で使用されます。必要に応じて調整することで、処理の精度や感度を制御できます。
+説明:
+- 各パラメータは、画像処理や欠陥検出の挙動を制御します。
+- 新しく追加されたパラメータ:
+  - `bounding_box_size`: 欠陥候補を囲むボックスのサイズ
+  - `crop_size`: 欠陥候補を切り出すサイズ
+  - `enlarge_factor`: 切り出した画像の拡大倍率
 
 # 3. データの読み込み
+
+この項目では、入力データを読み込む処理を行います。
 
 ```python
 def load_origin_keyence_images(directory):
@@ -81,15 +106,20 @@ def load_origin_keyence_images(directory):
             matched_images.append((normal_images[base_name], shape_images[base_name]))
     return matched_images
 
+# NG画像とOK画像をそれぞれ読み込む
 ng_images_label1 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label1"))
 ng_images_label2 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label2"))
 ng_images_label3 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", "label3"))
 ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK"))
 ```
 
-この関数は、指定されたディレクトリから元画像とキーエンス処理済み画像のペアを読み込みます。NGとOK画像それぞれに対してこの関数を適用し、画像ペアのリストを作成します。
+説明:
+- `load_origin_keyence_images`関数は、指定されたディレクトリから元画像とキーエンス処理済み画像のペアを読み込みます。
+- NG画像は欠陥の種類ごとに別々に読み込まれ、OK画像も同様に読み込まれます。
 
 # 4. ワーク接合部の削除
+
+この項目では、画像からワークの接合部を削除する処理を行います。
 
 ```python
 def template_matching(image, template_path):
@@ -121,15 +151,21 @@ def process_images(image_pairs):
         updated_images.append((cropped_image, cropped_keyence_image))
     return updated_images
 
+# NGとOK画像に対して接合部削除を実行
 updated_ng_images_label1 = process_images(ng_images_label1)
 updated_ng_images_label2 = process_images(ng_images_label2)
 updated_ng_images_label3 = process_images(ng_images_label3)
 updated_ok_images = process_images(ok_images)
 ```
 
-これらの関数は、テンプレートマッチングを使用してワークの左右を判定し、接合部を削除します。全ての画像ペアに対してこの処理を適用します。
+説明:
+- `template_matching`関数: テンプレートマッチングでワークの左右を判定します。
+- `remove_joint_part`関数: 判定結果に基づいて接合部を削除します。
+- `process_images`関数: 全ての画像ペアに対して接合部削除を実行します。
 
 # 5. 二値化によるマスクの作成
+
+この項目では、画像を二値化してマスクを作成する処理を行います。
 
 ```python
 def binarize_image(image):
@@ -153,203 +189,246 @@ def binarize_images(image_pairs):
         binarized_images.append((binarized_image, cropped_keyence_image))
     return binarized_images
 
+# NGとOK画像に対して二値化を実行
 binarized_ng_images_label1 = binarize_images(updated_ng_images_label1)
 binarized_ng_images_label2 = binarize_images(updated_ng_images_label2)
 binarized_ng_images_label3 = binarize_images(updated_ng_images_label3)
 binarized_ok_images = binarize_images(updated_ok_images)
 ```
 
-これらの関数は、画像を二値化し、モルフォロジー演算を適用してマスクを生成します。全ての画像ペアに対してこの処理を適用します。
+説明:
+- `binarize_image`関数: 画像を二値化し、モルフォロジー演算を適用してマスクを生成します。
+- `binarize_images`関数: 全ての画像に対して二値化処理を実行します。
 
 # 6. エッジ検出とテクスチャ検出の改良
+
+この項目では、欠陥検出のためのエッジ検出とテクスチャ検出を行います。
 
 ```python
 def detect_edges_and_texture(cropped_keyence_image, binarized_image):
     masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
+    
     blurred_image = cv2.GaussianBlur(masked_image, gaussian_kernel_size, sigma)
+    
     edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+    
     laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
     abs_laplacian = np.absolute(laplacian)
     laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
+    
     combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+    
     return combined_edges
 
-def process_edges(image_pairs):
-    processed_images = []
-    for binarized_image, cropped_keyence_image in image_pairs:
+def detect_edges_in_images(binarized_images):
+    edged_images = []
+    for binarized_image, cropped_keyence_image in binarized_images:
         edge_image = detect_edges_and_texture(cropped_keyence_image, binarized_image)
-        processed_images.append((binarized_image, edge_image))
-    return processed_images
+        edged_images.append((binarized_image, edge_image))
+    return edged_images
 
-edged_ng_images_label1 = process_edges(binarized_ng_images_label1)
-edged_ng_images_label2 = process_edges(binarized_ng_images_label2)
-edged_ng_images_label3 = process_edges(binarized_ng_images_label3)
-edged_ok_images = process_edges(binarized_ok_images)
+# NGとOK画像に対してエッジ検出を実行
+edged_ng_images_label1 = detect_edges_in_images(binarized_ng_images_label1)
+edged_ng_images_label2 = detect_edges_in_images(binarized_ng_images_label2)
+edged_ng_images_label3 = detect_edges_in_images(binarized_ng_images_label3)
+edged_ok_images = detect_edges_in_images(binarized_ok_images)
 ```
 
-これらの関数は、エッジ検出とテクスチャ検出を組み合わせて欠陥を検出します。Cannyエッジ検出とラプラシアンフィルタを使用しています。
+説明:
+- `detect_edges_and_texture`関数: エッジ検出とテクスチャ変化の検出を組み合わせて欠陥を検出します。
+- `detect_edges_in_images`関数: 全ての画像に対してエッジ検出処理を実行します。
 
 # 7. エッジの補完と欠陥候補の中心座標の取得
 
+この項目では、エッジの補完を行い、欠陥候補の中心座標を取得します。
+
 ```python
-def complete_edges(edge_image):
-    kernel = np.ones((3,3), np.uint8)
-    completed_edges = cv2.dilate(edge_image, kernel, iterations=1)
-    completed_edges = cv2.erode(completed_edges, kernel, iterations=1)
-    return completed_edges
-
-def get_defect_candidates(edge_image):
-    labels = measure.label(edge_image)
-    properties = measure.regionprops(labels)
+def complete_edges_and_label(edge_image):
+    # エッジの補完
+    filled_edges = ndimage.binary_fill_holes(edge_image)
     
-    candidates = []
-    for prop in properties:
-        candidates.append({
-            'centroid': prop.centroid,
-            'area': prop.area,
-            'bbox': prop.bbox,
-            'eccentricity': prop.eccentricity,
-            'equivalent_diameter': prop.equivalent_diameter,
-            'euler_number': prop.euler_number,
-            'extent': prop.extent,
-            'filled_area': prop.filled_area,
-            'major_axis_length': prop.major_axis_length,
-            'minor_axis_length': prop.minor_axis_length,
-            'orientation': prop.orientation,
-            'perimeter': prop.perimeter,
-            'solidity': prop.solidity
+    # ラベリング処理
+    labeled_image, num_features = ndimage.label(filled_edges)
+    
+    return labeled_image, num_features
+
+def get_defect_info(labeled_image):
+    props = measure.regionprops(labeled_image)
+    defects = []
+    for prop in props:
+        centroid = prop.centroid
+        bbox = prop.bbox
+        area = prop.area
+        defects.append({
+            'centroid': centroid,
+            'bbox': bbox,
+            'area': area,
+            'properties': prop
         })
-    
-    return candidates
+    return defects
 
-def visualize_labeled_image(image, candidates):
-    labeled_image = image.copy()
-    for i, candidate in enumerate(candidates):
-        y, x = map(int, candidate['centroid'])
-        cv2.circle(labeled_image, (x, y), 3, (0, 255, 0), -1)
-        cv2.putText(labeled_image, f"{i}", (x+5, y+5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-    
-    plt.imshow(labeled_image)
-    plt.title("Labeled Defect Candidates")
-    plt.axis('off')
-    plt.show()
+def process_and_label_images(edged_images):
+    labeled_images = []
+    for binarized_image, edge_image in edged_images:
+        labeled_image, num_features = complete_edges_and_label(edge_image)
+        defects = get_defect_info(labeled_image)
+        labeled_images.append((binarized_image, edge_image, labeled_image, defects))
+    return labeled_images
 
-def process_and_label_images(image_pairs):
-    processed_images = []
-    for binarized_image, edge_image in image_pairs:
-        completed_edges = complete_edges(edge_image)
-        candidates = get_defect_candidates(completed_edges)
-        visualize_labeled_image(edge_image, candidates)
-        processed_images.append((binarized_image, completed_edges, candidates))
-    return processed_images
-
+# NGとOK画像に対してラベリング処理を実行
 labeled_ng_images_label1 = process_and_label_images(edged_ng_images_label1)
 labeled_ng_images_label2 = process_and_label_images(edged_ng_images_label2)
 labeled_ng_images_label3 = process_and_label_images(edged_ng_images_label3)
 labeled_ok_images = process_and_label_images(edged_ok_images)
-```
 
-これらの関数は、エッジを補完し、欠陥候補の特徴量を抽出します。また、ラベリングした画像を可視化します。
-
-# 8. 欠陥候補のフィルタリング
-
-```python
-def visualize_mask_edges(mask):
-    edges = cv2.Canny(mask, 100, 200)
-    plt.imshow(edges, cmap='gray')
-    plt.title("Mask Edges")
+# ラベリング画像の可視化
+def visualize_labeled_image(labeled_image):
+    plt.figure(figsize=(10, 10))
+    plt.imshow(labeled_image, cmap='nipy_spectral')
+    plt.colorbar()
+    plt.title('Labeled Image')
     plt.axis('off')
     plt.show()
 
-def filter_candidates(candidates, mask, min_size, max_size):
-    mask_edges = cv2.Canny(mask, 100, 200)
-    filtered_candidates = []
-    for candidate in candidates:
-        y, x = map(int, candidate['centroid'])
-        if min_size <= candidate['area'] <= max_size:
-            if mask_edges[y, x] == 0:  # エッジ上にないか確認
-                filtered_candidates.append(candidate)
-    return filtered_candidates
-
-def draw_bounding_boxes(image, candidates):
-    result_image = image.copy()
-    for i, candidate in enumerate(candidates):
-        y, x = map(int, candidate['centroid'])
-        top_left = (max(0, x - bounding_box_size // 2), max(0, y - bounding_box_size // 2))
-        bottom_right = (min(image.shape[1], x + bounding_box_size // 2), min(image.shape[0], y + bounding_box_size // 2))
-        cv2.rectangle(result_image, top_left, bottom_right, (0, 255, 0), 2)
-        cv2.putText(result_image, f"{i}", (x-10, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-    return result_image
-
-def process_and_filter_images(image_pairs):
-    processed_images = []
-    for binarized_image, edge_image, candidates in image_pairs:
-        visualize_mask_edges(binarized_image)
-        filtered_candidates = filter_candidates(candidates, binarized_image, min_defect_size, max_defect_size)
-        result_image = draw_bounding_boxes(edge_image, filtered_candidates)
-        plt.imshow(result_image)
-        plt.title("Filtered Defect Candidates")
-        plt.axis('off')
-        plt.show()
-        processed_images.append((binarized_image, edge_image, filtered_candidates))
-    return processed_images
-
-filtered_ng_images_label1 = process_and_filter_images(labeled_ng_images_label1)
-filtered_ng_images_label2 = process_and_filter_images(labeled_ng_images_label2)
-filtered_ng_images_label3 = process_and_filter_images(labeled_ng_images_label3)
-filtered_ok_images = process_and_filter_images(labeled_ok_images)
+# 最初のNG画像のラベリング結果を可視化
+if labeled_ng_images_label1:
+    _, _, labeled_image, _ = labeled_ng_images_label1[0]
+    visualize_labeled_image(labeled_image)
 ```
 
-これらの関数は、マスクのエッジを可視化し、サイズとエッジの位置に基づいて欠陥候補をフィルタリングします。また、フィルタリングされた欠陥候補にバウンディングボックスを描画し、可視化します。
+説明:
+- `complete_edges_and_label`関数: エッジを補完し、ラベリング処理を行います。
+- `get_defect_info`関数: ラベリングされた各領域の情報（中心座標、バウンディングボックス、面積など）を取得します。
+- `process_and_label_images`関数: 全ての画像に対してエッジ補完とラベリング処理を実行します。
+- `visualize_labeled_image`関数: ラベリング結果を可視化します。
+
+# 8. 欠陥候補のフィルタリング
+
+この項目では、欠陥候補のフィルタリングを行います。
+
+```python
+def create_mask_edge(binary_mask):
+    kernel = np.ones((3,3), np.uint8)
+    dilated = cv2.dilate(binary_mask, kernel, iterations=1)
+    mask_edge = dilated - binary_mask
+    return mask_edge
+
+def filter_defects(defects, binary_mask, min_size, max_size):
+    mask_edge = create_mask_edge(binary_mask)
+    filtered_defects = []
+    for defect in defects:
+        bbox = defect['bbox']
+        area = defect['area']
+        if min_size <= area <= max_size:
+            defect_mask = np.zeros_like(binary_mask)
+            defect_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]] = 1
+            if np.sum(defect_mask * mask_edge) == 0:
+                filtered_defects.append(defect)
+    return filtered_defects
+
+def process_and_filter_defects(labeled_images):
+    filtered_images = []
+    for binarized_image, edge_image, labeled_image, defects in labeled_images:
+        filtered_defects = filter_defects(defects, binarized_image, min_defect_size, max_defect_size)
+        filtered_images.append((binarized_image, edge_image, labeled_image, filtered_defects))
+    return filtered_images
+
+# NGとOK画像に対してフィルタリングを実行
+filtered_ng_images_label1 = process_and_filter_defects(labeled_ng_images_label1)
+filtered_ng_images_label2 = process_and_filter_defects(labeled_ng_images_label2)
+filtered_ng_images_label3 = process_and_filter_defects(labeled_ng_images_label3)
+filtered_ok_images = process_and_filter_defects(labeled_ok_images)
+
+# 欠陥候補を可視化する関数
+def visualize_defects(image, defects):
+    vis_image = image.copy()
+    if len(vis_image.shape) == 2:
+        vis_image = cv2.cvtColor(vis_image, cv2.COLOR_GRAY2BGR)
+    
+    for defect in defects:
+        centroid = defect['centroid']
+        x, y = int(centroid[1]), int(centroid[0])
+        cv2.rectangle(vis_image, (x-bounding_box_size//2, y-bounding_box_size//2),
+                      (x+bounding_box_size//2, y+bounding_box_size//2), (0, 0, 255), 2)
+        cv2.circle(vis_image, (x, y), 3, (255, 0, 0), -1)
+        cv2.putText(vis_image, f"({x}, {y})", (x+5, y-5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    
+    plt.figure(figsize=(15, 15))
+    plt.imshow(cv2.cvtColor(vis_image, cv2.COLOR_BGR2RGB))
+    plt.title("Detected Defects with Bounding Boxes")
+    plt.axis('off')
+    plt.show()
+
+# 最初のNG画像の欠陥候補を可視化
+if filtered_ng_images_label1:
+    binarized_image, edge_image, labeled_image, filtered_defects = filtered_ng_images_label1[0]
+    visualize_defects(edge_image, filtered_defects)
+```
+
+説明:
+- `create_mask_edge`関数: マスクのエッジを生成します。
+- `filter_defects`関数: サイズとマスクエッジに基づいて欠陥候補をフィルタリングします。
+- `process_and_filter_defects`関数: 全ての画像に対してフィルタリングを実行します。
+- `visualize_defects`関数: 欠陥候補を視覚化します。
 
 # 9. 欠陥候補の画像の保存
 
+この項目では、欠陥候補の画像を保存し、特徴量をCSVファイルに出力します。
+
 ```python
-def crop_and_enlarge_defect(image, candidate):
-    y, x = map(int, candidate['centroid'])
-    top_left = (max(0, x - crop_size // 2), max(0, y - crop_size // 2))
-    bottom_right = (min(image.shape[1], x + crop_size // 2), min(image.shape[0], y + crop_size // 2))
-    cropped = image[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
-    enlarged = cv2.resize(cropped, (crop_size * enlarge_factor, crop_size * enlarge_factor), interpolation=cv2.INTER_LINEAR)
+def crop_and_enlarge_defect(image, centroid, crop_size, enlarge_factor):
+    x, y = int(centroid[1]), int(centroid[0])
+    crop = image[y-crop_size//2:y+crop_size//2, x-crop_size//2:x+crop_size//2]
+    enlarged = cv2.resize(crop, (crop_size*enlarge_factor, crop_size*enlarge_factor), interpolation=cv2.INTER_LINEAR)
     return enlarged
 
-def save_defect_candidates(image_pairs, output_dir, image_label):
-    os.makedirs(output_dir, exist_ok=True)
-    all_features = []
+def save_defects(image_name, defects, image, output_dir, is_ng):
+    defect_dir = os.path.join(output_dir, "defect_images")
+    os.makedirs(defect_dir, exist_ok=True)
+    
+    defect_data = []
+    for i, defect in enumerate(defects):
+        enlarged_defect = crop_and_enlarge_defect(image, defect['centroid'], crop_size, enlarge_factor)
+        defect_filename = f"{image_name}_defect_{i}.png"
+        cv2.imwrite(os.path.join(defect_dir, defect_filename), enlarged_defect)
+        
+        properties = defect['properties']
+        feature_dict = {prop: getattr(properties, prop) for prop in properties.props if prop != 'image'}
+        feature_dict = {k: float(v) if isinstance(v, np.generic) else v for k, v in feature_dict.items()}
+        
+        feature_dict.update({
+            'image_name': image_name,
+            'Image_label': 1 if is_ng else 0,
+            'defect_label': 0  # 初期値は全て0（OK）
+        })
+        defect_data.append(feature_dict)
+    
+    return defect_data
 
-    for i, (binarized_image, edge_image, candidates) in enumerate(image_pairs):
-        image_name = f"image_{i}.jpg"
-        for j, candidate in enumerate(candidates):
-            enlarged_defect = crop_and_enlarge_defect(edge_image, candidate)
-            cv2.imwrite(os.path.join(output_dir, f"{image_name}_defect_{j}.png"), enlarged_defect)
+def process_and_save_defects(filtered_images, image_names, output_dir, is_ng):
+    all_defect_data = []
+    for (binarized_image, edge_image, labeled_image, filtered_defects), image_name in zip(filtered_images, image_names):
+        defect_data = save_defects(image_name, filtered_defects, edge_image, output_dir, is_ng)
+        all_defect_data.extend(defect_data)
+    return all_defect_data
 
-            features = {k: float(v) for k, v in candidate.items() if k != 'centroid' and k != 'bbox'}
-            features['image_name'] = image_name
-            features['Image_label'] = image_label
-            features['defect_label'] = 0  # すべて0（OK）とする
-            all_features.append(features)
+# NGとOK画像の欠陥候補を保存
+ng_defect_data1 = process_and_save_defects(filtered_ng_images_label1, [os.path.basename(img[0]) for img in ng_images_label1], output_data_dir, True)
+ng_defect_data2 = process_and_save_defects(filtered_ng_images_label2, [os.path.basename(img[0]) for img in ng_images_label2], output_data_dir, True)
+ng_defect_data3 = process_and_save_defects(filtered_ng_images_label3, [os.path.basename(img[0]) for img in ng_images_label3], output_data_dir, True)
+ok_defect_data = process_and_save_defects(filtered_ok_images, [os.path.basename(img[0]) for img in ok_images], output_data_dir, False)
 
-    df = pd.DataFrame(all_features)
-    df.to_csv(os.path.join(output_dir, 'defect_features.csv'), index=False)
-
-save_defect_candidates(filtered_ng_images_label1, os.path.join(output_data_dir, 'ng_label1'), 1)
-save_defect_candidates(filtered_ng_images_label2, os.path.join(output_data_dir, 'ng_label2'), 1)
-save_defect_candidates(filtered_ng_images_label3, os.path.join(output_data_dir, 'ng_label3'), 1)
-save_defect_candidates(filtered_ok_images, os.path.join(output_data_dir, 'ok'), 0)
+# 全ての欠陥データをまとめてCSVに保存
+all_defect_data = ng_defect_data1 + ng_defect_data2 + ng_defect_data3 + ok_defect_data
+df = pd.DataFrame(all_defect_data)
+df.to_csv(os.path.join(output_data_dir, 'defect_features.csv'), index=False)
 ```
 
-これらの関数は、欠陥候補の画像を切り出し、拡大して保存します。また、欠陥候補の特徴量をCSVファイルとして保存します。
+説明:
+- `crop_and_enlarge_defect`関数: 欠陥候補を切り出し、拡大します。
+- `save_defects`関数: 欠陥候補の画像を保存し、特徴量を抽出します。
+- `process_and_save_defects`関数: 全ての画像の欠陥候補を処理し、保存します。
+- 最後に、全ての欠陥データをまとめてCSVファイルに保存します。
 
-1. `crop_and_enlarge_defect`関数: 欠陥候補を中心に100x100ピクセルの正方形を切り出し、10倍に拡大します。
-2. `save_defect_candidates`関数: 
-   - 各欠陥候補を切り出し、拡大して保存します。
-   - 欠陥候補の特徴量をディクショナリに格納します。
-   - 全ての特徴量をDataFrameに変換し、CSVファイルとして保存します。
-
-CSVファイルには以下の列が含まれます：
-- image_name: 読み込んだ画像名
-- 欠陥候補の特徴量（area, eccentricity, equivalent_diameter, euler_number, extent, filled_area, major_axis_length, minor_axis_length, orientation, perimeter, solidity）
-- Image_label: 画像自体のOK/NGラベル（OK画像の場合0、NG画像の場合1）
-- defect_label: 欠陥自体のOK/NGラベル（全て0（OK）とする）
-
-このコードにより、鋳造部品の欠陥検出システムの前処理部分が実装され、欠陥候補の抽出、フィルタリング、保存までの一連の流れが自動化されます。得られた結果は、後続の機械学習モデルのトレーニングや詳細な分析に使用することができます。
+このコードにより、鋳造部品の欠陥検出システムの前処理、欠陥候補の検出、フィルタリング、保存までの一連の処理が実行されます。結果として、欠陥候補の画像と特徴量がCSVファイルとして出力されます。
