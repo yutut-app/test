@@ -332,6 +332,7 @@ if filtered_ng_images_label1:
     image_name, binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
     visualize_filtered_defects(image_name, edge_image, filtered_defects, binarized_image)
 
+
 ```
 
 説明:
