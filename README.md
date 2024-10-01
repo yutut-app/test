@@ -243,12 +243,24 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 この項目では、エッジの補完を行い、欠陥候補の中心座標を取得します。
 
 ```python
-def complete_edges(edge_image, mask):
+import cv2
+import numpy as np
+from skimage import measure
+from skimage.morphology import skeletonize
+
+def create_mask_edge_margin(mask, margin):
     # マスクのエッジを検出
     mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
     
-    # マスクエッジに余裕を持たせる
-    dilated_mask_edges = binary_dilation(mask_edges, iterations=mask_edge_margin)
+    # エッジを膨張させて余裕を持たせる
+    kernel = np.ones((margin * 2 + 1, margin * 2 + 1), np.uint8)
+    dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
+    
+    return dilated_edges
+
+def complete_edges(edge_image, mask):
+    # マスクのエッジに余裕を持たせる
+    mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
     
     # エッジの細線化
     skeleton = skeletonize(edge_image > 0)
@@ -260,8 +272,8 @@ def complete_edges(edge_image, mask):
     # 元のエッジと接続したスケルトンの和集合を取る
     completed_edges = np.maximum(edge_image, connected_skeleton * 255)
     
-    # マスクのエッジを維持（余裕を持たせたエッジを使用）
-    completed_edges = np.where(dilated_mask_edges > 0, edge_image, completed_edges)
+    # マスクのエッジ（余裕を持たせたもの）を維持
+    completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
     
     return completed_edges.astype(np.uint8)
 
@@ -305,17 +317,20 @@ def process_images_for_labeling(edged_images):
         labeled_images.append((binarized_image, completed_edges, defects))
     return labeled_images
 
-# フィルタリング結果の可視化
-def visualize_filtered_defects(image_name, image, defects, mask):
+# NGとOK画像に対してラベリング処理を実行
+labeled_ng_images_label1 = process_images_for_labeling(edged_ng_images_label1)
+labeled_ng_images_label2 = process_images_for_labeling(edged_ng_images_label2)
+labeled_ng_images_label3 = process_images_for_labeling(edged_ng_images_label3)
+labeled_ok_images = process_images_for_labeling(edged_ok_images)
+
+# ラベリング結果の可視化（例：最初のNG画像）
+def visualize_labeling(image, defects, mask):
     fig, ax = plt.subplots(figsize=(20, 20))
     ax.imshow(image, cmap='gray')
     
-    # マスクのエッジを検出し、余裕を持たせる
-    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
-    dilated_mask_edges = binary_dilation(mask_edges, iterations=mask_edge_margin)
-    
-    # 拡張されたマスクエッジを可視化
-    ax.imshow(dilated_mask_edges, alpha=0.3, cmap='cool')
+    # マスクのエッジを可視化（余裕を持たせたもの）
+    mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
+    ax.imshow(mask_edges_with_margin, alpha=0.3, cmap='cool')
     
     for defect in defects:
         rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
@@ -323,16 +338,13 @@ def visualize_filtered_defects(image_name, image, defects, mask):
         ax.add_patch(rect)
         ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
     
-    plt.title(f"Filtered Defects with Extended Mask Edges - {image_name}", fontsize=20)
+    plt.title("Labeled Defects with Mask Edges (Including Margin)", fontsize=20)
     plt.axis('off')
     plt.show()
 
-# フィルタリングの実行と可視化
-if filtered_ng_images_label1:
-    image_name, binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
-    visualize_filtered_defects(image_name, edge_image, filtered_defects, binarized_image)
-
-
+if labeled_ng_images_label1:
+    binarized_image, completed_edges, defects = labeled_ng_images_label1[0]
+    visualize_labeling(completed_edges, defects, binarized_image)
 ```
 
 説明:
