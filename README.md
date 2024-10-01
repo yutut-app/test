@@ -60,13 +60,8 @@ min_defect_size = 5
 max_defect_size = 100
 texture_threshold = 15
 
-# 新しいパラメータ
-edge_completion_kernel = np.ones((3, 3), np.uint8)
-edge_completion_iterations = 2
-visualization_figsize = (75, 80)
-visualization_title_fontsize = 100
-defect_crop_size_multiplier = 2
-defect_enlargement_factor = 10
+# 欠陥候補の保存パラメータ
+enlargement_factor = 10  # 欠陥候補画像の拡大倍率
 ```
 
 説明:
@@ -236,55 +231,74 @@ edged_ok_images = detect_edges_in_images(binarized_ok_images)
 この項目では、エッジの補完を行い、欠陥候補の中心座標を取得します。
 
 ```python
-def complete_edges_and_label(edge_image):
-    # エッジの補完
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, edge_closing_kernel_size)
-    closed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel)
-    
+def complete_edges(edge_image):
+    # エッジの補完処理（例：モルフォロジー演算を使用）
+    kernel = np.ones((3,3), np.uint8)
+    completed_edges = cv2.morphologyEx(edge_image, cv2.MORPH_CLOSE, kernel, iterations=2)
+    return completed_edges
+
+def label_and_measure_defects(edge_image):
     # ラベリング処理
-    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(closed_edges)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
     
     # 欠陥候補の情報を抽出
     defects = []
-    for i in range(1, num_labels):  # 0はbackgroundなのでスキップ
+    for i in range(1, num_labels):  # 0はバックグラウンドなのでスキップ
         x, y, w, h, area = stats[i]
         cx, cy = centroids[i]
-        defects.append({
+        
+        # skimage.measure.regionpropsを使用して追加の特徴量を計算
+        region = measure.regionprops(labels == i)[0]
+        
+        defect_info = {
             'label': i,
             'x': x, 'y': y, 'width': w, 'height': h,
-            'area': area,
-            'centroid_x': cx, 'centroid_y': cy
-        })
+            'area': area, 'centroid_x': cx, 'centroid_y': cy,
+            'perimeter': region.perimeter,
+            'eccentricity': region.eccentricity,
+            'orientation': region.orientation,
+            'major_axis_length': region.major_axis_length,
+            'minor_axis_length': region.minor_axis_length,
+            'solidity': region.solidity,
+            'extent': region.extent,
+            'aspect_ratio': max(w, h) / min(w, h),
+        }
+        defects.append(defect_info)
     
-    return closed_edges, defects
+    return defects
 
 def process_images_for_labeling(edged_images):
     labeled_images = []
     for binarized_image, edge_image in edged_images:
-        closed_edges, defects = complete_edges_and_label(edge_image)
-        labeled_images.append((binarized_image, closed_edges, defects))
+        completed_edges = complete_edges(edge_image)
+        defects = label_and_measure_defects(completed_edges)
+        labeled_images.append((binarized_image, completed_edges, defects))
     return labeled_images
 
-# NGとOK画像に対してエッジ補完とラベリングを実行
+# NGとOK画像に対してラベリング処理を実行
 labeled_ng_images_label1 = process_images_for_labeling(edged_ng_images_label1)
-labeled_ng_images_label2 = process_images_for_labeling(edged_ng_images_label2)
-labeled_ng_images_label3 = process_images_for_labeling(edged_ng_images_label3)
-labeled_ok_images = process_images_for_labeling(edged_ok_images)
+#labeled_ng_images_label2 = process_images_for_labeling(edged_ng_images_label2)
+#labeled_ng_images_label3 = process_images_for_labeling(edged_ng_images_label3)
+#labeled_ok_images = process_images_for_labeling(edged_ok_images)
 
-# ラベリングした画像の可視化
-def visualize_labeled_image(labeled_image, defects):
-    plt.figure(figsize=(12, 8))
-    plt.imshow(labeled_image, cmap='nipy_spectral')
+# ラベリング結果の可視化（例：最初のNG画像）
+def visualize_labeling(image, defects):
+    fig, ax = plt.subplots(figsize=(20, 20))
+    ax.imshow(image, cmap='gray')
+    
     for defect in defects:
-        plt.plot(defect['centroid_x'], defect['centroid_y'], 'ro')
-    plt.title("Labeled Image with Defect Centroids")
+        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
+                             fill=False, edgecolor='red', linewidth=2)
+        ax.add_patch(rect)
+        ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
+    
+    plt.title("Labeled Defects", fontsize=20)
     plt.axis('off')
     plt.show()
 
-# 最初のNG画像を可視化
 if labeled_ng_images_label1:
-    binarized_image, closed_edges, defects = labeled_ng_images_label1[0]
-    visualize_labeled_image(closed_edges, defects)
+    _, edge_image, defects = labeled_ng_images_label1[0]
+    visualize_labeling(edge_image, defects)
 ```
 
 説明:
