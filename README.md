@@ -310,53 +310,52 @@ if labeled_ng_images_label1:
 この項目では、欠陥候補のフィルタリングを行います。
 
 ```python
-def filter_defects(binarized_image, defects):
-    # マスクのエッジを検出
-    mask_edges = cv2.Canny(binarized_image, 100, 200)
+def remove_defects_on_mask_edge(defects, mask):
+    mask_edges = cv2.Canny(mask, 100, 200)
     
-    # サイズとエッジの条件でフィルタリング
     filtered_defects = []
     for defect in defects:
-        if min_defect_size <= defect['area'] <= max_defect_size:
-            x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
-            if not np.any(mask_edges[y:y+h, x:x+w] > 0):
-                filtered_defects.append(defect)
+        x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
+        if not np.any(mask_edges[y:y+h, x:x+w] > 0):
+            filtered_defects.append(defect)
     
     return filtered_defects
 
+def filter_defects_by_size(defects, min_size, max_size):
+    return [defect for defect in defects if min_size <= defect['area'] <= max_size]
+
 def process_images_for_filtering(labeled_images):
     filtered_images = []
-    for binarized_image, closed_edges, defects in labeled_images:
-        filtered_defects = filter_defects(binarized_image, defects)
-        filtered_images.append((binarized_image, closed_edges, filtered_defects))
+    for binarized_image, edge_image, defects in labeled_images:
+        filtered_defects = remove_defects_on_mask_edge(defects, binarized_image)
+        filtered_defects = filter_defects_by_size(filtered_defects, min_defect_size, max_defect_size)
+        filtered_images.append((binarized_image, edge_image, filtered_defects))
     return filtered_images
 
 # NGとOK画像に対してフィルタリングを実行
 filtered_ng_images_label1 = process_images_for_filtering(labeled_ng_images_label1)
-filtered_ng_images_label2 = process_images_for_filtering(labeled_ng_images_label2)
-filtered_ng_images_label3 = process_images_for_filtering(labeled_ng_images_label3)
-filtered_ok_images = process_images_for_filtering(labeled_ok_images)
+#filtered_ng_images_label2 = process_images_for_filtering(labeled_ng_images_label2)
+#filtered_ng_images_label3 = process_images_for_filtering(labeled_ng_images_label3)
+#filtered_ok_images = process_images_for_filtering(labeled_ok_images)
 
-# フィルタリング後の画像を可視化
-def visualize_filtered_image(image, defects):
-    plt.figure(figsize=(12, 8))
-    plt.imshow(image, cmap='gray')
+# フィルタリング結果の可視化
+def visualize_filtered_defects(image, defects):
+    fig, ax = plt.subplots(figsize=(20, 20))
+    ax.imshow(image, cmap='gray')
+    
     for defect in defects:
-        cx, cy = defect['centroid_x'], defect['centroid_y']
-        rect = plt.Rectangle((cx-bounding_box_size//2, cy-bounding_box_size//2),
-                             bounding_box_size, bounding_box_size,
-                             fill=False, edgecolor='r', linewidth=2)
-        plt.gca().add_patch(rect)
-        plt.text(cx, cy, str(defect['label']), color='r', fontsize=12,
-                 ha='center', va='center')
-    plt.title("Filtered Defects with Bounding Boxes")
+        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
+                             fill=False, edgecolor='red', linewidth=2)
+        ax.add_patch(rect)
+        ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
+    
+    plt.title("Filtered Defects", fontsize=20)
     plt.axis('off')
     plt.show()
 
-# 最初のNG画像を可視化
 if filtered_ng_images_label1:
-    binarized_image, closed_edges, filtered_defects = filtered_ng_images_label1[0]
-    visualize_filtered_image(closed_edges, filtered_defects)
+    binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
+    visualize_filtered_defects(edge_image, filtered_defects)
 ```
 
 説明:
@@ -370,60 +369,60 @@ if filtered_ng_images_label1:
 この項目では、欠陥候補の画像を保存し、特徴量をCSVファイルに出力します。
 
 ```python
-from skimage.measure import regionprops
-
-def crop_and_enlarge_defect(image, defect):
-    cx, cy = int(defect['centroid_x']), int(defect['centroid_y'])
-    half_size = crop_size // 2
-    crop = image[cy-half_size:cy+half_size, cx-half_size:cx+half_size]
-    enlarged = cv2.resize(crop, (crop_size*enlarge_factor, crop_size*enlarge_factor))
-    return enlarged
-
-def save_defects(image_name, image, defects, output_dir, is_ng):
-    defect_dir = os.path.join(output_dir, "defect_crops")
-    os.makedirs(defect_dir, exist_ok=True)
+def save_defect_image(image, defect, output_dir, image_name, defect_number):
+    cx, cy = defect['centroid_x'], defect['centroid_y']
+    size = max(defect['width'], defect['height'])
     
-    defect_data = []
-    for i, defect in enumerate(defects):
-        # 欠陥候補を切り出して保存
-        enlarged_defect = crop_and_enlarge_defect(image, defect)
-        defect_filename = f"{image_name}_defect_{i}.png"
-        cv2.imwrite(os.path.join(defect_dir, defect_filename), enlarged_defect)
-        
-        # regionpropsで特徴量を計算
-        label_image = np.zeros(image.shape, dtype=np.uint8)
-        x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
-        label_image[y:y+h, x:x+w] = 1
-        props = regionprops(label_image)[0]
-        
-        # 特徴量をディクショナリに格納
-        defect_features = {prop: getattr(props, prop) for prop in props.props if prop != 'coords'}
-        defect_features['image_name'] = image_name
-        defect_features['Image_label'] = 1 if is_ng else 0
-        defect_features['defect_label'] = 0  # 初期値は全て0
-        
-        defect_data.append(defect_features)
+    x1 = max(int(cx - size), 0)
+    y1 = max(int(cy - size), 0)
+    x2 = min(int(cx + size), image.shape[1])
+    y2 = min(int(cy + size), image.shape[0])
     
-    return defect_data
+    defect_image = image[y1:y2, x1:x2]
+    enlarged_image = cv2.resize(defect_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    
+    output_filename = f"{image_name}_defect_{defect_number}.png"
+    output_path = os.path.join(output_dir, output_filename)
+    cv2.imwrite(output_path, enlarged_image)
+    
+    return output_filename
 
-def save_all_defects(filtered_images, output_dir, is_ng):
-    all_defect_data = []
-    for i, (binarized_image, closed_edges, filtered_defects) in enumerate(filtered_images):
+def process_images_for_saving(filtered_images, output_dir, image_label):
+    all_defects_data = []
+    
+    for i, (binarized_image, edge_image, defects) in enumerate(filtered_images):
         image_name = f"image_{i}"
-        defect_data = save_defects(image_name, closed_edges, filtered_defects, output_dir, is_ng)
-        all_defect_data.extend(defect_data)
-    return all_defect_data
+        
+        for j, defect in enumerate(defects):
+            output_filename = save_defect_image(edge_image, defect, output_dir, image_name, j)
+            
+            defect_data = {
+                'image_name': image_name,
+                'defect_image': output_filename,
+                'Image_label': image_label,
+                'defect_label': 0,  # デフォルトで0（OK）とする
+            }
+            defect_data.update(defect)
+            all_defects_data.append(defect_data)
+    
+    return all_defects_data
 
-# NGとOK画像の欠陥候補を保存
-ng_defect_data = save_all_defects(filtered_ng_images_label1, output_data_dir, True)
-ng_defect_data.extend(save_all_defects(filtered_ng_images_label2, output_data_dir, True))
-ng_defect_data.extend(save_all_defects(filtered_ng_images_label3, output_data_dir, True))
-ok_defect_data = save_all_defects(filtered_ok_images, output_data_dir, False)
+# NGとOK画像の欠陥候補を保存し、データを収集
+output_dir = os.path.join(output_data_dir, "defect_images")
+os.makedirs(output_dir, exist_ok=True)
 
-# 全ての欠陥データをCSVファイルとして保存
-all_defect_data = ng_defect_data + ok_defect_data
-df = pd.DataFrame(all_defect_data)
-df.to_csv(os.path.join(output_data_dir, 'defect_features.csv'), index=False)
+all_defects_data = []
+all_defects_data.extend(process_images_for_saving(filtered_ng_images_label1, output_dir, 1))
+#all_defects_data.extend(process_images_for_saving(filtered_ng_images_label2, output_dir, 1))
+#all_defects_data.extend(process_images_for_saving(filtered_ng_images_label3, output_dir, 1))
+#all_defects_data.extend(process_images_for_saving(filtered_ok_images, output_dir, 0))
+
+# CSVファイルに出力
+df = pd.DataFrame(all_defects_data)
+csv_output_path = os.path.join(output_data_dir, "defects_data.csv")
+df.to_csv(csv_output_path, index=False)
+
+print(f"Defects data saved to {csv_output_path}")
 ```
 
 説明:
