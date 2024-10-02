@@ -1,4 +1,4 @@
-承知しました。ipynbのコードをStreamlitアプリケーションに反映させ、`detect_edges_and_texture`関数と`complete_edges`関数を更新します。以下に、変更を反映した完全なStreamlitアプリケーションのコードを示します。
+このエラーは通常、サイズの異なる画像や配列に対して操作を行おうとした際に発生します。エラーの原因を特定し、修正したコードを以下に示します。変更箇所には注釈を付けています。
 
 ```python
 import streamlit as st
@@ -8,7 +8,6 @@ from skimage import measure
 from skimage.morphology import skeletonize
 import os
 
-# ユーティリティ関数（変更なし）
 def load_image(image_file):
     img = cv2.imdecode(np.frombuffer(image_file.read(), np.uint8), 1)
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -16,15 +15,46 @@ def load_image(image_file):
 def display_image(image, caption):
     st.image(image, caption=caption, use_column_width=True)
 
-# その他の関数（変更なし）
-# template_matching, remove_joint_part, binarize_image
+def template_matching(image, template_path):
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise FileNotFoundError(f"Template image not found: {template_path}")
+    
+    gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    res = cv2.matchTemplate(gray_image, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(res)
+    return max_val, max_loc
 
-# エッジ検出とテクスチャ検出（更新）
+def remove_joint_part(image, keyence_image, crop_width, right_template_path, left_template_path):
+    right_val, _ = template_matching(keyence_image, right_template_path)
+    left_val, _ = template_matching(keyence_image, left_template_path)
+    
+    if right_val > left_val:
+        cropped_image = image[:, crop_width:]
+        cropped_keyence_image = keyence_image[:, crop_width:]
+    else:
+        cropped_image = image[:, :-crop_width]
+        cropped_keyence_image = keyence_image[:, :-crop_width]
+    
+    return cropped_image, cropped_keyence_image
+
+def binarize_image(image, threshold_value, kernel_size, iterations_open, iterations_close):
+    _, binary_image = cv2.threshold(image, threshold_value, 255, cv2.THRESH_BINARY_INV)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
+    return binary_image
+
+# 変更箇所: detect_edges_and_texture 関数を更新
 def detect_edges_and_texture(cropped_keyence_image, binarized_image, gaussian_kernel_size, sigma, canny_min_threshold, canny_max_threshold, texture_threshold):
     masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
     blurred_image = cv2.GaussianBlur(masked_image, gaussian_kernel_size, sigma)
-    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
-    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
+    
+    # グレースケールに変換
+    gray_blurred = cv2.cvtColor(blurred_image, cv2.COLOR_RGB2GRAY)
+    
+    edges = cv2.Canny(gray_blurred, canny_min_threshold, canny_max_threshold)
+    laplacian = cv2.Laplacian(gray_blurred, cv2.CV_64F)
     abs_laplacian = np.absolute(laplacian)
     laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
     combined_edges = cv2.bitwise_or(edges, laplacian_edges)
@@ -36,7 +66,7 @@ def create_mask_edge_margin(mask, mask_edge_min_threshold, mask_edge_max_thresho
     dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
     return dilated_edges
 
-# エッジの補完とラベリング処理（更新）
+# 変更箇所: complete_edges 関数を更新
 def complete_edges(edge_image, mask, edge_kernel_size, edge_open_iterations, edge_close_iterations, mask_edge_margin, mask_edge_min_threshold, mask_edge_max_threshold):
     mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_min_threshold, mask_edge_max_threshold, mask_edge_margin)
     skeleton = skeletonize(edge_image > 0)
@@ -79,8 +109,17 @@ def label_and_measure_defects(edge_image, mask, mask_edge_margin, mask_edge_min_
         defects.append(defect_info)
     return defects
 
-# その他の関数（変更なし）
-# filter_defects_by_max_length, draw_defects
+def filter_defects_by_max_length(defects, min_size, max_size):
+    return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+
+def draw_defects(image, defects):
+    result_image = image.copy()
+    for defect in defects:
+        cv2.rectangle(result_image, (defect['x'], defect['y']), 
+                      (defect['x'] + defect['width'], defect['y'] + defect['height']), (0, 255, 0), 2)
+        cv2.putText(result_image, str(defect['label']), (defect['x'], defect['y'] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+    return result_image
 
 def main():
     st.title("鋳造部品の欠陥検出パラメータ最適化")
@@ -181,10 +220,10 @@ if __name__ == "__main__":
     main()
 ```
 
-このコードでは、以下の主な変更が行われています：
+主な変更点：
 
-1. `detect_edges_and_texture` 関数を更新し、ipynbのコードと同じ処理を行うようにしました。
-2. `complete_edges` 関数を更新し、オープン処理とクローズ処理を追加しました。
-3. `label_and_measure_defects` 関数を更新し、マスクエッジ部分を除外するように変更しました。
+1. `detect_edges_and_texture` 関数:
+   - `blurred_image` をグレースケールに変換してから Canny エッジ検出と Laplacian 処理を適用しました。これにより、入力画像のチャンネル数の不一致によるエラーを防ぎます。
 
-これらの変更により、Streamlitアプリケーションの処理が.ipynbファイルの処理と一致するようになりました。パラメータ設定も適切に反映されており、ユーザーがインタラクティブに調整できるようになっています。
+2. `complete_edges` 関数:
+   - オープン処理とク
