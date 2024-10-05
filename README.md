@@ -1,67 +1,3 @@
-# Streamlitアプリケーション
-
-# 必要なライブラリのインポート
-import streamlit as st
-import cv2
-import numpy as np
-from skimage import io, filters, feature, measure, morphology
-import matplotlib.pyplot as plt
-from PIL import Image
-import pandas as pd
-import io as io_module
-import os
-
-# タイトルの設定
-st.title("画像処理パラメータ調整アプリ")
-
-# サイドバーにパラメータ設定を追加
-st.sidebar.title("パラメータ設定")
-
-# 1. ワーク接合部の削除のパラメータ
-st.sidebar.header("1. ワーク接合部の削除")
-crop_width = st.sidebar.number_input("crop_width (接合部削除幅)", min_value=0, value=1360, step=10)
-
-# 2. 二値化によるマスクの作成のパラメータ
-st.sidebar.header("2. 二値化によるマスクの作成")
-threshold_value = st.sidebar.slider("threshold_value (二値化しきい値)", min_value=0, max_value=255, value=150)
-kernel_size = st.sidebar.slider("kernel_size (カーネルサイズ)", min_value=1, max_value=15, value=5, step=2)
-iterations_open = st.sidebar.number_input("iterations_open (膨張繰り返し回数)", min_value=1, value=3)
-iterations_close = st.sidebar.number_input("iterations_close (収縮繰り返し回数)", min_value=1, value=20)
-
-# 3. エッジ検出とテクスチャ検出のパラメータ
-st.sidebar.header("3. エッジ検出とテクスチャ検出")
-gaussian_kernel_size = st.sidebar.slider("gaussian_kernel_size (ガウシアンブラーのカーネルサイズ)", min_value=1, max_value=15, value=7, step=2)
-sigma = st.sidebar.number_input("sigma (ガウシアンブラー標準偏差)", min_value=0.0, value=3.0, step=0.1)
-canny_min_threshold = st.sidebar.slider("canny_min_threshold (エッジ検出最小しきい値)", min_value=0, max_value=255, value=30)
-canny_max_threshold = st.sidebar.slider("canny_max_threshold (エッジ検出最大しきい値)", min_value=0, max_value=255, value=120)
-texture_threshold = st.sidebar.slider("texture_threshold (テクスチャ検出しきい値)", min_value=0, max_value=255, value=15)
-
-# 4. エッジの補完のパラメータ
-st.sidebar.header("4. エッジの補完")
-edge_kernel_size = st.sidebar.slider("edge_kernel_size (エッジ補完のカーネルサイズ)", min_value=1, max_value=15, value=3, step=2)
-edge_open_iterations = st.sidebar.number_input("edge_open_iterations (ノイズ削除繰り返し回数)", min_value=0, value=2)
-edge_close_iterations = st.sidebar.number_input("edge_close_iterations (エッジ補完繰り返し回数)", min_value=0, value=2)
-
-# 5. マスクエッジ検出のパラメータ
-st.sidebar.header("5. マスクエッジ検出")
-mask_edge_min_threshold = st.sidebar.slider("mask_edge_min_threshold", min_value=0, max_value=255, value=100)
-mask_edge_max_threshold = st.sidebar.slider("mask_edge_max_threshold", min_value=0, max_value=255, value=200)
-mask_edge_margin = st.sidebar.number_input("mask_edge_margin (マスクエッジ余裕幅)", min_value=0, value=5)
-
-# 6. 欠陥サイズのフィルタリングのパラメータ
-st.sidebar.header("6. 欠陥サイズのフィルタリング")
-min_defect_size = st.sidebar.number_input("min_defect_size (最小欠陥サイズ)", min_value=0, value=5)
-max_defect_size = st.sidebar.number_input("max_defect_size (最大欠陥サイズ)", min_value=0, value=100)
-
-# 欠陥候補の表示設定のパラメータ（追加）
-st.sidebar.header("7. 欠陥候補の表示設定")
-text_size = st.sidebar.number_input("text_size (テキストサイズ)", min_value=1, value=12)
-
-# 入力画像のアップロード
-st.header("入力画像のアップロード")
-uploaded_normal_image = st.file_uploader("元画像をアップロード", type=["jpg", "png", "bmp"])
-uploaded_keyence_image = st.file_uploader("キーエンス前処理画像をアップロード", type=["jpg", "png", "bmp"])
-
 if uploaded_normal_image is not None and uploaded_keyence_image is not None:
     # 画像を読み込み
     file_bytes = np.asarray(bytearray(uploaded_normal_image.read()), dtype=np.uint8)
@@ -186,7 +122,7 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
                 y, x = region.bbox[0], region.bbox[1]
                 h, w = region.bbox[2] - y, region.bbox[3] - x
                 defect_info = {
-                    'label': region.label,
+                    # 'label': region.label,  # ここでは後で振り直すため一旦コメントアウト
                     'x': x, 'y': y, 'width': w, 'height': h,
                     'area': region.area,
                     'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
@@ -208,31 +144,30 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         # 5. 欠陥候補のフィルタリング
         st.header("5. 欠陥候補のフィルタリング")
         def filter_defects_by_max_length(defects, min_size, max_size):
-            filtered_defects = []
-            for idx, defect in enumerate(defects):
-                if min_size <= defect['max_length'] <= max_size:
-                    defect['label'] = idx + 1  # ラベル番号を再設定
-                    filtered_defects.append(defect)
+            filtered_defects = [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+            # ラベルを1から振り直す
+            for idx, defect in enumerate(filtered_defects, 1):
+                defect['label'] = idx
             return filtered_defects
 
         filtered_defects = filter_defects_by_max_length(defects, min_defect_size, max_defect_size)
 
-        # 欠陥候補の表示（ラベル番号付き）
-        st.subheader("欠陥候補の表示（ラベル番号付き）")
-        def draw_defects_with_labels(image, defects, text_size):
+        # 欠陥候補の表示（ラベルとテキストサイズの追加）
+        st.subheader("欠陥候補の表示")
+        def draw_defects(image, defects, text_size):
             result_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             for defect in defects:
                 x = int(defect['x'])
                 y = int(defect['y'])
                 w = int(defect['width'])
                 h = int(defect['height'])
-                label_num = defect['label']
+                label = defect['label']
                 cv2.rectangle(result_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                cv2.putText(result_image, str(label_num), (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, text_size / 20, (0, 255, 0), 2)
+                cv2.putText(result_image, str(label), (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, text_size / 20, (0, 0, 255), 2)
             return result_image
 
-        defects_image_with_labels = draw_defects_with_labels(completed_edges, filtered_defects, text_size)
-        st.image(defects_image_with_labels, caption="欠陥候補検出結果（ラベル番号付き）", channels="BGR")
+        defects_image = draw_defects(completed_edges, filtered_defects, text_size)
+        st.image(defects_image, caption="欠陥候補検出結果（ラベル付き）", channels="BGR")
 
         # 6. 欠陥候補の画像の表示（修正）
         st.header("6. 欠陥候補の画像の表示")
@@ -253,10 +188,11 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         defect_images = []
         defect_captions = []
 
-        for i, defect in enumerate(filtered_defects):
+        for defect in filtered_defects:
             defect_image, max_length = extract_defect_image(completed_edges, defect)
             defect_images.append(defect_image)
-            caption = f"欠陥候補 {defect['label']} (尺度 {max_length} px)"
+            label = defect['label']
+            caption = f"欠陥候補 {label} (尺度 {max_length} px)"
             defect_captions.append(caption)
 
         # 画像を横並びで表示（下揃え）
