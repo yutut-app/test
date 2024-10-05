@@ -53,9 +53,9 @@ st.sidebar.header("6. 欠陥サイズのフィルタリング")
 min_defect_size = st.sidebar.number_input("min_defect_size (最小欠陥サイズ)", min_value=0, value=5)
 max_defect_size = st.sidebar.number_input("max_defect_size (最大欠陥サイズ)", min_value=0, value=100)
 
-# 欠陥候補の表示サイズ調整パラメータ
-st.sidebar.header("欠陥候補の表示サイズ調整")
-defect_display_size = st.sidebar.slider("欠陥候補の表示サイズ（ピクセル）", min_value=50, max_value=500, value=100)
+# 欠陥候補の表示設定のパラメータ（追加）
+st.sidebar.header("7. 欠陥候補の表示設定")
+text_size = st.sidebar.number_input("text_size (テキストサイズ)", min_value=1, value=12)
 
 # 入力画像のアップロード
 st.header("入力画像のアップロード")
@@ -94,12 +94,12 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         left_val, _ = template_matching(keyence_image, left_template)
 
         if right_val > left_val:
-            cropped_normal_image = normal_image[:, :-crop_width]
-            cropped_keyence_image = keyence_image[:, :-crop_width]
-            st.write("ワークの右側と判定されました。")
-        else:
             cropped_normal_image = normal_image[:, crop_width:]
             cropped_keyence_image = keyence_image[:, crop_width:]
+            st.write("ワークの右側と判定されました。")
+        else:
+            cropped_normal_image = normal_image[:, :-crop_width]
+            cropped_keyence_image = keyence_image[:, :-crop_width]
             st.write("ワークの左側と判定されました。")
 
         st.subheader("ワーク接合部削除後の画像")
@@ -208,53 +208,55 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         # 5. 欠陥候補のフィルタリング
         st.header("5. 欠陥候補のフィルタリング")
         def filter_defects_by_max_length(defects, min_size, max_size):
-            return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+            filtered_defects = []
+            for idx, defect in enumerate(defects):
+                if min_size <= defect['max_length'] <= max_size:
+                    defect['label'] = idx + 1  # ラベル番号を再設定
+                    filtered_defects.append(defect)
+            return filtered_defects
 
         filtered_defects = filter_defects_by_max_length(defects, min_defect_size, max_defect_size)
 
-        # 欠陥候補の数を表示
-        st.write(f"検出された欠陥候補の数: {len(filtered_defects)}")
-
-        # 欠陥候補の表示
-        st.subheader("欠陥候補の表示")
-        def draw_defects(image, defects):
+        # 欠陥候補の表示（ラベル番号付き）
+        st.subheader("欠陥候補の表示（ラベル番号付き）")
+        def draw_defects_with_labels(image, defects, text_size):
             result_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             for defect in defects:
                 x = int(defect['x'])
                 y = int(defect['y'])
                 w = int(defect['width'])
                 h = int(defect['height'])
+                label_num = defect['label']
                 cv2.rectangle(result_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                cv2.putText(result_image, str(label_num), (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, text_size / 20, (0, 255, 0), 2)
             return result_image
 
-        defects_image = draw_defects(completed_edges, filtered_defects)
-        st.image(defects_image, caption="欠陥候補検出結果", channels="BGR")
+        defects_image_with_labels = draw_defects_with_labels(completed_edges, filtered_defects, text_size)
+        st.image(defects_image_with_labels, caption="欠陥候補検出結果（ラベル番号付き）", channels="BGR")
 
         # 6. 欠陥候補の画像の表示（修正）
         st.header("6. 欠陥候補の画像の表示")
         def extract_defect_image(image, defect):
             cx, cy = defect['centroid_x'], defect['centroid_y']
-            size = int(defect['max_length'])
-            half_size = size // 2
+            max_length = int(defect['max_length'])
+            half_length = max_length // 2
 
-            x1 = max(int(cx - half_size), 0)
-            y1 = max(int(cy - half_size), 0)
-            x2 = min(int(cx + half_size), image.shape[1])
-            y2 = min(int(cy + half_size), image.shape[0])
+            x1 = max(int(cx - half_length), 0)
+            y1 = max(int(cy - half_length), 0)
+            x2 = min(int(cx + half_length), image.shape[1])
+            y2 = min(int(cy + half_length), image.shape[0])
 
             defect_image = image[y1:y2, x1:x2]
-            # 画像のサイズを調整
-            defect_image = cv2.resize(defect_image, (defect_display_size, defect_display_size), interpolation=cv2.INTER_AREA)
-            return defect_image, size
+            return defect_image, max_length
 
         # 欠陥候補の画像を取得し、表示用のリストを作成
         defect_images = []
         defect_captions = []
 
         for i, defect in enumerate(filtered_defects):
-            defect_image, size = extract_defect_image(completed_edges, defect)
+            defect_image, max_length = extract_defect_image(completed_edges, defect)
             defect_images.append(defect_image)
-            caption = f"欠陥候補 {i+1} (尺度 {size} px)"
+            caption = f"欠陥候補 {defect['label']} (尺度 {max_length} px)"
             defect_captions.append(caption)
 
         # 画像を横並びで表示（下揃え）
