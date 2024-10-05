@@ -53,9 +53,9 @@ st.sidebar.header("6. 欠陥サイズのフィルタリング")
 min_defect_size = st.sidebar.number_input("min_defect_size (最小欠陥サイズ)", min_value=0, value=5)
 max_defect_size = st.sidebar.number_input("max_defect_size (最大欠陥サイズ)", min_value=0, value=100)
 
-# 7. 欠陥候補の保存パラメータ
-st.sidebar.header("7. 欠陥候補の保存")
-enlargement_factor = st.sidebar.number_input("enlargement_factor (拡大倍率)", min_value=1, value=10)
+# 欠陥候補の表示サイズ調整パラメータ
+st.sidebar.header("欠陥候補の表示サイズ調整")
+defect_display_size = st.sidebar.slider("欠陥候補の表示サイズ（ピクセル）", min_value=50, max_value=500, value=100)
 
 # 入力画像のアップロード
 st.header("入力画像のアップロード")
@@ -212,6 +212,9 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
 
         filtered_defects = filter_defects_by_max_length(defects, min_defect_size, max_defect_size)
 
+        # 欠陥候補の数を表示
+        st.write(f"検出された欠陥候補の数: {len(filtered_defects)}")
+
         # 欠陥候補の表示
         st.subheader("欠陥候補の表示")
         def draw_defects(image, defects):
@@ -231,25 +234,27 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         st.header("6. 欠陥候補の画像の表示")
         def extract_defect_image(image, defect):
             cx, cy = defect['centroid_x'], defect['centroid_y']
-            max_length = int(defect['max_length'])
-            half_length = max_length // 2
+            size = int(defect['max_length'])
+            half_size = size // 2
 
-            x1 = max(int(cx - half_length), 0)
-            y1 = max(int(cy - half_length), 0)
-            x2 = min(int(cx + half_length), image.shape[1])
-            y2 = min(int(cy + half_length), image.shape[0])
+            x1 = max(int(cx - half_size), 0)
+            y1 = max(int(cy - half_size), 0)
+            x2 = min(int(cx + half_size), image.shape[1])
+            y2 = min(int(cy + half_size), image.shape[0])
 
             defect_image = image[y1:y2, x1:x2]
-            return defect_image, max_length
+            # 画像のサイズを調整
+            defect_image = cv2.resize(defect_image, (defect_display_size, defect_display_size), interpolation=cv2.INTER_AREA)
+            return defect_image, size
 
         # 欠陥候補の画像を取得し、表示用のリストを作成
         defect_images = []
         defect_captions = []
 
         for i, defect in enumerate(filtered_defects):
-            defect_image, max_length = extract_defect_image(completed_edges, defect)
+            defect_image, size = extract_defect_image(completed_edges, defect)
             defect_images.append(defect_image)
-            caption = f"欠陥候補 {i+1} (尺度 {max_length} px)"
+            caption = f"欠陥候補 {i+1} (尺度 {size} px)"
             defect_captions.append(caption)
 
         # 画像を横並びで表示（下揃え）
