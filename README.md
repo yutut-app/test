@@ -94,12 +94,12 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         left_val, _ = template_matching(keyence_image, left_template)
 
         if right_val > left_val:
-            cropped_normal_image = normal_image[:, crop_width:]
-            cropped_keyence_image = keyence_image[:, crop_width:]
-            st.write("ワークの右側と判定されました。")
-        else:
             cropped_normal_image = normal_image[:, :-crop_width]
             cropped_keyence_image = keyence_image[:, :-crop_width]
+            st.write("ワークの右側と判定されました。")
+        else:
+            cropped_normal_image = normal_image[:, crop_width:]
+            cropped_keyence_image = keyence_image[:, crop_width:]
             st.write("ワークの左側と判定されました。")
 
         st.subheader("ワーク接合部削除後の画像")
