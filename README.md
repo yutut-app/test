@@ -51,11 +51,28 @@ if uploaded_origin_image is not None and uploaded_keyence_image is not None:
     # 4. ワーク接合部の削除
     st.header("4. ワーク接合部の削除")
 
+    def template_matching(image, template):
+        res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        return max_val, max_loc
+
     def remove_joint_part(image, keyence_image, crop_width):
-        # 左右判定のためのテンプレートマッチングは省略（画像が単体のため）
-        # 本コードでは右側を削除する例として実装
-        cropped_image = image[:, :-crop_width]
-        cropped_keyence_image = keyence_image[:, :-crop_width]
+        # 左右判定のためのテンプレート画像の設定（簡単な例）
+        right_template = keyence_image[:, -crop_width:]
+        left_template = keyence_image[:, :crop_width]
+
+        # 左右のテンプレートマッチング
+        right_val, _ = template_matching(keyence_image, right_template)
+        left_val, _ = template_matching(keyence_image, left_template)
+
+        # 判定に基づいて、右側か左側を削除
+        if right_val > left_val:
+            cropped_image = image[:, :-crop_width]
+            cropped_keyence_image = keyence_image[:, :-crop_width]
+        else:
+            cropped_image = image[:, crop_width:]
+            cropped_keyence_image = keyence_image[:, crop_width:]
+
         return cropped_image, cropped_keyence_image
 
     cropped_image, cropped_keyence_image = remove_joint_part(origin_image_np, keyence_image_np, crop_width)
@@ -101,54 +118,71 @@ if uploaded_origin_image is not None and uploaded_keyence_image is not None:
 
     st.image(edge_image, caption="エッジ検出結果", width=300)
 
-    # 7. ラベリング処理
-    st.header("7. ラベリング処理")
+    # 7. エッジの補完とラベリング処理
+    st.header("7. エッジの補完とラベリング処理")
 
-    def remove_defects_on_mask_edge_with_margin(defects, mask, margin):
-        mask_edges = cv2.Canny(mask, 100, 200)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2 * margin + 1, 2 * margin + 1))
-        expanded_edges = cv2.dilate(mask_edges, kernel)
+    def complete_edges(edge_image, mask):
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        opened_edges = cv2.morphologyEx(edge_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+        closed_edges = cv2.morphologyEx(opened_edges, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
+        return closed_edges
 
-        filtered_defects = []
-        for (x, y, w, h, cx, cy) in defects:
-            if np.any(expanded_edges[y:y+h, x:x+w] > 0):
-                continue
-            filtered_defects.append((x, y, w, h, cx, cy))
-        return filtered_defects
+    completed_edges = complete_edges(edge_image, binarized_image)
 
-    def label_and_filter_defects_with_margin(edge_image, binarized_image, min_size, max_size, margin):
+    st.image(completed_edges, caption="エッジ補完後の結果", width=300)
+
+    def label_defects(edge_image):
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(edge_image)
-
         defects = []
         for i in range(1, num_labels):
-            size = stats[i, cv2.CC_STAT_AREA]
-            if min_size <= size <= max_size:
-                x = stats[i, cv2.CC_STAT_LEFT]
-                y = stats[i, cv2.CC_STAT_TOP]
-                w = stats[i, cv2.CC_STAT_WIDTH]
-                h = stats[i, cv2.CC_STAT_HEIGHT]
-                cx, cy = centroids[i]
-                defects.append((x, y, w, h, cx, cy))
+            x, y, w, h, cx, cy = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP], stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], centroids[i][0], centroids[i][1]
+            defects.append((x, y, w, h, cx, cy))
+        return defects
 
-        filtered_defects = remove_defects_on_mask_edge_with_margin(defects, binarized_image, margin)
+    defects = label_defects(completed_edges)
 
-        return filtered_defects
+    # 8. 欠陥候補のフィルタリング
+    st.header("8. 欠陥候補のフィルタリング")
 
-    defects = label_and_filter_defects_with_margin(edge_image, binarized_image, min_defect_size, max_defect_size, edge_margin)
+    def filter_defects_by_size(defects, min_size, max_size):
+        return [defect for defect in defects if min_size <= max(defect[2], defect[3]) <= max_size]
 
-    # 8. 欠陥候補の表示
-    st.header("8. 欠陥候補の表示")
+    filtered_defects = filter_defects_by_size(defects, min_defect_size, max_defect_size)
 
-    def draw_defects(image, defects):
-        result_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        for (x, y, w, h, cx, cy) in defects:
-            cv2.rectangle(result_image, (x, y), (x + w, y + h), (255, 0, 0), 2)
-            cv2.circle(result_image, (int(cx), int(cy)), 3, (0, 0, 255), -1)
-        return result_image
+def draw_defects(image, defects):
+    result_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    for i, (x, y, w, h, cx, cy) in enumerate(defects):
+        cv2.rectangle(result_image, (x, y), (x + w, y + h), (255, 0, 0), 2)
+        cv2.putText(result_image, f"{i+1}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+    return result_image
 
-    result_image = draw_defects(edge_image, defects)
+result_image_with_defects = draw_defects(completed_edges, filtered_defects)
 
-    st.image(result_image, caption="欠陥候補の検出結果", width=300)
+st.image(result_image_with_defects, caption="フィルタリング後の欠陥候補", width=300)
 
-else:
-    st.info("元画像とキーエンス前処理画像をアップロードしてください。")
+# 9. 検出した欠陥候補の切り出し
+st.header("9. 欠陥候補の切り出しと表示")
+
+def extract_defect_image(image, defect, enlargement_factor=1):
+    x, y, w, h, cx, cy = defect
+    max_length = max(w, h)
+    center_x = int(cx)
+    center_y = int(cy)
+    half_size = max_length // 2
+    defect_img = image[max(0, center_y - half_size):center_y + half_size, max(0, center_x - half_size):center_x + half_size]
+    defect_img = cv2.resize(defect_img, (max_length * enlargement_factor, max_length * enlargement_factor))
+    return defect_img, max_length
+
+defect_images = []
+for i, defect in enumerate(filtered_defects):
+    defect_img, max_length = extract_defect_image(cropped_keyence_image, defect, enlargement_factor=1)
+    defect_images.append((defect_img, max_length))
+
+st.write("検出された欠陥候補を正方形で切り出して表示")
+
+cols = st.columns(len(defect_images))
+for i, (defect_img, max_length) in enumerate(defect_images):
+    with cols[i]:
+        st.image(defect_img, caption=f"欠陥候補{i+1}(尺度{'max_length': max_length}px)", use_column_width=True)
+
+
