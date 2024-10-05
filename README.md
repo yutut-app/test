@@ -1,217 +1,313 @@
-## パラメータ設定ガイド
+# app.py
 
-各パラメータの意味、影響、および調整方法を説明する。
+# 必要なライブラリのインポート
+import os
+import cv2
+import numpy as np
+import streamlit as st
+from skimage import io, filters, feature, measure
+from skimage.morphology import skeletonize
+import matplotlib.pyplot as plt
+import pandas as pd
+from PIL import Image
 
-### 1. ワーク接合部の削除
+# Streamlitの設定
+st.title("画像処理パラメータ設定アプリ")
 
-#### Crop Width（切り取り幅）
-- 意味: 画像の端から削除する幅（ピクセル単位）
-- 初期値: 1360
-- 影響:
-  - 小さくすると: 切り取る範囲が狭くなり、ワーク接合部が残る可能性が高くなる。
-  - 大きくすると: 切り取る範囲が広くなり、製品の重要な部分まで削除される可能性がある。
-- 調整方法:
-  1. 値を1000から開始する。
-  2. ワーク接合部が完全に消え、かつ重要な部分が残るまで値を調整する。
-- 目標: ワーク接合部の除去と主要部分の保持のバランス
+# 1. ライブラリのインポート
+st.header("1. ライブラリのインポート")
+st.write("必要なライブラリをインポートします。")
 
-### 2. 二値化によるマスクの作成
+# 2. パラメータの設定
+st.header("2. パラメータの設定")
+st.write("画像処理に使用するパラメータを設定します。")
 
-#### Threshold Value（閾値）
-- 意味: 画像を白黒に分ける境界値（0-255）
-- 初期値: 190
-- 影響:
-  - 小さくすると: より多くのピクセルが白（対象物）となり、細部が保持されるが、ノイズも増える。
-  - 大きくすると: より多くのピクセルが黒（背景）となり、ノイズは減るが、細部が失われる。
-- 調整方法:
-  1. 値を150から開始する。
-  2. 製品が白く、背景が黒くなるまで調整する。
-- 目標: 製品と背景の明確な分離
+# ディレクトリとファイルパス
+input_data_dir = st.text_input("入力データディレクトリ", "../data/input")
+output_data_dir = st.text_input("出力データディレクトリ", "../data/output")
+template_dir = os.path.join(input_data_dir, "template")
+right_template_path = os.path.join(template_dir, "right_keyence.jpg")
+left_template_path = os.path.join(template_dir, "left_keyence.jpg")
 
-#### Kernel Size（カーネルサイズ）
-- 意味: モルフォロジー演算で使用する正方形の一辺の長さ（ピクセル単位）
-- 初期値: 3
-- 影響:
-  - 小さくすると: 細かい特徴が保持されるが、ノイズ除去効果が弱くなる。
-  - 大きくすると: ノイズ除去効果が強くなるが、細かい特徴が失われる。
-- 調整方法:
-  1. 値を3から開始する。
-  2. 小さなノイズが消えるまで値を大きくする。
-- 目標: ノイズ除去と特徴保持のバランス
+# ラベル定義
+ng_labels = st.multiselect("NGラベルの選択", ['label1', 'label2', 'label3'], ['label1', 'label2', 'label3'])
 
-#### Iterations Open
-- 意味: オープン処理（ノイズ除去）の繰り返し回数
-- 初期値: 20
-- 影響:
-  - 小さくすると: 細かい特徴が保持されるが、ノイズ除去効果が弱くなる。
-  - 大きくすると: ノイズ除去効果が強くなるが、対象物が縮小する。
-- 調整方法:
-  1. 値を5から開始する。
-  2. 小さな突起が消えるまで値を大きくする。
-- 目標: 不要な突起の除去
+# 画像処理パラメータ
+st.subheader("画像処理パラメータ")
+crop_width = st.number_input("ワーク接合部を削除するための幅", min_value=0, value=1360)
+threshold_value = st.slider("二値化しきい値", min_value=0, max_value=255, value=150)
+kernel_size_value = st.number_input("カーネルサイズ（単一の整数）", min_value=1, value=5)
+kernel_size = (kernel_size_value, kernel_size_value)
+iterations_open = st.number_input("膨張処理の繰り返し回数", min_value=1, value=3)
+iterations_close = st.number_input("収縮処理の繰り返し回数", min_value=1, value=20)
+gaussian_kernel_size_value = st.number_input("ガウシアンブラーのカーネルサイズ（単一の整数）", min_value=1, value=7)
+gaussian_kernel_size = (gaussian_kernel_size_value, gaussian_kernel_size_value)
+canny_min_threshold = st.slider("エッジ検出の最小しきい値", min_value=0, max_value=255, value=30)
+canny_max_threshold = st.slider("エッジ検出の最大しきい値", min_value=0, max_value=255, value=120)
+sigma = st.number_input("ガウシアンブラーの標準偏差", min_value=0.0, value=3.0)
 
-#### Iterations Close
-- 意味: クローズ処理（穴埋め）の繰り返し回数
-- 初期値: 20
-- 影響:
-  - 小さくすると: 細かい穴が残るが、対象物の形状変化が少ない。
-  - 大きくすると: 穴埋め効果が強くなるが、対象物が膨張する。
-- 調整方法:
-  1. 値を5から開始する。
-  2. 小さな穴が埋まるまで値を大きくする。
-- 目標: 製品内の小さな穴の除去
+# 欠陥サイズパラメータ
+st.subheader("欠陥サイズパラメータ")
+min_defect_size = st.number_input("最小欠陥サイズ（ピクセル）", min_value=1, value=5)
+max_defect_size = st.number_input("最大欠陥サイズ（ピクセル）", min_value=1, value=100)
 
-### 3. エッジ検出とテクスチャ検出
+# テクスチャ検出パラメータ
+st.subheader("テクスチャ検出パラメータ")
+texture_threshold = st.slider("テクスチャの変化を検出するためのしきい値", min_value=0, max_value=255, value=15)
 
-#### Gaussian Kernel Size
-- 意味: ガウシアンブラーで使用する正方形の一辺の長さ（ピクセル単位）
-- 初期値: 9
-- 影響:
-  - 小さくすると: 細かいエッジが保持されるが、ノイズも残る。
-  - 大きくすると: ノイズが減少するが、細かいエッジも失われる。
-- 調整方法:
-  1. 値を5から開始する。
-  2. 細かいノイズが減るまで値を大きくする。
-- 目標: ノイズ軽減と主要エッジ保持のバランス
+# エッジ補完のパラメータ
+st.subheader("エッジ補完のパラメータ")
+edge_close_kernel_size_value = st.number_input("エッジ補完のカーネルサイズ（単一の整数）", min_value=1, value=3)
+edge_close_kernel_size = (edge_close_kernel_size_value, edge_close_kernel_size_value)
+edge_close_iterations = st.number_input("エッジ補完の繰り返し回数", min_value=1, value=2)
 
-#### Canny Min Threshold
-- 意味: Cannyエッジ検出の下限閾値（0-255）
-- 初期値: 50
-- 影響:
-  - 小さくすると: より多くの弱いエッジが検出されるが、ノイズも増える。
-  - 大きくすると: ノイズは減少するが、弱いエッジが検出されなくなる。
-- 調整方法:
-  1. 値を30から開始する。
-  2. 必要なエッジが全て検出されるまで値を下げる。
-- 目標: 重要なエッジの検出
+# マスクエッジ検出のパラメータ
+st.subheader("マスクエッジ検出のパラメータ")
+mask_edge_min_threshold = st.slider("マスクエッジ検出の最小しきい値", min_value=0, max_value=255, value=100)
+mask_edge_max_threshold = st.slider("マスクエッジ検出の最大しきい値", min_value=0, max_value=255, value=200)
+mask_edge_margin = st.number_input("マスクエッジの余裕幅（ピクセル）", min_value=0, value=5)
 
-#### Canny Max Threshold
-- 意味: Cannyエッジ検出の上限閾値（0-255）
-- 初期値: 150
-- 影響:
-  - 小さくすると: より多くのエッジが検出されるが、不要なエッジも増える。
-  - 大きくすると: 強いエッジのみが検出され、細かいエッジが失われる。
-- 調整方法:
-  1. 値を100から開始する。
-  2. 不要なエッジが消えるまで値を上げる。
-- 目標: 不要なエッジの除去
+# 欠陥候補の保存パラメータ
+st.subheader("欠陥候補の保存パラメータ")
+enlargement_factor = st.number_input("欠陥候補画像の拡大倍率", min_value=1, value=10)
 
-#### Texture Threshold
-- 意味: テクスチャとして検出する輝度変化の閾値
-- 初期値: 4
-- 影響:
-  - 小さくすると: より微細なテクスチャが検出されるが、ノイズも増える。
-  - 大きくすると: 主要なテクスチャのみが検出され、細かいテクスチャが失われる。
-- 調整方法:
-  1. 値を2から開始する。
-  2. 必要なテクスチャが検出されるまで値を下げる。
-- 目標: 重要なテクスチャの検出
+# 3. データの読み込み
+st.header("3. データの読み込み")
+st.write("入力画像をアップロードします。")
 
-### 4. エッジの補完
+uploaded_files = st.file_uploader("入力画像を選択してください（複数選択可）", accept_multiple_files=True, type=['jpg', 'png', 'jpeg'])
 
-#### Edge Kernel Size
-- 意味: エッジ補完で使用する正方形の一辺の長さ（ピクセル単位）
-- 初期値: 3
-- 影響:
-  - 小さくすると: 細かいエッジの補完が可能だが、離れたエッジは接続されにくい。
-  - 大きくすると: 離れたエッジも接続されやすくなるが、不要な接続も増える。
-- 調整方法:
-  1. 値を3から開始する。
-  2. 途切れたエッジが接続されるまで値を大きくする。
-- 目標: エッジの適切な接続
+# アップロードされた画像を表示
+if uploaded_files:
+    st.subheader("アップロードされた画像")
+    for uploaded_file in uploaded_files:
+        image = Image.open(uploaded_file)
+        st.image(image, caption=uploaded_file.name, use_column_width=True)
 
-#### Edge Open Iterations
-- 意味: エッジのオープン処理（細いエッジの除去）の繰り返し回数
-- 初期値: 2
-- 影響:
-  - 小さくすると: 細いエッジが残るが、重要なエッジも保持される。
-  - 大きくすると: ノイズが減少するが、細いエッジも消失する。
-- 調整方法:
-  1. 値を1から開始する。
-  2. 細いエッジや小さな点が消えるまで値を大きくする。
-- 目標: ノイズとなるエッジの除去
+# 画像処理を開始する
+if st.button("画像処理を開始"):
+    if not uploaded_files:
+        st.warning("画像がアップロードされていません。")
+    else:
+        st.write("画像処理を開始します...")
+        # アップロードされた画像を処理用のリストに格納
+        image_pairs = []
+        for uploaded_file in uploaded_files:
+            image = Image.open(uploaded_file)
+            image_np = np.array(image)
+            # ここでは、キーエンス画像として同じ画像を使用（実際には別のキーエンス画像を使用する必要があります）
+            image_pairs.append((image_np, image_np))
 
-#### Edge Close Iterations
-- 意味: エッジのクローズ処理（エッジの接続）の繰り返し回数
-- 初期値: 2
-- 影響:
-  - 小さくすると: エッジの接続が少なく、途切れたエッジが残る。
-  - 大きくすると: エッジがより接続されるが、不要な接続も増える。
-- 調整方法:
-  1. 値を1から開始する。
-  2. 途切れたエッジが接続されるまで値を大きくする。
-- 目標: エッジの連続性の向上
+        # 4. ワーク接合部の削除
+        st.header("4. ワーク接合部の削除")
+        def remove_joint_part(image, crop_width):
+            # ワークの接合部を削除する関数
+            cropped_image = image[:, crop_width:]
+            return cropped_image
 
-### 5. マスクエッジ検出
+        processed_images = []
+        for i, (origin_image, keyence_image) in enumerate(image_pairs):
+            cropped_image = remove_joint_part(origin_image, crop_width)
+            processed_images.append((cropped_image, keyence_image))
 
-#### Mask Edge Min Threshold
-- 意味: マスクエッジ検出の下限閾値（0-255）
-- 初期値: 50
-- 影響:
-  - 小さくすると: より多くのエッジが検出されるが、ノイズも増える。
-  - 大きくすると: ノイズは減少するが、弱いエッジが検出されなくなる。
-- 調整方法:
-  1. 値を30から開始する。
-  2. マスクの境界が連続的に検出されるまで値を下げる。
-- 目標: マスク境界の連続的な検出
+            st.subheader(f"ワーク接合部削除後の画像 {i+1}")
+            st.image(cropped_image, caption=f"接合部削除後の画像 {i+1}", use_column_width=True)
 
-#### Mask Edge Max Threshold
-- 意味: マスクエッジ検出の上限閾値（0-255）
-- 初期値: 150
-- 影響:
-  - 小さくすると: より多くのエッジが検出されるが、不要なエッジも増える。
-  - 大きくすると: 強いエッジのみが検出され、細かいエッジが失われる。
-- 調整方法:
-  1. 値を100から開始する。
-  2. 不要なエッジが消えるまで値を上げる。
-- 目標: マスクの主要境界のみの検出
+        # 5. 二値化によるマスクの作成
+        st.header("5. 二値化によるマスクの作成")
+        def binarize_image(image):
+            # 二値化とマスク作成
+            if len(image.shape) == 3:
+                gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray_image = image
 
-#### Mask Edge Margin
-- 意味: マスクエッジから除外する領域の幅（ピクセル単位）
-- 初期値: 50
-- 影響:
-  - 小さくすると: エッジ付近の欠陥も検出されるが、ノイズも増える。
-  - 大きくすると: エッジ付近のノイズが減少するが、重要な欠陥も除外される可能性がある。
-- 調整方法:
-  1. 値を20から開始する。
-  2. エッジ付近のノイズが除去されるまで値を大きくする。
-- 目標: エッジ付近のノイズ除去
+            _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY)
 
-### 6. 欠陥サイズフィルタリング
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+            binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+            binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
 
-#### Min Defect Size
-- 意味: 検出する欠陥の最小サイズ（ピクセル単位）
-- 初期値: 5
-- 影響:
-  - 小さくすると: より小さな欠陥も検出されるが、ノイズも増える。
-  - 大きくすると: ノイズは減少するが、小さな欠陥が見逃される。
-- 調整方法:
-  1. 検出したい最小の欠陥サイズに設定する。
-  2. 小さすぎるノイズが検出されない値を選択する。
-- 目標: 意味のある最小欠陥の検出
+            return binary_image
 
-#### Max Defect Size
-- 意味: 検出する欠陥の最大サイズ（ピクセル単位）
-- 初期値: 100
-- 影響:
-  - 小さくすると: 大きな欠陥が除外されるが、誤検出も減少する。
-  - 大きくすると: 大きな欠陥も検出されるが、誤検出も増える可能性がある。
-- 調整方法:
-  1. 検出したい最大の欠陥サイズに設定する。
-  2. 大きすぎる誤検出が除外される値を選択する。
-- 目標: 意味のある最大欠陥の検出
+        binarized_images = []
+        for i, (cropped_image, keyence_image) in enumerate(processed_images):
+            binarized_image = binarize_image(cropped_image)
+            binarized_images.append((binarized_image, keyence_image))
 
-### 7. 欠陥候補の画像保存
+            st.subheader(f"二値化マスク画像 {i+1}")
+            st.image(binarized_image, caption=f"二値化マスク画像 {i+1}", use_column_width=True)
 
-#### Enlargement Factor
-- 意味: 切り出した欠陥画像の拡大倍率
-- 初期値: 10
-- 影響:
-  - 小さくすると: 欠陥全体が見やすくなるが、細部が不明瞭になる。
-  - 大きくすると: 欠陥の細部が見やすくなるが、全体像が把握しにくくなる。
-- 調整方法:
-  1. 値を5から開始する。
-  2. 欠陥の詳細が明確に見えるまで値を大きくする。
-- 目標: 欠陥の詳細な可視化
+        # 6. エッジ検出とテクスチャ検出の改良
+        st.header("6. エッジ検出とテクスチャ検出の改良")
+        def detect_edges_and_texture(cropped_keyence_image, binarized_image):
+            # エッジ検出とテクスチャ検出
+            masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
+            blurred_image = cv2.GaussianBlur(masked_image, gaussian_kernel_size, sigma)
+            edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+            laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
+            abs_laplacian = np.absolute(laplacian)
+            laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
+            combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+            return combined_edges
 
-各パラメータを調整する際は、その効果を注意深く観察し、目標とする結果が得られるまで微調整を行う必要がある。パラメータの影響は互いに関連することがあるため、複数のパラメータを同時に調整することで最適な結果を得られる場合もある。
+        edged_images = []
+        for i, (binarized_image, keyence_image) in enumerate(binarized_images):
+            edge_image = detect_edges_and_texture(keyence_image, binarized_image)
+            edged_images.append((binarized_image, edge_image))
+
+            st.subheader(f"エッジ検出画像 {i+1}")
+            st.image(edge_image, caption=f"エッジ検出画像 {i+1}", use_column_width=True)
+
+        # 7. エッジの補完とラベリング処理
+        st.header("7. エッジの補完とラベリング処理")
+        def create_mask_edge_margin(mask, margin):
+            # マスクエッジの余裕を持たせる
+            mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+            kernel = np.ones((margin * 2 + 1, margin * 2 + 1), np.uint8)
+            dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
+            return dilated_edges
+
+        def complete_edges(edge_image, mask):
+            # エッジの補完
+            mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
+            skeleton = skeletonize(edge_image > 0)
+            kernel = np.ones(edge_close_kernel_size, np.uint8)
+            connected_skeleton = cv2.morphologyEx(skeleton.astype(np.uint8), cv2.MORPH_CLOSE, kernel, iterations=edge_close_iterations)
+            completed_edges = np.maximum(edge_image, connected_skeleton * 255)
+            completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
+            return completed_edges.astype(np.uint8)
+
+        def label_and_measure_defects(edge_image):
+            # 欠陥候補のラベリングと特徴量の測定
+            binary_edge_image = (edge_image > 0).astype(np.uint8)
+            labels = measure.label(binary_edge_image, connectivity=2)
+            defects = []
+            for region in measure.regionprops(labels):
+                y, x = region.bbox[0], region.bbox[1]
+                h, w = region.bbox[2] - y, region.bbox[3] - x
+                defect_info = {
+                    'label': region.label,
+                    'x': x, 'y': y, 'width': w, 'height': h,
+                    'area': region.area,
+                    'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
+                    'perimeter': region.perimeter,
+                    'eccentricity': region.eccentricity,
+                    'orientation': region.orientation,
+                    'major_axis_length': region.major_axis_length,
+                    'minor_axis_length': region.minor_axis_length,
+                    'solidity': region.solidity,
+                    'extent': region.extent,
+                    'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
+                    'max_length': max(w, h)
+                }
+                defects.append(defect_info)
+            return defects
+
+        labeled_images = []
+        for i, (binarized_image, edge_image) in enumerate(edged_images):
+            completed_edges = complete_edges(edge_image, binarized_image)
+            defects = label_and_measure_defects(completed_edges)
+            labeled_images.append((binarized_image, completed_edges, defects))
+
+            # 欠陥候補を表示
+            st.subheader(f"ラベリング結果 {i+1}")
+            fig, ax = plt.subplots(figsize=(10, 10))
+            ax.imshow(completed_edges, cmap='gray')
+            for defect in defects:
+                rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
+                                     fill=False, edgecolor='red', linewidth=2)
+                ax.add_patch(rect)
+                ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
+            plt.axis('off')
+            st.pyplot(fig)
+
+        # 8. 欠陥候補のフィルタリング
+        st.header("8. 欠陥候補のフィルタリング")
+        def remove_defects_on_mask_edge(defects, mask):
+            mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+            filtered_defects = []
+            for defect in defects:
+                x, y, w, h = defect['x'], defect['y'], defect['width'], defect['height']
+                if not np.any(mask_edges[y:y+h, x:x+w] > 0):
+                    filtered_defects.append(defect)
+            return filtered_defects
+
+        def filter_defects_by_max_length(defects, min_size, max_size):
+            return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+
+        filtered_images = []
+        for i, (binarized_image, edge_image, defects) in enumerate(labeled_images):
+            filtered_defects = remove_defects_on_mask_edge(defects, binarized_image)
+            filtered_defects = filter_defects_by_max_length(filtered_defects, min_defect_size, max_defect_size)
+
+            for j, defect in enumerate(filtered_defects, 1):
+                defect['label'] = j
+
+            filtered_images.append((binarized_image, edge_image, filtered_defects))
+
+            # フィルタリング結果を表示
+            st.subheader(f"フィルタリング結果 {i+1}")
+            fig, ax = plt.subplots(figsize=(10, 10))
+            ax.imshow(edge_image, cmap='gray')
+            for defect in filtered_defects:
+                rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
+                                     fill=False, edgecolor='red', linewidth=2)
+                ax.add_patch(rect)
+                ax.text(defect['x'], defect['y'], str(defect['label']), color='red', fontsize=12)
+            plt.axis('off')
+            st.pyplot(fig)
+
+        # 9. 欠陥候補の画像の保存とCSV出力
+        st.header("9. 欠陥候補の画像の保存とCSV出力")
+        def save_defect_image(image, defect, output_dir, image_name, defect_number):
+            cx, cy = defect['centroid_x'], defect['centroid_y']
+            size = max(defect['width'], defect['height'])
+
+            x1 = max(int(cx - size), 0)
+            y1 = max(int(cy - size), 0)
+            x2 = min(int(cx + size), image.shape[1])
+            y2 = min(int(cy + size), image.shape[0])
+
+            defect_image = image[y1:y2, x1:x2]
+            enlarged_image = cv2.resize(defect_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+
+            output_filename = f"defect_{defect_number}.png"
+            output_path = os.path.join(output_dir, output_filename)
+            cv2.imwrite(output_path, enlarged_image)
+
+            return output_filename
+
+        def process_images_for_saving(filtered_images, base_output_dir):
+            all_defects_data = []
+
+            for i, (binarized_image, edge_image, defects) in enumerate(filtered_images):
+                image_name = f"image_{i+1}"
+                output_dir = os.path.join(base_output_dir, image_name)
+                os.makedirs(output_dir, exist_ok=True)
+
+                for defect in defects:
+                    output_filename = save_defect_image(edge_image, defect, output_dir, image_name, defect['label'])
+
+                    defect_data = {
+                        'image_name': image_name,
+                        'defect_image': os.path.join(image_name, output_filename),
+                        'Image_label': 1,  # NG画像として扱う
+                        'defect_label': 0,  # デフォルトで0（OK）とする
+                    }
+                    defect_data.update(defect)
+                    all_defects_data.append(defect_data)
+
+            return all_defects_data
+
+        output_dir = os.path.join(output_data_dir, "defect_images")
+        os.makedirs(output_dir, exist_ok=True)
+
+        all_defects_data = process_images_for_saving(filtered_images, output_dir)
+
+        # CSVファイルに出力
+        df = pd.DataFrame(all_defects_data)
+        csv_output_path = os.path.join(output_data_dir, "defects_data.csv")
+        df.to_csv(csv_output_path, index=False)
+
+        st.write(f"欠陥候補の画像とデータを保存しました。CSVファイルのパス: {csv_output_path}")
