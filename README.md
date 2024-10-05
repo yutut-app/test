@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import pandas as pd
 import io as io_module
+import os
 
 # タイトルの設定
 st.title("画像処理パラメータ調整アプリ")
@@ -52,6 +53,10 @@ st.sidebar.header("6. 欠陥サイズのフィルタリング")
 min_defect_size = st.sidebar.number_input("min_defect_size (最小欠陥サイズ)", min_value=0, value=5)
 max_defect_size = st.sidebar.number_input("max_defect_size (最大欠陥サイズ)", min_value=0, value=100)
 
+# 7. 欠陥候補の保存パラメータ
+st.sidebar.header("7. 欠陥候補の保存")
+enlargement_factor = st.sidebar.number_input("enlargement_factor (拡大倍率)", min_value=1, value=10)
+
 # 入力画像のアップロード
 st.header("入力画像のアップロード")
 uploaded_normal_image = st.file_uploader("元画像をアップロード", type=["jpg", "png", "bmp"])
@@ -70,21 +75,21 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
     # 1. ワーク接合部の削除
     st.header("1. ワーク接合部の削除")
     def template_matching(image, template):
-        res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF)
+        res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, max_loc = cv2.minMaxLoc(res)
         return max_val, max_loc
 
-    # テンプレート画像のアップロード
-    st.subheader("テンプレート画像のアップロード")
-    right_template_file = st.file_uploader("右側テンプレート画像をアップロード", type=["jpg", "png", "bmp"])
-    left_template_file = st.file_uploader("左側テンプレート画像をアップロード", type=["jpg", "png", "bmp"])
+    # テンプレート画像の読み込み
+    template_dir = r"../data/input/template"
+    right_template_path = os.path.join(template_dir, "right_keyence.jpg")
+    left_template_path = os.path.join(template_dir, "left_keyence.jpg")
 
-    if right_template_file is not None and left_template_file is not None:
-        file_bytes = np.asarray(bytearray(right_template_file.read()), dtype=np.uint8)
-        right_template = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        file_bytes = np.asarray(bytearray(left_template_file.read()), dtype=np.uint8)
-        left_template = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    # テンプレート画像の存在確認
+    if os.path.exists(right_template_path) and os.path.exists(left_template_path):
+        right_template = cv2.imread(right_template_path, cv2.IMREAD_COLOR)
+        left_template = cv2.imread(left_template_path, cv2.IMREAD_COLOR)
 
+        # テンプレートマッチングによる左右判定
         right_val, _ = template_matching(keyence_image, right_template)
         left_val, _ = template_matching(keyence_image, left_template)
 
@@ -121,12 +126,27 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         # 3. エッジ検出とテクスチャ検出
         st.header("3. エッジ検出とテクスチャ検出")
         def detect_edges_and_texture(cropped_keyence_image, binarized_image):
-            masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
+            # 画像のチャンネル数を統一（グレースケール化）
+            if len(cropped_keyence_image.shape) == 3:
+                keyence_gray = cv2.cvtColor(cropped_keyence_image, cv2.COLOR_BGR2GRAY)
+            else:
+                keyence_gray = cropped_keyence_image
+
+            # マスクと画像サイズが一致するか確認
+            if keyence_gray.shape != binarized_image.shape:
+                binarized_image = cv2.resize(binarized_image, (keyence_gray.shape[1], keyence_gray.shape[0]))
+
+            masked_image = cv2.bitwise_and(keyence_gray, keyence_gray, mask=binarized_image)
             blurred_image = cv2.GaussianBlur(masked_image, (gaussian_kernel_size, gaussian_kernel_size), sigma)
             edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
             laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
             abs_laplacian = np.absolute(laplacian)
             laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
+
+            # エッジ画像のサイズと型を一致させる
+            if edges.shape != laplacian_edges.shape:
+                laplacian_edges = cv2.resize(laplacian_edges, (edges.shape[1], edges.shape[0]))
+
             combined_edges = cv2.bitwise_or(edges, laplacian_edges)
             return combined_edges
 
@@ -235,19 +255,19 @@ if uploaded_normal_image is not None and uploaded_keyence_image is not None:
         # 画像を横並びで表示（下揃え）
         if defect_images:
             st.subheader("欠陥候補の画像一覧")
-            cols = st.columns(len(defect_images))
-            max_height = max(img.shape[0] for img in defect_images)
-            for col, img, cap in zip(cols, defect_images, defect_captions):
-                # 下揃えのために画像を上部にパディング
-                padding = max_height - img.shape[0]
-                if padding > 0:
-                    img = cv2.copyMakeBorder(img, padding, 0, 0, 0, cv2.BORDER_CONSTANT, value=0)
-                col.image(img, caption=cap, use_column_width=True, clamp=True)
+            max_columns = 5  # 一行に表示する最大列数
+            rows = (len(defect_images) + max_columns - 1) // max_columns
+            for row in range(rows):
+                cols = st.columns(max_columns)
+                for idx in range(max_columns):
+                    img_idx = row * max_columns + idx
+                    if img_idx < len(defect_images):
+                        img = defect_images[img_idx]
+                        cap = defect_captions[img_idx]
+                        cols[idx].image(img, caption=cap, use_column_width=True)
         else:
             st.write("欠陥候補が見つかりませんでした。")
-
     else:
-        st.warning("テンプレート画像をアップロードしてください。")
-
+        st.error("テンプレート画像が指定されたパスに存在しません。パスを確認してください。")
 else:
     st.info("元画像とキーエンス前処理画像をアップロードしてください。")
