@@ -1,133 +1,253 @@
+# Streamlitアプリケーション
+
+# 必要なライブラリのインポート
 import streamlit as st
 import cv2
 import numpy as np
-from skimage import io, filters, feature, measure
-from skimage.morphology import skeletonize
+from skimage import io, filters, feature, measure, morphology
 import matplotlib.pyplot as plt
-from io import BytesIO
-import PIL.Image
+from PIL import Image
+import pandas as pd
+import io as io_module
 
-# サイドバーで設定するパラメータ
-st.sidebar.title("画像処理パラメータ設定")
+# タイトルの設定
+st.title("画像処理パラメータ調整アプリ")
 
-# ワーク接合部の削除
-crop_width = st.sidebar.slider('ワーク接合部の削除: 幅', min_value=500, max_value=2000, value=1360)
+# サイドバーにパラメータ設定を追加
+st.sidebar.title("パラメータ設定")
 
-# 二値化によるマスクの作成
-threshold_value = st.sidebar.slider('二値化しきい値', min_value=0, max_value=255, value=150)
-kernel_size = st.sidebar.slider('カーネルサイズ', min_value=1, max_value=10, value=5)
-iterations_open = st.sidebar.slider('膨張処理の繰り返し回数', min_value=1, max_value=10, value=3)
-iterations_close = st.sidebar.slider('収縮処理の繰り返し回数', min_value=1, max_value=30, value=20)
+# 1. ワーク接合部の削除のパラメータ
+st.sidebar.header("1. ワーク接合部の削除")
+crop_width = st.sidebar.number_input("crop_width (接合部削除幅)", min_value=0, value=1360, step=10)
 
-# エッジ検出とテクスチャ検出
-gaussian_kernel_size = st.sidebar.slider('ガウシアンブラーのカーネルサイズ', min_value=3, max_value=15, value=7, step=2)
-sigma = st.sidebar.slider('ガウシアンブラーの標準偏差', min_value=0.1, max_value=10.0, value=3.0)
-canny_min_threshold = st.sidebar.slider('エッジ検出の最小しきい値', min_value=0, max_value=255, value=30)
-canny_max_threshold = st.sidebar.slider('エッジ検出の最大しきい値', min_value=0, max_value=255, value=120)
-texture_threshold = st.sidebar.slider('テクスチャの変化を検出するためのしきい値', min_value=0, max_value=50, value=15)
+# 2. 二値化によるマスクの作成のパラメータ
+st.sidebar.header("2. 二値化によるマスクの作成")
+threshold_value = st.sidebar.slider("threshold_value (二値化しきい値)", min_value=0, max_value=255, value=150)
+kernel_size = st.sidebar.slider("kernel_size (カーネルサイズ)", min_value=1, max_value=15, value=5, step=2)
+iterations_open = st.sidebar.number_input("iterations_open (膨張繰り返し回数)", min_value=1, value=3)
+iterations_close = st.sidebar.number_input("iterations_close (収縮繰り返し回数)", min_value=1, value=20)
 
-# エッジ補完
-edge_kernel_size = st.sidebar.slider('エッジ補完のカーネルサイズ', min_value=1, max_value=10, value=3)
-edge_open_iterations = st.sidebar.slider('ノイズ削除の繰り返し回数', min_value=1, max_value=10, value=2)
-edge_close_iterations = st.sidebar.slider('エッジ補完の繰り返し回数', min_value=1, max_value=10, value=2)
+# 3. エッジ検出とテクスチャ検出のパラメータ
+st.sidebar.header("3. エッジ検出とテクスチャ検出")
+gaussian_kernel_size = st.sidebar.slider("gaussian_kernel_size (ガウシアンブラーのカーネルサイズ)", min_value=1, max_value=15, value=7, step=2)
+sigma = st.sidebar.number_input("sigma (ガウシアンブラー標準偏差)", min_value=0.0, value=3.0, step=0.1)
+canny_min_threshold = st.sidebar.slider("canny_min_threshold (エッジ検出最小しきい値)", min_value=0, max_value=255, value=30)
+canny_max_threshold = st.sidebar.slider("canny_max_threshold (エッジ検出最大しきい値)", min_value=0, max_value=255, value=120)
+texture_threshold = st.sidebar.slider("texture_threshold (テクスチャ検出しきい値)", min_value=0, max_value=255, value=15)
 
-# マスクエッジ検出
-mask_edge_min_threshold = st.sidebar.slider('マスクエッジ最小しきい値', min_value=0, max_value=255, value=100)
-mask_edge_max_threshold = st.sidebar.slider('マスクエッジ最大しきい値', min_value=0, max_value=255, value=200)
-mask_edge_margin = st.sidebar.slider('マスクエッジの余裕幅（ピクセル単位）', min_value=0, max_value=20, value=5)
+# 4. エッジの補完のパラメータ
+st.sidebar.header("4. エッジの補完")
+edge_kernel_size = st.sidebar.slider("edge_kernel_size (エッジ補完のカーネルサイズ)", min_value=1, max_value=15, value=3, step=2)
+edge_open_iterations = st.sidebar.number_input("edge_open_iterations (ノイズ削除繰り返し回数)", min_value=0, value=2)
+edge_close_iterations = st.sidebar.number_input("edge_close_iterations (エッジ補完繰り返し回数)", min_value=0, value=2)
 
-# 欠陥サイズのフィルタリング
-min_defect_size = st.sidebar.slider('最小欠陥サイズ（ピクセル）', min_value=1, max_value=50, value=5)
-max_defect_size = st.sidebar.slider('最大欠陥サイズ（ピクセル）', min_value=50, max_value=200, value=100)
+# 5. マスクエッジ検出のパラメータ
+st.sidebar.header("5. マスクエッジ検出")
+mask_edge_min_threshold = st.sidebar.slider("mask_edge_min_threshold", min_value=0, max_value=255, value=100)
+mask_edge_max_threshold = st.sidebar.slider("mask_edge_max_threshold", min_value=0, max_value=255, value=200)
+mask_edge_margin = st.sidebar.number_input("mask_edge_margin (マスクエッジ余裕幅)", min_value=0, value=5)
 
-# 画像アップロード（サイドバーではなくメイン画面）
-st.title("画像アップロード")
-uploaded_original_image = st.file_uploader("元画像をアップロード", type=['jpg', 'png'])
-uploaded_keyence_image = st.file_uploader("キーエンス前処理画像をアップロード", type=['jpg', 'png'])
+# 6. 欠陥サイズのフィルタリングのパラメータ
+st.sidebar.header("6. 欠陥サイズのフィルタリング")
+min_defect_size = st.sidebar.number_input("min_defect_size (最小欠陥サイズ)", min_value=0, value=5)
+max_defect_size = st.sidebar.number_input("max_defect_size (最大欠陥サイズ)", min_value=0, value=100)
 
-# 画像処理を行う関数
-def process_image(original_image, keyence_image):
-    # 画像をリサイズして表示
-    st.image([original_image, keyence_image], caption=["元画像", "キーエンス前処理画像"], use_column_width=True)
-    
+# 入力画像のアップロード
+st.header("入力画像のアップロード")
+uploaded_normal_image = st.file_uploader("元画像をアップロード", type=["jpg", "png", "bmp"])
+uploaded_keyence_image = st.file_uploader("キーエンス前処理画像をアップロード", type=["jpg", "png", "bmp"])
+
+if uploaded_normal_image is not None and uploaded_keyence_image is not None:
+    # 画像を読み込み
+    file_bytes = np.asarray(bytearray(uploaded_normal_image.read()), dtype=np.uint8)
+    normal_image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    file_bytes = np.asarray(bytearray(uploaded_keyence_image.read()), dtype=np.uint8)
+    keyence_image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+    st.subheader("アップロードされた画像")
+    st.image([normal_image, keyence_image], caption=["元画像", "キーエンス前処理画像"], channels="BGR")
+
     # 1. ワーク接合部の削除
-    keyence_image = np.array(keyence_image.convert('RGB'))
-    original_image = np.array(original_image.convert('RGB'))
-    
-    height, width = keyence_image.shape[:2]
-    if width > crop_width:
-        cropped_original = original_image[:, crop_width:]
-        cropped_keyence = keyence_image[:, crop_width:]
-    else:
-        cropped_original = original_image[:, :width - crop_width]
-        cropped_keyence = keyence_image[:, :width - crop_width]
-    
-    st.image(cropped_original, caption="ワーク接合部を削除後の元画像", use_column_width=True)
-    st.image(cropped_keyence, caption="ワーク接合部を削除後のキーエンス前処理画像", use_column_width=True)
+    st.header("1. ワーク接合部の削除")
+    def template_matching(image, template):
+        res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        return max_val, max_loc
 
-    # 2. 二値化によるマスクの作成
-    gray_image = cv2.cvtColor(cropped_original, cv2.COLOR_RGB2GRAY)
-    _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY)
-    
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
-    binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
+    # テンプレート画像のアップロード
+    st.subheader("テンプレート画像のアップロード")
+    right_template_file = st.file_uploader("右側テンプレート画像をアップロード", type=["jpg", "png", "bmp"])
+    left_template_file = st.file_uploader("左側テンプレート画像をアップロード", type=["jpg", "png", "bmp"])
 
-    st.image(binary_image, caption="二値化によるマスク", use_column_width=True)
+    if right_template_file is not None and left_template_file is not None:
+        file_bytes = np.asarray(bytearray(right_template_file.read()), dtype=np.uint8)
+        right_template = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        file_bytes = np.asarray(bytearray(left_template_file.read()), dtype=np.uint8)
+        left_template = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    # 3. エッジ検出とテクスチャ検出
-    blurred_image = cv2.GaussianBlur(cropped_keyence, (gaussian_kernel_size, gaussian_kernel_size), sigma)
-    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
-    
-    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
-    abs_laplacian = np.absolute(laplacian)
-    laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
-    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
-    
-    st.image(combined_edges, caption="エッジとテクスチャの検出結果", use_column_width=True)
+        right_val, _ = template_matching(keyence_image, right_template)
+        left_val, _ = template_matching(keyence_image, left_template)
 
-    # 4. エッジの補完
-    skeleton = skeletonize(combined_edges > 0)
-    kernel = np.ones((edge_kernel_size, edge_kernel_size), np.uint8)
-    
-    opened_skeleton = cv2.morphologyEx(skeleton.astype(np.uint8), cv2.MORPH_OPEN, kernel, iterations=edge_open_iterations)
-    connected_skeleton = cv2.morphologyEx(opened_skeleton, cv2.MORPH_CLOSE, kernel, iterations=edge_close_iterations)
-    
-    completed_edges = np.maximum(combined_edges, connected_skeleton * 255)
-    
-    st.image(completed_edges, caption="エッジの補完結果", use_column_width=True)
+        if right_val > left_val:
+            cropped_normal_image = normal_image[:, crop_width:]
+            cropped_keyence_image = keyence_image[:, crop_width:]
+            st.write("ワークの右側と判定されました。")
+        else:
+            cropped_normal_image = normal_image[:, :-crop_width]
+            cropped_keyence_image = keyence_image[:, :-crop_width]
+            st.write("ワークの左側と判定されました。")
 
-    # 5. ラベリング処理と欠陥候補の検出
-    labels = measure.label(completed_edges, connectivity=2)
-    defects = []
-    for region in measure.regionprops(labels):
-        if min_defect_size <= region.major_axis_length <= max_defect_size:
-            defects.append(region)
+        st.subheader("ワーク接合部削除後の画像")
+        st.image([cropped_normal_image, cropped_keyence_image], caption=["元画像（接合部削除後）", "キーエンス前処理画像（接合部削除後）"], channels="BGR")
 
-    # 6. 欠陥候補の切り出しと表示
-    cols = st.columns(len(defects))  # 列を欠陥候補の数だけ作成
-    for i, defect in enumerate(defects):
-        minr, minc, maxr, maxc = defect.bbox
-        max_length = max(maxc - minc, maxr - minr)
-        
-        # 欠陥候補を中心にした正方形の切り出し
-        center_y, center_x = defect.centroid
-        half_length = max_length // 2
-        
-        x1 = int(center_x - half_length)
-        y1 = int(center_y - half_length)
-        x2 = int(center_x + half_length)
-        y2 = int(center_y + half_length)
-        
-        cut_out = cropped_keyence[y1:y2, x1:x2]
-        
+        # 2. 二値化によるマスクの作成
+        st.header("2. 二値化によるマスクの作成")
+        def binarize_image(image):
+            if len(image.shape) == 3:
+                gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray_image = image
+
+            _, binary_image = cv2.threshold(gray_image, threshold_value, 255, cv2.THRESH_BINARY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+            binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+            binary_image = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
+            return binary_image
+
+        binarized_image = binarize_image(cropped_normal_image)
+        st.subheader("二値化マスク画像")
+        st.image(binarized_image, caption="二値化マスク", channels="GRAY")
+
+        # 3. エッジ検出とテクスチャ検出
+        st.header("3. エッジ検出とテクスチャ検出")
+        def detect_edges_and_texture(cropped_keyence_image, binarized_image):
+            masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
+            blurred_image = cv2.GaussianBlur(masked_image, (gaussian_kernel_size, gaussian_kernel_size), sigma)
+            edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+            laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
+            abs_laplacian = np.absolute(laplacian)
+            laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
+            combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+            return combined_edges
+
+        edge_image = detect_edges_and_texture(cropped_keyence_image, binarized_image)
+        st.subheader("エッジ検出結果")
+        st.image(edge_image, caption="エッジ検出画像", channels="GRAY")
+
+        # 4. エッジの補完とラベリング処理
+        st.header("4. エッジの補完とラベリング処理")
+        def create_mask_edge_margin(mask, margin):
+            mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+            kernel = np.ones((margin * 2 + 1, margin * 2 + 1), np.uint8)
+            dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
+            return dilated_edges
+
+        def complete_edges(edge_image, mask):
+            mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
+            skeleton = morphology.skeletonize(edge_image > 0)
+            kernel = np.ones((edge_kernel_size, edge_kernel_size), np.uint8)
+            opened_skeleton = cv2.morphologyEx(skeleton.astype(np.uint8), cv2.MORPH_OPEN, kernel, iterations=edge_open_iterations)
+            connected_skeleton = cv2.morphologyEx(opened_skeleton, cv2.MORPH_CLOSE, kernel, iterations=edge_close_iterations)
+            completed_edges = np.maximum(edge_image, connected_skeleton * 255)
+            completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
+            return completed_edges.astype(np.uint8)
+
+        completed_edges = complete_edges(edge_image, binarized_image)
+        st.subheader("エッジ補完後の画像")
+        st.image(completed_edges, caption="エッジ補完画像", channels="GRAY")
+
+        def label_and_measure_defects(edge_image, mask):
+            mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
+            binary_edge_image = (edge_image > 0).astype(np.uint8)
+            binary_edge_image[mask_edges_with_margin > 0] = 0  # マスクエッジ部分を除外
+            labels = measure.label(binary_edge_image, connectivity=2)
+            defects = []
+            for region in measure.regionprops(labels):
+                y, x = region.bbox[0], region.bbox[1]
+                h, w = region.bbox[2] - y, region.bbox[3] - x
+                defect_info = {
+                    'label': region.label,
+                    'x': x, 'y': y, 'width': w, 'height': h,
+                    'area': region.area,
+                    'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
+                    'perimeter': region.perimeter,
+                    'eccentricity': region.eccentricity,
+                    'orientation': region.orientation,
+                    'major_axis_length': region.major_axis_length,
+                    'minor_axis_length': region.minor_axis_length,
+                    'solidity': region.solidity,
+                    'extent': region.extent,
+                    'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
+                    'max_length': max(w, h)
+                }
+                defects.append(defect_info)
+            return defects
+
+        defects = label_and_measure_defects(completed_edges, binarized_image)
+
+        # 5. 欠陥候補のフィルタリング
+        st.header("5. 欠陥候補のフィルタリング")
+        def filter_defects_by_max_length(defects, min_size, max_size):
+            return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+
+        filtered_defects = filter_defects_by_max_length(defects, min_defect_size, max_defect_size)
+
         # 欠陥候補の表示
-        with cols[i]:
-            st.image(cut_out, caption=f"欠陥候補 {i+1} (尺度 {max_length}px)", use_column_width=True)
+        st.subheader("欠陥候補の表示")
+        def draw_defects(image, defects):
+            result_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            for defect in defects:
+                x = int(defect['x'])
+                y = int(defect['y'])
+                w = int(defect['width'])
+                h = int(defect['height'])
+                cv2.rectangle(result_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            return result_image
 
-# 画像がアップロードされた場合のみ処理を実行
-if uploaded_original_image is not None and uploaded_keyence_image is not None:
-    original_image = PIL.Image.open(BytesIO(uploaded_original_image.read()))
-    keyence_image = PIL.Image.open(BytesIO(uploaded_keyence_image.read()))
-    
-    process_image(original_image,
+        defects_image = draw_defects(completed_edges, filtered_defects)
+        st.image(defects_image, caption="欠陥候補検出結果", channels="BGR")
+
+        # 6. 欠陥候補の画像の表示（修正）
+        st.header("6. 欠陥候補の画像の表示")
+        def extract_defect_image(image, defect):
+            cx, cy = defect['centroid_x'], defect['centroid_y']
+            max_length = int(defect['max_length'])
+            half_length = max_length // 2
+
+            x1 = max(int(cx - half_length), 0)
+            y1 = max(int(cy - half_length), 0)
+            x2 = min(int(cx + half_length), image.shape[1])
+            y2 = min(int(cy + half_length), image.shape[0])
+
+            defect_image = image[y1:y2, x1:x2]
+            return defect_image, max_length
+
+        # 欠陥候補の画像を取得し、表示用のリストを作成
+        defect_images = []
+        defect_captions = []
+
+        for i, defect in enumerate(filtered_defects):
+            defect_image, max_length = extract_defect_image(completed_edges, defect)
+            defect_images.append(defect_image)
+            caption = f"欠陥候補 {i+1} (尺度 {max_length} px)"
+            defect_captions.append(caption)
+
+        # 画像を横並びで表示（下揃え）
+        if defect_images:
+            st.subheader("欠陥候補の画像一覧")
+            cols = st.columns(len(defect_images))
+            max_height = max(img.shape[0] for img in defect_images)
+            for col, img, cap in zip(cols, defect_images, defect_captions):
+                # 下揃えのために画像を上部にパディング
+                padding = max_height - img.shape[0]
+                if padding > 0:
+                    img = cv2.copyMakeBorder(img, padding, 0, 0, 0, cv2.BORDER_CONSTANT, value=0)
+                col.image(img, caption=cap, use_column_width=True, clamp=True)
+        else:
+            st.write("欠陥候補が見つかりませんでした。")
+
+    else:
+        st.warning("テンプレート画像をアップロードしてください。")
+
+else:
+    st.info("元画像とキーエンス前処理画像をアップロードしてください。")
