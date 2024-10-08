@@ -13,6 +13,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import os
 from datetime import datetime
 import numpy as np
+import pandas as pd
 
 # 出力ディレクトリの設定
 defected_data_path = r"../data/output/defect_data"
@@ -26,21 +27,21 @@ independent_vars = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'ori
 
 # 改良されたサンプリング関数
 def sample_data(df, n=10000):
-    ok_data = df[df['defect_label'] == 0]
-    ng_data = df[df['defect_label'] == 1]
+    ng_data = df[df['defect_label'] == 1]  # NGデータ（欠陥あり）
+    ok_data = df[df['defect_label'] == 0]  # OKデータ（欠陥なし）
     
     if len(df) <= n:
         return df
     
-    # OKデータは全て含める
-    sampled_ok = ok_data
+    # NGデータは全て含める
+    sampled_ng = ng_data
     
-    # 残りのサンプル数をNGデータから抽出
-    n_ng = n - len(sampled_ok)
-    sampled_ng = ng_data.sample(n=min(n_ng, len(ng_data)), random_state=42)
+    # 残りのサンプル数をOKデータから抽出
+    n_ok = n - len(sampled_ng)
+    sampled_ok = ok_data.sample(n=min(n_ok, len(ok_data)), random_state=42)
     
-    # OKデータとサンプリングしたNGデータを結合
-    sampled_df = pd.concat([sampled_ok, sampled_ng]).sample(frac=1, random_state=42)
+    # NGデータとサンプリングしたOKデータを結合
+    sampled_df = pd.concat([sampled_ng, sampled_ok]).sample(frac=1, random_state=42)
     
     return sampled_df
 
