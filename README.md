@@ -57,9 +57,15 @@ with PdfPages(pdf_filename) as pdf:
         # プロットの作成
         fig, ax = plt.subplots(figsize=(12, 8))
         
-        # catplotを使用してプロット
-        sns.catplot(data=df_sampled, x=var, y='defect_label', kind='strip', 
-                    jitter=True, alpha=0.5, height=6, aspect=2)
+        # OKデータ（欠陥なし）のプロット
+        sns.stripplot(data=df_sampled[df_sampled['defect_label'] == 0], 
+                      x=var, y='defect_label', jitter=True, 
+                      size=5, color='blue', alpha=0.5, ax=ax)
+        
+        # NGデータ（欠陥あり）のプロット
+        sns.stripplot(data=df_sampled[df_sampled['defect_label'] == 1], 
+                      x=var, y='defect_label', jitter=True, 
+                      size=8, color='red', alpha=0.7, ax=ax)
         
         # タイトルと軸ラベルの設定（日本語）
         plt.title(f'{var}と欠陥ラベルの関係', fontsize=16)
@@ -67,23 +73,31 @@ with PdfPages(pdf_filename) as pdf:
         plt.ylabel('欠陥ラベル', fontsize=14)
         
         # x軸の目盛り数を調整
-        ax = plt.gca()
         ax.xaxis.set_major_locator(plt.MaxNLocator(10))
         
+        # y軸のラベルを設定
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(['正常', '欠陥'])
+        
         # 凡例の設定
-        plt.legend(title='欠陥ラベル', labels=['正常 (0)', '欠陥 (1)'])
+        from matplotlib.lines import Line2D
+        legend_elements = [Line2D([0], [0], marker='o', color='w', label='正常 (0)', 
+                                  markerfacecolor='blue', markersize=8),
+                           Line2D([0], [0], marker='o', color='w', label='欠陥 (1)', 
+                                  markerfacecolor='red', markersize=10)]
+        ax.legend(handles=legend_elements, title='欠陥ラベル')
         
         # グラフの調整
         plt.tight_layout()
         
         # PDFに追加
-        pdf.savefig()
+        pdf.savefig(fig)
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
             plt.show()
         else:
-            plt.close()
+            plt.close(fig)
 
 print(f"EDAグラフをPDFに保存しました: {pdf_filename}")
 ```
