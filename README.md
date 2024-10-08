@@ -1,56 +1,48 @@
-ご要望を理解しました。以下に、EDAを行うためのJupyter Notebookのコードを、Markdownとコードセルを区別して生成します。
+はい、理解しました。ワークごとに識別できるように新しい列を追加するデータクリーニングを行います。以下に、Markdown とコード部分を区別して生成します。
 
 ```markdown
-# 欠陥データのEDAと性能評価
+## 3. データクリーニング
 
-## 1. ライブラリのインポート
+ここでは、同じワークを識別するための新しい列を追加します。'image_name' の先頭15文字が同じものを同一のワークとして扱い、新しい 'work_id' 列を作成します。
 ```
 
 ```python
-# 必要なライブラリをインストール
-%pip install -r requirements.txt
+# 'image_name' から 'work_id' を生成する関数
+def create_work_id(image_name):
+    return image_name[:15]
 
-# ライブラリをインポート
-import pandas as pd
-import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-from datetime import datetime
+# 'work_id' 列を追加
+df['work_id'] = df['image_name'].apply(create_work_id)
 
-# プロットの日本語フォント設定
-plt.rcParams['font.family'] = "Yu Gothic"
+# 'work_id' に基づいて数値のIDを割り当てる
+df['work_id_numeric'] = pd.factorize(df['work_id'])[0]
+
+# 結果の確認
+print(df[['image_name', 'work_id', 'work_id_numeric']].head(10))
+
+# ユニークなワーク数の確認
+print(f"\nユニークなワーク数: {df['work_id'].nunique()}")
+
+# データフレームの形状を再確認
+print(f"\nデータフレームの新しい形状：{df.shape}")
 ```
 
 ```markdown
-## 2. データの読み込み
+このデータクリーニング処理により、以下の変更が行われました：
+
+1. 'work_id' 列: 'image_name' の先頭15文字を使用して、同じワークを識別する文字列IDを作成しました。
+2. 'work_id_numeric' 列: 'work_id' を数値化したIDを作成しました。これにより、同じワークに同じ数値IDが割り当てられます。
+
+これらの新しい列を使用することで、同じワークに属する異なる撮影箇所のデータを簡単に識別できるようになりました。
+後続の分析では、この 'work_id' または 'work_id_numeric' を使用して、ワークレベルでの欠陥検出や性能評価を行うことができます。
 ```
 
-```python
-# データファイルのパスを設定
-defected_data_path = r"../data/output/defect_data"
-defected_csv = "defects_data.csv"
-defected_csv_path = os.path.join(defected_data_path, defected_csv)
+このコードを実行することで、同じワークを識別するための新しい列が追加されます。'work_id' 列は文字列形式で、'work_id_numeric' 列は数値形式でワークを識別します。
 
-# CSVファイルを読み込む
-df = pd.read_csv(defected_csv_path)
-print(f"データフレームの形状：{df.shape}")
+次のステップでは、この新しい情報を使用して、以下のような分析を行うことができます：
 
-# 全列を表示するように設定
-pd.set_option('display.max_columns', None)
+1. ワークごとの欠陥の分布
+2. ワークレベルでの特徴量の集計（平均、最大値など）
+3. ワークレベルでの欠陥検出モデルの構築
 
-# データフレームの先頭を表示
-df.head()
-```
-
-このコードは、必要なライブラリをインポートし、CSVファイルからデータを読み込みます。また、データフレームの形状を表示し、先頭の数行を表示します。
-
-次のステップでは、このデータを使用してEDA（探索的データ分析）を行うことができます。例えば、以下のような分析が考えられます：
-
-1. データの基本統計量の確認
-2. 欠損値の確認と処理
-3. 特徴量の分布の可視化
-4. 特徴量間の相関分析
-5. 目的変数（defect_label）と各特徴量の関係の可視化
-
-これらの分析を進めるにあたって、何か具体的に焦点を当てたい部分はありますか？
+これらの分析を進める上で、特に焦点を当てたい部分や、次に行いたい分析はありますか？
