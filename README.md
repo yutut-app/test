@@ -12,6 +12,7 @@ import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 import os
 from datetime import datetime
+import numpy as np
 
 # 出力ディレクトリの設定
 defected_data_path = r"../data/output/defect_data"
@@ -23,8 +24,31 @@ independent_vars = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'ori
                     'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
                     'aspect_ratio', 'max_length']
 
+# 改良されたサンプリング関数
+def sample_data(df, n=10000):
+    ok_data = df[df['defect_label'] == 0]
+    ng_data = df[df['defect_label'] == 1]
+    
+    if len(df) <= n:
+        return df
+    
+    # OKデータは全て含める
+    sampled_ok = ok_data
+    
+    # 残りのサンプル数をNGデータから抽出
+    n_ng = n - len(sampled_ok)
+    sampled_ng = ng_data.sample(n=min(n_ng, len(ng_data)), random_state=42)
+    
+    # OKデータとサンプリングしたNGデータを結合
+    sampled_df = pd.concat([sampled_ok, sampled_ng]).sample(frac=1, random_state=42)
+    
+    return sampled_df
+
 # グラフを表示するかどうかのフラグ
 show_plots = False  # Trueにするとグラフを表示、Falseにすると表示しない
+
+# 全データのサンプリング（一度だけ実行）
+df_sampled = sample_data(df)
 
 # PDFファイルを作成
 with PdfPages(pdf_filename) as pdf:
@@ -32,42 +56,33 @@ with PdfPages(pdf_filename) as pdf:
         # プロットの作成
         fig, ax = plt.subplots(figsize=(12, 8))
         
-        # OKとNGのデータを分離
-        df_ok = df[df['defect_label'] == 0]
-        df_ng = df[df['defect_label'] == 1]
+        # catplotを使用してプロット
+        sns.catplot(data=df_sampled, x=var, y='defect_label', kind='strip', 
+                    jitter=True, alpha=0.5, height=6, aspect=2)
         
-        # OKのデータをプロット（透明度を下げる）
-        sns.stripplot(data=df_ok, x=var, y='defect_label', color='blue', alpha=0.3, 
-                      jitter=True, size=5, ax=ax)
+        # タイトルと軸ラベルの設定（日本語）
+        plt.title(f'{var}と欠陥ラベルの関係', fontsize=16)
+        plt.xlabel(var, fontsize=14)
+        plt.ylabel('欠陥ラベル', fontsize=14)
         
-        # NGのデータをプロット（前面に、大きく、透明度を上げる）
-        sns.stripplot(data=df_ng, x=var, y='defect_label', color='red', alpha=1.0, 
-                      jitter=True, size=10, ax=ax)
-        
-        # タイトルと軸ラベルの設定
-        plt.title(f'Relationship between {var} and Defect Label')
-        plt.xlabel(var)
-        plt.ylabel('Defect Label')
+        # x軸の目盛り数を調整
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(plt.MaxNLocator(10))
         
         # 凡例の設定
-        from matplotlib.lines import Line2D
-        legend_elements = [Line2D([0], [0], marker='o', color='w', label='OK (0)', 
-                                  markerfacecolor='blue', markersize=10, alpha=0.3),
-                           Line2D([0], [0], marker='o', color='w', label='NG (1)', 
-                                  markerfacecolor='red', markersize=15)]
-        ax.legend(handles=legend_elements, title='Defect Label')
+        plt.legend(title='欠陥ラベル', labels=['正常 (0)', '欠陥 (1)'])
         
         # グラフの調整
         plt.tight_layout()
         
         # PDFに追加
-        pdf.savefig(fig)
+        pdf.savefig()
         
         # グラフを表示（フラグがTrueの場合）
         if show_plots:
             plt.show()
         else:
-            plt.close(fig)
+            plt.close()
 
 print(f"EDAグラフをPDFに保存しました: {pdf_filename}")
 ```
