@@ -12,12 +12,6 @@ EDAの結果に基づき、以下の特徴量を用いてルールベースの�
 ```
 
 ```python
-import pandas as pd
-import numpy as np
-
-# データの読み込み（前のステップで使用したdf_sampledを使用すると仮定）
-# df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
-
 # 欠陥（中巣）データのみを抽出
 defect_data = df[df['defect_label'] == 1]
 
@@ -33,15 +27,15 @@ rule_thresholds = {
     'aspect_ratio': defect_data['aspect_ratio'].max()
 }
 
-# ルールベースの分類関数
+# ルールベースの分類関数（全ての条件を満たす場合のみ欠陥と判断）
 def classify_defect(row):
     for feature, threshold in rule_thresholds.items():
         if feature == 'aspect_ratio':
-            if row[feature] <= threshold:
-                return 1  # 欠陥（中巣）
-        elif row[feature] >= threshold:
-            return 1  # 欠陥（中巣）
-    return 0  # 欠陥候補（非欠陥）
+            if row[feature] > threshold:
+                return 0  # 欠陥候補（非欠陥）
+        elif row[feature] < threshold:
+            return 0  # 欠陥候補（非欠陥）
+    return 1  # 全ての条件を満たした場合、欠陥（中巣）
 
 # 分類の実行
 df['predicted_label'] = df.apply(classify_defect, axis=1)
