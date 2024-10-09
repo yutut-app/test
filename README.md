@@ -1,116 +1,82 @@
-ご指示ありがとうございます。閾値の設定方法を修正し、データ数も表示するようにコードを更新します。
+# 分類ルールの定義
+def classify_defect(row, thresholds):
+    conditions = [
+        row['perimeter'] > thresholds['perimeter'],
+        row['eccentricity'] > thresholds['eccentricity'],
+        row['orientation'] > thresholds['orientation'],
+        row['major_axis_length'] > thresholds['major_axis_length'],
+        row['minor_axis_length'] > thresholds['minor_axis_length'],
+        row['solidity'] > thresholds['solidity'],
+        row['extent'] > thresholds['extent'],
+        row['aspect_ratio'] < thresholds['aspect_ratio']
+    ]
+    # 条件の半数以上を満たす場合に欠陥と判定
+    return 0 if sum(conditions) >= len(conditions) // 2 else 1
 
-```markdown
-## 6. 特徴量による分類（ルールベース）
-
-EDAの結果に基づき、以下の特徴量を用いてルールベースの分類を行います：
-- perimeter, eccentricity, orientation, major_axis_length, minor_axis_length, solidity, extent: 
-  欠陥（中巣）データの最小値を閾値とします。
-- aspect_ratio: 欠陥（中巣）データの最大値を閾値とします。
-
-これらの閾値を用いて欠陥（中巣）の分類を行い、精度指標とともにデータ数も表示します。
-```
-
-```python
-# 欠陥（中巣）データのみを抽出
-defect_data = df[df['defect_label'] == 1]
-
-# 閾値の設定
-rule_thresholds = {
-    'perimeter': defect_data['perimeter'].min(),
-    'eccentricity': defect_data['eccentricity'].min(),
-    'orientation': defect_data['orientation'].min(),
-    'major_axis_length': defect_data['major_axis_length'].min(),
-    'minor_axis_length': defect_data['minor_axis_length'].min(),
-    'solidity': defect_data['solidity'].min(),
-    'extent': defect_data['extent'].min(),
-    'aspect_ratio': defect_data['aspect_ratio'].max()
-}
-
-# ルールベースの分類関数（全ての条件を満たす場合のみ欠陥と判断）
-def classify_defect(row):
-    for feature, threshold in rule_thresholds.items():
+# 閾値を調整する関数
+def adjust_thresholds(df, initial_percentile=50):
+    thresholds = {}
+    features = ['perimeter', 'eccentricity', 'orientation', 'major_axis_length', 
+                'minor_axis_length', 'solidity', 'extent', 'aspect_ratio']
+    
+    for feature in features:
         if feature == 'aspect_ratio':
-            if row[feature] > threshold:
-                return 0  # 欠陥候補（非欠陥）
-        elif row[feature] < threshold:
-            return 0  # 欠陥候補（非欠陥）
-    return 1  # 全ての条件を満たした場合、欠陥（中巣）
+            thresholds[feature] = np.percentile(df[feature], 100 - initial_percentile)
+        else:
+            thresholds[feature] = np.percentile(df[feature], initial_percentile)
+    
+    return thresholds
 
-# 分類の実行
-df['predicted_label'] = df.apply(classify_defect, axis=1)
+# 最適な閾値を見つける
+def find_optimal_thresholds(df, max_iterations=100):
+    best_thresholds = None
+    best_false_positives = float('inf')
+    percentile = 50
 
-# ワークごとの分類
-df['work_predicted_label'] = df.groupby('work_id')['predicted_label'].transform('max')
+    for _ in range(max_iterations):
+        thresholds = adjust_thresholds(df, percentile)
+        df['predicted_label'] = df.apply(lambda row: classify_defect(row, thresholds), axis=1)
+        
+        true_defects = df[df['defect_label'] == 0]
+        correctly_classified = true_defects[true_defects['predicted_label'] == 0]
+        false_positives = df[(df['defect_label'] == 1) & (df['predicted_label'] == 0)]
+        
+        if len(correctly_classified) == len(true_defects) and len(false_positives) < best_false_positives:
+            best_thresholds = thresholds
+            best_false_positives = len(false_positives)
+        
+        percentile += 1
+        if percentile > 99:
+            break
 
-# 欠陥ごとの精度指標の計算
-TP = ((df['defect_label'] == 1) & (df['predicted_label'] == 1)).sum()
-FP = ((df['defect_label'] == 0) & (df['predicted_label'] == 1)).sum()
-TN = ((df['defect_label'] == 0) & (df['predicted_label'] == 0)).sum()
-FN = ((df['defect_label'] == 1) & (df['predicted_label'] == 0)).sum()
+    return best_thresholds
 
-FNR = FN / (FN + TP)  # False Negative Rate
-FPR = FP / (TP + FP)  # False Positive Rate
-ACC = (TP + TN) / (TP + TN + FP + FN)  # Accuracy
+# 最適な閾値を見つけて分類を実行
+best_thresholds = find_optimal_thresholds(df)
+df['predicted_label'] = df.apply(lambda row: classify_defect(row, best_thresholds), axis=1)
 
-print("欠陥ごとの精度指標:")
-print(f"FN/(FN+TP) (見逃し率): {FNR:.2%} ({FN}/{FN+TP})")
-print(f"FP/(TP+FP) (誤検出率): {FPR:.2%} ({FP}/{TP+FP})")
-print(f"正解率: {ACC:.2%} ({TP+TN}/{TP+TN+FP+FN})")
+# 分類結果の評価
+print("分類結果:")
+print(classification_report(df['defect_label'], df['predicted_label']))
 
-# ワークごとの精度指標の計算
-work_true = df.groupby('work_id')['defect_label'].max()
-work_pred = df.groupby('work_id')['work_predicted_label'].first()
+print("\n混同行列:")
+print(confusion_matrix(df['defect_label'], df['predicted_label']))
 
-work_TP = ((work_true == 1) & (work_pred == 1)).sum()
-work_FP = ((work_true == 0) & (work_pred == 1)).sum()
-work_TN = ((work_true == 0) & (work_pred == 0)).sum()
-work_FN = ((work_true == 1) & (work_pred == 0)).sum()
+# 各クラスの予測数
+print("\n各クラスの予測数:")
+print(df['predicted_label'].value_counts())
 
-work_FNR = work_FN / (work_FN + work_TP)  # 見逃し率
-work_FPR = work_FP / (work_FP + work_TN)  # 見過ぎ率
-work_ACC = (work_TP + work_TN) / (work_TP + work_TN + work_FP + work_FN)  # 正解率
+# 実際の欠陥（鋳巣）のうち、正しく分類されたものの割合
+true_defects = df[df['defect_label'] == 0]
+correctly_classified = true_defects[true_defects['predicted_label'] == 0]
+print(f"\n実際の欠陥（鋳巣）のうち、正しく分類された割合: {len(correctly_classified) / len(true_defects) * 100:.2f}%")
 
-print("\nワークごとの精度指標:")
-print(f"見逃し率: {work_FNR:.2%} ({work_FN}/{work_FN+work_TP})")
-print(f"見過ぎ率: {work_FPR:.2%} ({work_FP}/{work_FP+work_TN})")
-print(f"正解率: {work_ACC:.2%} ({work_TP+work_TN}/{work_TP+work_TN+work_FP+work_FN})")
+# 誤って欠陥（鋳巣）と分類されたものの数と割合
+false_positives = df[(df['defect_label'] == 1) & (df['predicted_label'] == 0)]
+print(f"\n誤って欠陥（鋳巣）と分類されたデータ数: {len(false_positives)}")
+print(f"誤って欠陥（鋳巣）と分類された割合: {len(false_positives) / len(df) * 100:.2f}%")
 
-# 使用した閾値の表示
-print("\n使用した閾値:")
-for feature, threshold in rule_thresholds.items():
-    print(f"{feature}: {threshold}")
-```
-
-```markdown
-このコードでは、以下の変更を行いました：
-
-1. 閾値の設定:
-   - perimeter, eccentricity, orientation, major_axis_length, minor_axis_length, solidity, extent:
-     欠陥（中巣）データの最小値を閾値としました。
-   - aspect_ratio: 欠陥（中巣）データの最大値を閾値としました。
-
-2. 分類関数の調整:
-   - aspect_ratio以外の特徴量: 値が閾値以上の場合に欠陥（中巣）と判断
-   - aspect_ratio: 値が閾値以下の場合に欠陥（中巣）と判断
-
-3. 精度指標の表示:
-   - 各指標の後ろに (⚪️/⚪️) の形式でデータ数を追加しました。
-
-4. 使用した閾値の表示:
-   - 各特徴量に対して使用した閾値を出力するようにしました。
-
-このアプローチにより、すべての欠陥（中巣）データを検出することができますが、
-誤検出率（FP/(TP+FP)）が高くなる可能性があります。実際の結果を確認し、
-必要に応じて閾値を調整することで、誤検出率を下げることができます。
-
-次のステップ:
-1. 結果の分析: 得られた精度指標を分析し、モデルの性能を評価します。
-2. 閾値の微調整: 必要に応じて閾値を調整し、FNRとFPRのバランスを最適化します。
-3. 複合ルールの検討: 複数の特徴量を組み合わせたより複雑なルールを作成し、
-   精度の向上を図ります。
-```
-
-このコードを実行することで、設定した閾値に基づく分類結果と、データ数を含む詳細な精度指標が得られます。また、使用した閾値も表示されるため、結果の解釈がしやすくなります。
-
-結果を確認後、必要に応じて閾値を調整したり、複数の特徴量を組み合わせたより複雑なルールを作成したりすることで、精度を向上させることができます。何か特定の結果に注目したい点や、さらなる分析のアイデアはありますか？
+# 最適な閾値を表示
+print("\n最適な閾値:")
+for feature, threshold in best_thresholds.items():
+    print(f"{feature}: {threshold:.4f}")
