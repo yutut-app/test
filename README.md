@@ -1,55 +1,51 @@
 申し訳ありません。その誤りを修正いたします。ご指摘ありがとうございます。以下に、正しく修正したコードを提供します。
 
 ```python
-import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
+import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 
-# 閾値を設定する関数（データの中央値を基準とする）
-def set_threshold(data, feature, percentile=75):
-    return np.percentile(data[feature], percentile)
+# データの読み込み（すでに読み込んでいる場合は不要）
+# df = pd.read_csv('path_to_your_data.csv')
 
-# ルールベースの分類器
-def rule_based_classifier(row, thresholds):
-    conditions = [
-        row['perimeter'] > thresholds['perimeter'],
-        row['eccentricity'] > thresholds['eccentricity'],
-        row['orientation'] > thresholds['orientation'],
-        row['major_axis_length'] > thresholds['major_axis_length'],
-        row['minor_axis_length'] > thresholds['minor_axis_length'],
-        row['solidity'] > thresholds['solidity'],
-        row['extent'] > thresholds['extent'],
-        row['aspect_ratio'] < thresholds['aspect_ratio']
-    ]
-    # 条件の半数以上を満たせば欠陥と判断
-    return int(sum(conditions) >= len(conditions) // 2)
+# 分類ルールの定義
+def classify_defect(row):
+    # これらの閾値は仮の値です。実際のデータに基づいて調整が必要です。
+    if (row['perimeter'] > np.percentile(df['perimeter'], 90) and
+        row['eccentricity'] > np.percentile(df['eccentricity'], 90) and
+        row['orientation'] > np.percentile(df['orientation'], 90) and
+        row['major_axis_length'] > np.percentile(df['major_axis_length'], 90) and
+        row['minor_axis_length'] > np.percentile(df['minor_axis_length'], 90) and
+        row['solidity'] > np.percentile(df['solidity'], 90) and
+        row['extent'] > np.percentile(df['extent'], 90) and
+        row['aspect_ratio'] < np.percentile(df['aspect_ratio'], 10)):
+        return 0  # 欠陥（鋳巣）
+    else:
+        return 1  # 欠陥候補（非欠陥）
 
-# データの準備（訓練データとテストデータに分割）
-X = df[['perimeter', 'eccentricity', 'orientation', 'major_axis_length', 
-        'minor_axis_length', 'solidity', 'extent', 'aspect_ratio']]
-y = df['defect_label']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# ルールベースの分類を適用
+df['predicted_label'] = df.apply(classify_defect, axis=1)
 
-# 閾値の設定（訓練データの75パーセンタイルを使用）
-thresholds = {feature: set_threshold(X_train, feature, 75) for feature in X.columns}
-thresholds['aspect_ratio'] = set_threshold(X_train, 'aspect_ratio', 25)  # aspect_ratioは小さい方を欠陥とする
-
-# テストデータに対して分類を実行
-y_pred = X_test.apply(lambda row: rule_based_classifier(row, thresholds), axis=1)
-
-# 結果の評価
-print("分類レポート:")
-print(classification_report(y_test, y_pred, target_names=['欠陥（中巣）', '欠陥候補（非欠陥）']))
+# 分類結果の評価
+print("分類結果:")
+print(classification_report(df['defect_label'], df['predicted_label']))
 
 print("\n混同行列:")
-print(confusion_matrix(y_test, y_pred))
+print(confusion_matrix(df['defect_label'], df['predicted_label']))
 
-# 閾値の表示
-print("\n使用した閾値:")
-for feature, threshold in thresholds.items():
-    print(f"{feature}: {threshold:.4f}")
-```
+# 各クラスの予測数
+print("\n各クラスの予測数:")
+print(df['predicted_label'].value_counts())
+
+# 実際の欠陥（鋳巣）のうち、正しく分類されたものの割合
+true_defects = df[df['defect_label'] == 0]
+correctly_classified = true_defects[true_defects['predicted_label'] == 0]
+print(f"\n実際の欠陥（鋳巣）のうち、正しく分類された割合: {len(correctly_classified) / len(true_defects) * 100:.2f}%")
+
+# 誤って欠陥（鋳巣）と分類されたものの数と割合
+false_positives = df[(df['defect_label'] == 1) & (df['predicted_label'] == 0)]
+print(f"\n誤って欠陥（鋳巣）と分類されたデータ数: {len(false_positives)}")
+print(f"誤って欠陥（鋳巣）と分類された割合: {len(false_positives) / len(df) * 100:.2f}%")```
 
 主な修正点は以下の通りです：
 
