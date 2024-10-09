@@ -1,34 +1,28 @@
-承知しました。ご指示に従って、欠陥データ（defect_label == 1）の特徴量の最小値または最大値を閾値として設定するようにコードを修正します。
+ご指示ありがとうございます。閾値の設定方法を修正し、データ数も表示するようにコードを更新します。
 
 ```markdown
 ## 6. 特徴量による分類（ルールベース）
 
-EDAの結果に基づき、欠陥（中巣）は欠陥候補（非欠陥）に比べて以下の特徴があることがわかりました：
+EDAの結果に基づき、以下の特徴量を用いてルールベースの分類を行います：
+- perimeter, eccentricity, orientation, major_axis_length, minor_axis_length, solidity, extent: 
+  欠陥（中巣）データの最小値を閾値とします。
+- aspect_ratio: 欠陥（中巣）データの最大値を閾値とします。
 
-- perimeter, eccentricity, orientation, major_axis_length, minor_axis_length, solidity, extent が大きい
-- aspect_ratio が小さい
-
-これらの特徴を用いてルールベースの分類を行い、欠陥ごとおよびワークごとの精度を評価します。閾値は以下のように設定します：
-
-- perimeter, eccentricity, orientation, major_axis_length, minor_axis_length, solidity, extent: 欠陥データの最小値
-- aspect_ratio: 欠陥データの最大値
-
-注意点：
-- NGデータ（欠陥）が少ないため、学習データとテストデータは同じものを使用します。
-- 欠陥ごとの評価では、FN/(FN+TP)を100%にし、FP/(FP+TN)を最小化します。
-- ワークごとの評価では、見逃し率と見過ぎ率を計算します。
+これらの閾値を用いて欠陥（中巣）の分類を行い、精度指標とともにデータ数も表示します。
 ```
 
 ```python
 import pandas as pd
 import numpy as np
-from collections import defaultdict
 
-# 欠陥データのみを抽出
+# データの読み込み（前のステップで使用したdf_sampledを使用すると仮定）
+# df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
+
+# 欠陥（中巣）データのみを抽出
 defect_data = df[df['defect_label'] == 1]
 
 # 閾値の設定
-thresholds = {
+rule_thresholds = {
     'perimeter': defect_data['perimeter'].min(),
     'eccentricity': defect_data['eccentricity'].min(),
     'orientation': defect_data['orientation'].min(),
@@ -39,85 +33,86 @@ thresholds = {
     'aspect_ratio': defect_data['aspect_ratio'].max()
 }
 
-print("設定された閾値:")
-for key, value in thresholds.items():
-    print(f"{key}: {value}")
-
 # ルールベースの分類関数
 def classify_defect(row):
-    if (row['perimeter'] >= thresholds['perimeter'] and
-        row['eccentricity'] >= thresholds['eccentricity'] and
-        abs(row['orientation']) >= abs(thresholds['orientation']) and
-        row['major_axis_length'] >= thresholds['major_axis_length'] and
-        row['minor_axis_length'] >= thresholds['minor_axis_length'] and
-        row['solidity'] >= thresholds['solidity'] and
-        row['extent'] >= thresholds['extent'] and
-        row['aspect_ratio'] <= thresholds['aspect_ratio']):
-        return 1  # 欠陥（中巣）
+    for feature, threshold in rule_thresholds.items():
+        if feature == 'aspect_ratio':
+            if row[feature] <= threshold:
+                return 1  # 欠陥（中巣）
+        elif row[feature] >= threshold:
+            return 1  # 欠陥（中巣）
     return 0  # 欠陥候補（非欠陥）
 
 # 分類の実行
 df['predicted_label'] = df.apply(classify_defect, axis=1)
 
-# 欠陥ごとの評価
+# ワークごとの分類
+df['work_predicted_label'] = df.groupby('work_id')['predicted_label'].transform('max')
+
+# 欠陥ごとの精度指標の計算
 TP = ((df['defect_label'] == 1) & (df['predicted_label'] == 1)).sum()
 FP = ((df['defect_label'] == 0) & (df['predicted_label'] == 1)).sum()
 TN = ((df['defect_label'] == 0) & (df['predicted_label'] == 0)).sum()
 FN = ((df['defect_label'] == 1) & (df['predicted_label'] == 0)).sum()
 
-FNR = FN / (FN + TP)
-FPR = FP / (FP + TN)
+FNR = FN / (FN + TP)  # False Negative Rate
+FPR = FP / (FP + TN)  # False Positive Rate
 
-print("\n欠陥ごとの評価:")
-print(f"FN/(FN+TP) (見逃し率): {FNR:.2%}")
-print(f"FP/(FP+TN) (誤検出率): {FPR:.2%}")
+print("欠陥ごとの精度指標:")
+print(f"FN/(FN+TP) (見逃し率): {FNR:.2%} ({FN}/{FN+TP})")
+print(f"FP/(TP+FP) (誤検出率): {FPR:.2%} ({FP}/{TP+FP})")
 
-# ワークごとの評価
-work_results = defaultdict(lambda: {'has_defect': False, 'predicted_defect': False})
+# ワークごとの精度指標の計算
+work_true = df.groupby('work_id')['defect_label'].max()
+work_pred = df.groupby('work_id')['work_predicted_label'].first()
 
-for _, row in df.iterrows():
-    work_id = row['work_id']
-    work_results[work_id]['has_defect'] |= (row['defect_label'] == 1)
-    work_results[work_id]['predicted_defect'] |= (row['predicted_label'] == 1)
+work_TP = ((work_true == 1) & (work_pred == 1)).sum()
+work_FP = ((work_true == 0) & (work_pred == 1)).sum()
+work_TN = ((work_true == 0) & (work_pred == 0)).sum()
+work_FN = ((work_true == 1) & (work_pred == 0)).sum()
 
-ng_works = sum(1 for work in work_results.values() if work['has_defect'])
-ok_works = len(work_results) - ng_works
+work_FNR = work_FN / (work_FN + work_TP)  # 見逃し率
+work_FPR = work_FP / (work_FP + work_TN)  # 見過ぎ率
 
-missed_defects = sum(1 for work in work_results.values() if work['has_defect'] and not work['predicted_defect'])
-false_alarms = sum(1 for work in work_results.values() if not work['has_defect'] and work['predicted_defect'])
+print("\nワークごとの精度指標:")
+print(f"見逃し率: {work_FNR:.2%} ({work_FN}/{work_FN+work_TP})")
+print(f"見過ぎ率: {work_FPR:.2%} ({work_FP}/{work_FP+work_TN})")
 
-miss_rate = missed_defects / ng_works if ng_works > 0 else 0
-false_alarm_rate = false_alarms / ok_works if ok_works > 0 else 0
-
-print("\nワークごとの評価:")
-print(f"見逃し率: {miss_rate:.2%}")
-print(f"見過ぎ率: {false_alarm_rate:.2%}")
+# 使用した閾値の表示
+print("\n使用した閾値:")
+for feature, threshold in rule_thresholds.items():
+    print(f"{feature}: {threshold}")
 ```
 
 ```markdown
-このコードは以下の手順で動作します：
+このコードでは、以下の変更を行いました：
 
-1. 欠陥データ（defect_label == 1）のみを抽出します。
-2. 各特徴量に対して、欠陥データの最小値（aspect_ratioの場合は最大値）を閾値として設定します。
-3. ルールベースの分類関数を定義し、設定した閾値に基づいて欠陥の有無を判断します。
-4. データフレームの各行に分類関数を適用し、予測ラベルを生成します。
-5. 欠陥ごとの評価指標（FN率とFP率）を計算します。
-6. ワークごとの評価指標（見逃し率と見過ぎ率）を計算します。
+1. 閾値の設定:
+   - perimeter, eccentricity, orientation, major_axis_length, minor_axis_length, solidity, extent:
+     欠陥（中巣）データの最小値を閾値としました。
+   - aspect_ratio: 欠陥（中巣）データの最大値を閾値としました。
 
-結果の解釈：
-- FN/(FN+TP)は0%になるはずです。これは全ての欠陥を検出できていることを意味します。
-- FP/(FP+TN)は、誤検出の割合を示します。この値が高い場合、多くの非欠陥を誤って欠陥と判断していることになります。
-- ワークごとの見逃し率も0%になるはずです。
-- 見過ぎ率は、欠陥のないワークを誤って欠陥ありと判断した割合を示します。
+2. 分類関数の調整:
+   - aspect_ratio以外の特徴量: 値が閾値以上の場合に欠陥（中巣）と判断
+   - aspect_ratio: 値が閾値以下の場合に欠陥（中巣）と判断
 
-次のステップ：
-1. 結果の確認：FN率とワークごとの見逃し率が0%になっていることを確認します。
-2. 誤検出の分析：FP率と見過ぎ率が高い場合、どのような特徴を持つデータが誤検出されているかを分析します。
-3. 閾値の微調整：必要に応じて、一部の特徴量の閾値を調整し、誤検出を減らすことを検討します。
-4. 特徴量の重要度分析：どの特徴量が欠陥の検出に最も寄与しているかを分析します。
-5. モデルの改善：より複雑なルールや機械学習モデルの導入を検討します。
+3. 精度指標の表示:
+   - 各指標の後ろに (⚪️/⚪️) の形式でデータ数を追加しました。
+
+4. 使用した閾値の表示:
+   - 各特徴量に対して使用した閾値を出力するようにしました。
+
+このアプローチにより、すべての欠陥（中巣）データを検出することができますが、
+誤検出率（FP/(TP+FP)）が高くなる可能性があります。実際の結果を確認し、
+必要に応じて閾値を調整することで、誤検出率を下げることができます。
+
+次のステップ:
+1. 結果の分析: 得られた精度指標を分析し、モデルの性能を評価します。
+2. 閾値の微調整: 必要に応じて閾値を調整し、FNRとFPRのバランスを最適化します。
+3. 複合ルールの検討: 複数の特徴量を組み合わせたより複雑なルールを作成し、
+   精度の向上を図ります。
 ```
 
-このコードを実行すると、欠陥データの特徴に基づいて設定された閾値での分類結果と評価指標が表示されます。FN率とワークごとの見逃し率は0%になるはずですが、FP率と見過ぎ率は高くなる可能性があります。
+このコードを実行することで、設定した閾値に基づく分類結果と、データ数を含む詳細な精度指標が得られます。また、使用した閾値も表示されるため、結果の解釈がしやすくなります。
 
-これらの結果を踏まえて、どのような分析や改善を行いたいですか？例えば、誤検出されたデータの特徴を詳しく調べたり、特定の特徴量の閾値を調整したりすることが考えられます。
+結果を確認後、必要に応じて閾値を調整したり、複数の特徴量を組み合わせたより複雑なルールを作成したりすることで、精度を向上させることができます。何か特定の結果に注目したい点や、さらなる分析のアイデアはありますか？
