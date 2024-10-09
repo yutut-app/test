@@ -1,27 +1,74 @@
+ご指摘ありがとうございます。ワークの左右画像を同じIDとして扱うように、データクリーニングの部分を修正します。以下に、更新された ## 3. データクリーニング のコードを提供します。
+
+```markdown
+## 3. データクリーニング
+
+ここでは、同じワークを識別するための新しい列を追加します。'image_name' の特性を考慮し、2つごとに同じワークIDを割り当てます。これにより、ワークの左右画像を同一のワークとして扱うことができます。
+```
+
+```python
 import pandas as pd
 import numpy as np
 
 # データの読み込み（すでに読み込んでいる場合は不要）
 # df = pd.read_csv('path_to_your_data.csv')
 
-# 現在のwork_idを基に新しいwork_idを作成する関数
-def create_new_work_id(group):
-    return np.repeat(np.arange(len(group) // 2), 2)
+# 'image_name' から 'work_id' を生成する関数
+def create_work_id(image_name):
+    return image_name[:15]
 
-# データフレームを現在のwork_idでソート
-df = df.sort_values('work_id')
+# 'temp_work_id' 列を追加（一時的なID）
+df['temp_work_id'] = df['image_name'].apply(create_work_id)
 
-# 新しいwork_idを作成
-df['new_work_id'] = df.groupby('work_id').transform(create_new_work_id)
+# 新しい 'work_id' を作成（2つごとに同じIDを割り当てる）
+df['work_id'] = (df.groupby('temp_work_id').cumcount() // 2).astype(str) + '_' + df['temp_work_id']
 
-# work_idを更新
-df['work_id'] = df.groupby('work_id')['new_work_id'].transform(lambda x: f"{x.iloc[0]:05d}")
-
-# new_work_id列を削除（必要ない場合）
-df = df.drop('new_work_id', axis=1)
+# 一時的なカラムを削除
+df = df.drop('temp_work_id', axis=1)
 
 # 結果の確認
 print(df[['image_name', 'work_id']].head(10))
 
 # ユニークなワーク数の確認
 print(f"\nユニークなワーク数: {df['work_id'].nunique()}")
+
+# データフレームの形状を再確認
+print(f"\nデータフレームの形状：{df.shape}")
+
+# work_idの分布を確認
+work_id_counts = df['work_id'].value_counts()
+print("\nwork_idの分布:")
+print(work_id_counts.head())
+print(f"\n全てのwork_idが2回ずつ出現しているか: {(work_id_counts == 2).all()}")
+```
+
+```markdown
+このデータクリーニング処理により、以下の変更が行われました：
+
+1. 'temp_work_id' 列: 'image_name' の先頭15文字を使用して、一時的なIDを作成しました。
+2. 'work_id' 列: 'temp_work_id' を基に、2つごとに同じIDを割り当てました。これにより、ワークの左右画像が同じ 'work_id' を持つようになります。
+
+この新しい 'work_id' 列を使用することで、以下のような利点があります：
+
+- 同じワークの左右画像を正確に識別できます。
+- ワークレベルでの分析や評価が可能になります。
+- データの構造がより明確になり、後続の分析やモデリングが容易になります。
+
+注意点：
+- この方法は、データが常に左右画像のペアで構成されていることを前提としています。もし、データの構造が異なる場合（例：一部のワークに左右画像がない場合）は、さらなる調整が必要になる可能性があります。
+
+次のステップ：
+1. この新しい 'work_id' を使用して、ワークレベルでの特徴量の集計や分析を行うことができます。
+2. 欠陥の分布をワークレベルで確認し、どのようなパターンがあるか調査できます。
+3. この 'work_id' を基に、トレーニングデータとテストデータの分割を行う際、同じワークのデータが異なるセットに入らないようにすることができます。
+```
+
+このコードを実行すると、各ワークの左右画像に同じ 'work_id' が割り当てられます。これにより、ワークレベルでの分析や評価が可能になります。
+
+次のステップとして、以下のような方向性が考えられます：
+
+1. ワークレベルでの特徴量の集計（例：平均、最大値、最小値など）
+2. ワークごとの欠陥の分布分析
+3. この新しい 'work_id' を使用して、先ほどの特徴量による分類（ルールベース）を再度実行し、ワークレベルでの性能を評価する
+
+これらの方向性について、どれを優先的に探求したいですか？または、他に確認したい分析や実験はありますか？
