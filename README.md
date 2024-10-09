@@ -50,11 +50,13 @@ TN = ((df['defect_label'] == 0) & (df['predicted_label'] == 0)).sum()
 FN = ((df['defect_label'] == 1) & (df['predicted_label'] == 0)).sum()
 
 FNR = FN / (FN + TP)  # False Negative Rate
-FPR = FP / (FP + TN)  # False Positive Rate
+FPR = FP / (TP + FP)  # False Positive Rate
+ACC = (TP + TN) / (TP + TN + FP + FN)  # Accuracy
 
 print("欠陥ごとの精度指標:")
 print(f"FN/(FN+TP) (見逃し率): {FNR:.2%} ({FN}/{FN+TP})")
 print(f"FP/(TP+FP) (誤検出率): {FPR:.2%} ({FP}/{TP+FP})")
+print(f"正解率: {ACC:.2%} ({TP+TN}/{TP+TN+FP+FN})")
 
 # ワークごとの精度指標の計算
 work_true = df.groupby('work_id')['defect_label'].max()
@@ -67,10 +69,12 @@ work_FN = ((work_true == 1) & (work_pred == 0)).sum()
 
 work_FNR = work_FN / (work_FN + work_TP)  # 見逃し率
 work_FPR = work_FP / (work_FP + work_TN)  # 見過ぎ率
+work_ACC = (work_TP + work_TN) / (work_TP + work_TN + work_FP + work_FN)  # 正解率
 
 print("\nワークごとの精度指標:")
 print(f"見逃し率: {work_FNR:.2%} ({work_FN}/{work_FN+work_TP})")
 print(f"見過ぎ率: {work_FPR:.2%} ({work_FP}/{work_FP+work_TN})")
+print(f"正解率: {work_ACC:.2%} ({work_TP+work_TN}/{work_TP+work_TN+work_FP+work_FN})")
 
 # 使用した閾値の表示
 print("\n使用した閾値:")
