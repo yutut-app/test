@@ -1,98 +1,71 @@
 申し訳ありません。その誤りを修正いたします。ご指摘ありがとうございます。以下に、正しく修正したコードを提供します。
 
 ```python
-import matplotlib.pyplot as plt
-import seaborn as sns
-from matplotlib.backends.backend_pdf import PdfPages
-import os
-from datetime import datetime
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import roc_curve, auc
+from imblearn.over_sampling import SMOTE
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 
-# 出力ディレクトリの設定
-defected_data_path = r"../data/output/defect_data"
-current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-pdf_filename = os.path.join(defected_data_path, f'eda_欠陥分析_{current_time}.pdf')
+# 特徴量と目的変数の設定
+features = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation', 
+            'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
+            'aspect_ratio', 'max_length']
+target = 'defect_label'
 
-# 独立変数のリスト
-independent_vars = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation', 
-                    'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
-                    'aspect_ratio', 'max_length']
+X = df[features]
+y = df[target]
 
-# 日本語フォントの設定
-plt.rcParams['font.family'] = 'Yu Gothic'
+# データの標準化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-# データのサンプリング（処理時間短縮のため）
-sample_size = min(10000, len(df))
-ok_data = df[df['defect_label'] == 1]  # OKデータは defect_label が 1
-ng_data = df[df['defect_label'] == 0]  # NGデータは defect_label が 0
+# SMOTEを使用してオーバーサンプリング
+smote = SMOTE(random_state=42)
+X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
 
-# OKデータを全て含める
-if len(ok_data) < sample_size:
-    sampled_ng = ng_data.sample(n=sample_size - len(ok_data), random_state=42)
-    df_sampled = pd.concat([ok_data, sampled_ng])
-else:
-    df_sampled = df.sample(n=sample_size, random_state=42)
+# ランダムフォレスト分類器の訓練
+rf_classifier = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_classifier.fit(X_resampled, y_resampled)
 
-# x軸の目盛り数を決定する関数（変更なし）
-def get_ticks(data):
-    min_val, max_val = data.min(), data.max()
-    range_val = max_val - min_val
-    if range_val <= 1:
-        step = 0.1
-    elif range_val <= 10:
-        step = 1
-    elif range_val <= 100:
-        step = 10
-    else:
-        step = 100
-    return np.arange(np.floor(min_val/step)*step, np.ceil(max_val/step)*step + step, step)
+# クロスバリデーションスコアの計算
+cv_scores = cross_val_score(rf_classifier, X_resampled, y_resampled, cv=5)
+print(f"クロスバリデーションスコア: {cv_scores.mean():.3f} (+/- {cv_scores.std() * 2:.3f})")
 
-# PDFファイルを作成
-with PdfPages(pdf_filename) as pdf:
-    for var in independent_vars:
-        # プロットの作成
-        fig, ax = plt.subplots(figsize=(12, 8))
-        
-        # OKとNGのデータを分離
-        df_ok = df_sampled[df_sampled['defect_label'] == 1]  # OKは1
-        df_ng = df_sampled[df_sampled['defect_label'] == 0]  # NGは0
-        
-        # NGのデータをプロット
-        sns.stripplot(data=df_ng, x=var, y='defect_label', color='blue', alpha=0.3, 
-                      jitter=True, size=5, ax=ax, dodge=True)
-        
-        # OKのデータをプロット
-        sns.stripplot(data=df_ok, x=var, y='defect_label', color='red', alpha=1.0, 
-                      jitter=True, size=10, ax=ax, dodge=True)
-        
-        # タイトルと軸ラベルの設定
-        plt.title(f'{var}と欠陥ラベルの関係')
-        plt.xlabel(var)
-        plt.ylabel('欠陥ラベル')
-        
-        # x軸の目盛りを設定
-        plt.xticks(get_ticks(df_sampled[var]))
-        
-        # y軸の目盛りを設定
-        plt.yticks([0, 1], ['正常 (0)', '欠陥 (1)'])
-        
-        # 凡例の設定
-        from matplotlib.lines import Line2D
-        legend_elements = [Line2D([0], [0], marker='o', color='w', label='正常 (0)', 
-                                  markerfacecolor='blue', markersize=10, alpha=0.3),
-                           Line2D([0], [0], marker='o', color='w', label='欠陥 (1)', 
-                                  markerfacecolor='red', markersize=15)]
-        ax.legend(handles=legend_elements, title='欠陥ラベル')
-        
-        # グラフの調整
-        plt.tight_layout()
-        
-        # PDFに追加
-        pdf.savefig(fig)
-        plt.close(fig)
+# ROC曲線の作成
+y_pred_proba = rf_classifier.predict_proba(X_scaled)[:, 1]
+fpr, tpr, _ = roc_curve(y, y_pred_proba)
+roc_auc = auc(fpr, tpr)
 
-print(f"EDAグラフをPDFに保存しました: {pdf_filename}")
+plt.figure(figsize=(10, 8))
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC曲線 (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('偽陽性率')
+plt.ylabel('真陽性率')
+plt.title('Receiver Operating Characteristic (ROC) 曲線')
+plt.legend(loc="lower right")
+plt.show()
+
+# 特徴量の重要度
+feature_importance = pd.DataFrame({'feature': features, 'importance': rf_classifier.feature_importances_})
+feature_importance = feature_importance.sort_values('importance', ascending=False)
+print("\n特徴量の重要度:")
+print(feature_importance)
+
+# 特徴量の重要度の可視化
+plt.figure(figsize=(10, 8))
+plt.bar(feature_importance['feature'], feature_importance['importance'])
+plt.xticks(rotation=45, ha='right')
+plt.xlabel('特徴量')
+plt.ylabel('重要度')
+plt.title('ランダムフォレストの特徴量重要度')
+plt.tight_layout()
+plt.show()
 ```
 
 主な修正点は以下の通りです：
