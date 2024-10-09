@@ -3,69 +3,52 @@
 ```python
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import cross_val_score
-from sklearn.metrics import roc_curve, auc
-from imblearn.over_sampling import SMOTE
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
 
-# 特徴量と目的変数の設定
-features = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation', 
-            'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
-            'aspect_ratio', 'max_length']
-target = 'defect_label'
+# 閾値を設定する関数（データの中央値を基準とする）
+def set_threshold(data, feature, percentile=75):
+    return np.percentile(data[feature], percentile)
 
-X = df[features]
-y = df[target]
+# ルールベースの分類器
+def rule_based_classifier(row, thresholds):
+    conditions = [
+        row['perimeter'] > thresholds['perimeter'],
+        row['eccentricity'] > thresholds['eccentricity'],
+        row['orientation'] > thresholds['orientation'],
+        row['major_axis_length'] > thresholds['major_axis_length'],
+        row['minor_axis_length'] > thresholds['minor_axis_length'],
+        row['solidity'] > thresholds['solidity'],
+        row['extent'] > thresholds['extent'],
+        row['aspect_ratio'] < thresholds['aspect_ratio']
+    ]
+    # 条件の半数以上を満たせば欠陥と判断
+    return int(sum(conditions) >= len(conditions) // 2)
 
-# データの標準化
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+# データの準備（訓練データとテストデータに分割）
+X = df[['perimeter', 'eccentricity', 'orientation', 'major_axis_length', 
+        'minor_axis_length', 'solidity', 'extent', 'aspect_ratio']]
+y = df['defect_label']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# SMOTEを使用してオーバーサンプリング
-smote = SMOTE(random_state=42)
-X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+# 閾値の設定（訓練データの75パーセンタイルを使用）
+thresholds = {feature: set_threshold(X_train, feature, 75) for feature in X.columns}
+thresholds['aspect_ratio'] = set_threshold(X_train, 'aspect_ratio', 25)  # aspect_ratioは小さい方を欠陥とする
 
-# ランダムフォレスト分類器の訓練
-rf_classifier = RandomForestClassifier(n_estimators=100, random_state=42)
-rf_classifier.fit(X_resampled, y_resampled)
+# テストデータに対して分類を実行
+y_pred = X_test.apply(lambda row: rule_based_classifier(row, thresholds), axis=1)
 
-# クロスバリデーションスコアの計算
-cv_scores = cross_val_score(rf_classifier, X_resampled, y_resampled, cv=5)
-print(f"クロスバリデーションスコア: {cv_scores.mean():.3f} (+/- {cv_scores.std() * 2:.3f})")
+# 結果の評価
+print("分類レポート:")
+print(classification_report(y_test, y_pred, target_names=['欠陥（中巣）', '欠陥候補（非欠陥）']))
 
-# ROC曲線の作成
-y_pred_proba = rf_classifier.predict_proba(X_scaled)[:, 1]
-fpr, tpr, _ = roc_curve(y, y_pred_proba)
-roc_auc = auc(fpr, tpr)
+print("\n混同行列:")
+print(confusion_matrix(y_test, y_pred))
 
-plt.figure(figsize=(10, 8))
-plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC曲線 (AUC = {roc_auc:.2f})')
-plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel('偽陽性率')
-plt.ylabel('真陽性率')
-plt.title('Receiver Operating Characteristic (ROC) 曲線')
-plt.legend(loc="lower right")
-plt.show()
-
-# 特徴量の重要度
-feature_importance = pd.DataFrame({'feature': features, 'importance': rf_classifier.feature_importances_})
-feature_importance = feature_importance.sort_values('importance', ascending=False)
-print("\n特徴量の重要度:")
-print(feature_importance)
-
-# 特徴量の重要度の可視化
-plt.figure(figsize=(10, 8))
-plt.bar(feature_importance['feature'], feature_importance['importance'])
-plt.xticks(rotation=45, ha='right')
-plt.xlabel('特徴量')
-plt.ylabel('重要度')
-plt.title('ランダムフォレストの特徴量重要度')
-plt.tight_layout()
-plt.show()
+# 閾値の表示
+print("\n使用した閾値:")
+for feature, threshold in thresholds.items():
+    print(f"{feature}: {threshold:.4f}")
 ```
 
 主な修正点は以下の通りです：
