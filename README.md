@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 import os
 from datetime import datetime
@@ -17,15 +16,15 @@ independent_vars = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'ori
                     'aspect_ratio', 'max_length']
 
 x_axis_settings = {
-    'area': (0, 105, 5),
-    'perimeter': (0, 105, 5),
-    'eccentricity': (-1.6, 1.6, 0.2),
-    'orientation': (0, 1.05, 0.05),
-    'major_axis_length': (0, 120, 5),
-    'minor_axis_length': (0, 35, 5),
-    'solidity': (0, 1.1, 0.05),
-    'extent': (0, 1.1, 0.05),
-    'aspect_ratio': (0, 80, 5)
+    'area': (0, 105, 5, 1),
+    'perimeter': (0, 105, 5, 1),
+    'eccentricity': (-1.6, 1.6, 0.2, 0.05),
+    'orientation': (0, 1.05, 0.05, 0.01),
+    'major_axis_length': (0, 120, 5, 1),
+    'minor_axis_length': (0, 35, 5, 1),
+    'solidity': (0, 1.1, 0.05, 0.01),
+    'extent': (0, 1.1, 0.05, 0.01),
+    'aspect_ratio': (0, 80, 5, 1)
 }
 
 # 日本語フォントの設定
@@ -53,35 +52,31 @@ with PdfPages(pdf_filename) as pdf:
         df_ng = df_sampled[df_sampled['defect_label'] == 0]
         df_ok = df_sampled[df_sampled['defect_label'] == 1]
         
-        # 欠陥候補（非欠陥）のデータをプロット
-        sns.stripplot(data=df_ng, x=var, y='defect_label', color='blue', alpha=0.3, 
-                      jitter=True, size=5, ax=ax, dodge=True, zorder=1)
-        
-        # 欠陥（中巣）のデータをプロット
-        sns.stripplot(data=df_ok, x=var, y='defect_label', color='red', alpha=1.0, 
-                      jitter=True, size=10, ax=ax, dodge=True, zorder=2)
+        # 散布図プロット
+        ax.scatter(df_ng[var], np.zeros(len(df_ng)), color='blue', alpha=0.3, s=20, label='欠陥候補（非欠陥） (0)')
+        ax.scatter(df_ok[var], np.ones(len(df_ok)), color='red', alpha=1.0, s=40, label='欠陥（中巣） (1)')
         
         # タイトルと軸ラベルの設定
         plt.title(f'{var}と欠陥ラベルの関係')
         plt.xlabel(var)
         plt.ylabel('欠陥ラベル')
         
-        # x軸の範囲とステップを設定
+        # x軸の目盛りを設定
         if var in x_axis_settings:
-            start, end, step = x_axis_settings[var]
-            plt.xlim(start, end)
-            plt.xticks(np.arange(start, end + step, step))
+            start, end, step, minor_step = x_axis_settings[var]
+            major_ticks = np.arange(start, end + step, step)
+            minor_ticks = np.arange(start, end + minor_step, minor_step)
+            ax.set_xlim(start, end)
+            ax.set_xticks(major_ticks)
+            ax.set_xticks(minor_ticks, minor=True)
         
         # y軸の目盛りを設定
-        plt.yticks([0, 1], ['欠陥候補（非欠陥） (0)', '欠陥（中巣） (1)'])
+        ax.set_ylim(-0.5, 1.5)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(['欠陥候補（非欠陥） (0)', '欠陥（中巣） (1)'])
         
         # 凡例の設定
-        from matplotlib.lines import Line2D
-        legend_elements = [Line2D([0], [0], marker='o', color='w', label='欠陥候補（非欠陥） (0)', 
-                                  markerfacecolor='blue', markersize=10, alpha=0.3),
-                           Line2D([0], [0], marker='o', color='w', label='欠陥（中巣） (1)', 
-                                  markerfacecolor='red', markersize=15)]
-        ax.legend(handles=legend_elements, title='欠陥ラベル')
+        ax.legend(title='欠陥ラベル')
         
         # グラフの調整
         plt.tight_layout()
