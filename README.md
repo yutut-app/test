@@ -53,19 +53,6 @@ with PdfPages(pdf_filename) as pdf:
         df_ng = df_sampled[df_sampled['defect_label'] == 0]
         df_ok = df_sampled[df_sampled['defect_label'] == 1]
         
-        # x軸の範囲を設定
-        if var in x_axis_settings:
-            start, end, step, minor_step = x_axis_settings[var]
-            ax.set_xlim(start, end)
-            
-            # メジャー目盛りの設定
-            major_ticks = np.arange(start, end + step, step)
-            ax.set_xticks(major_ticks)
-            
-            # マイナー目盛りの設定
-            minor_ticks = np.arange(start, end + minor_step, minor_step)
-            ax.set_xticks(minor_ticks, minor=True)
-        
         # 欠陥候補（非欠陥）のデータをプロット
         sns.stripplot(data=df_ng, x=var, y='defect_label', color='blue', alpha=0.3, 
                       jitter=True, size=5, ax=ax, dodge=True, zorder=1)
@@ -78,6 +65,20 @@ with PdfPages(pdf_filename) as pdf:
         plt.title(f'{var}と欠陥ラベルの関係')
         plt.xlabel(var)
         plt.ylabel('欠陥ラベル')
+        
+        # x軸の目盛りを設定
+        if var in x_axis_settings:
+            start, end, step, minor_step = x_axis_settings[var]
+            print(f"{var}: {start}, {end}, {step}, {minor_step}")  # デバッグ用
+            major_ticks = np.arange(start, end + step, step)
+            minor_ticks = np.arange(start, end + minor_step, minor_step)
+            ax.set_xlim(start, end)
+            ax.set_xticks(major_ticks)
+            ax.set_xticks(minor_ticks, minor=True)
+        else:
+            # 設定がない場合はデータの範囲を使用
+            start, end = df_sampled[var].min(), df_sampled[var].max()
+            ax.set_xlim(start, end)
         
         # y軸の目盛りを設定
         plt.yticks([0, 1], ['欠陥候補（非欠陥） (0)', '欠陥（中巣） (1)'])
