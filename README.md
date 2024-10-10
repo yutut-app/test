@@ -1,89 +1,96 @@
-### 決定事項
-- キーエンスの前処理画像を鋳巣のエッジを強調するように設定することを検討する (先方・自社)
-- 9月分のNGデータを追加で提供する (先方)
-- 今後の方針について社内で検討し、提案する (自社)
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.backends.backend_pdf import PdfPages
+import os
+from datetime import datetime
+import numpy as np
+import pandas as pd
 
-## ToDo
-### 先方
-- 8月分の完成品検査トレーサビリティデータを確認し、提供する
-- キーエンスの前処理画像の設定を変更し、NGデータ3枚に対して結果を確認する
-- 鋳巣の実寸値計測に使用した画像を提供する
+# 出力ディレクトリの設定
+defected_data_path = r"../data/output/defect_data"
+current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+pdf_filename = os.path.join(defected_data_path, f'eda_欠陥分析_{current_time}.pdf')
 
-### 自社
-- 1ワークあたりの処理時間を算出し、報告する
-- 欠陥候補の画像処理後の画像を提供する
-- 今後の方針（特徴量分類の改善、AI適用、画像処理の改善）について社内で検討し、提案する
+# 独立変数のリストと対応するx軸の設定
+independent_vars = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation', 
+                    'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
+                    'aspect_ratio', 'max_length']
 
-## 議事内容
-#### 会議の主題: CB02外観方法の実装した画像処理についての進捗報告
+x_axis_settings = {
+    'area': (0, 105, 5, 1),
+    'perimeter': (0, 105, 5, 1),
+    'eccentricity': (-1.6, 1.6, 0.2, 0.05),
+    'orientation': (0, 1.05, 0.05, 0.01),
+    'major_axis_length': (0, 120, 5, 1),
+    'minor_axis_length': (0, 35, 5, 1),
+    'solidity': (0, 1.1, 0.05, 0.01),
+    'extent': (0, 1.1, 0.05, 0.01),
+    'aspect_ratio': (0, 80, 5, 1)
+}
 
-#### 次回打ち合わせ：未定
+# 日本語フォントの設定
+plt.rcParams['font.family'] = 'Yu Gothic'
 
-1. 分析案件週次報告 (報告：自社)
-   1.1. スケジュール確認
-   1.2. 作業タスク確認
-   1.3. 進捗報告 (CB02外観方法-実装した画像処理について)
-      1.3.1. 画像処理におけるパラメータについて
-      1.3.2. 特徴量による分類 (ルールベース) について
-      1.3.3. 現状の性能
-         - 見逃し率 0.00% (0/3)
-         - 見過ぎ率 66.74% (636/953)
-         - 正解率 33.47% (320/956)
+# データのサンプリング（処理時間短縮のため）
+sample_size = min(10000, len(df))
+ng_data = df[df['defect_label'] == 0]  # 欠陥候補（非欠陥）
+ok_data = df[df['defect_label'] == 1]  # 欠陥（中巣）
 
-2. 質疑応答
-   - 見逃し率が0％とは、956台分のデータで行っているのか？ (先方)
-     → 鋳巣のある (NG) ワークが3データ、鋳巣のない (OK) ワークが953データあり、見逃し率は鋳巣のある3つのワークをこのロジックでは一つも見逃していないということになる (自社)
-     → OKデータの中にも実際は鋳巣があるかもしれない (先方A)
+# 欠陥（中巣）データを全て含める
+if len(ok_data) < sample_size:
+    sampled_ng = ng_data.sample(n=sample_size - len(ok_data), random_state=42)
+    df_sampled = pd.concat([ok_data, sampled_ng])
+else:
+    df_sampled = df.sample(n=sample_size, random_state=42)
 
-   - 正解率に関して実際は956個の中に320個のNGがあって、正解率33.47%ということか？ (先方A)
-     → NGデータ (3データ) とOKデータ (953データ) が合わせて956データあり、本ロジックでの分類と実際の分類が同じ (欠陥を欠陥、欠陥なしを欠陥なしと判断した) 割合を示している (自社)
+# PDFファイルを作成
+with PdfPages(pdf_filename) as pdf:
+    for var in independent_vars:
+        # プロットの作成
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # 欠陥候補（非欠陥）と欠陥（中巣）のデータを分離
+        df_ng = df_sampled[df_sampled['defect_label'] == 0]
+        df_ok = df_sampled[df_sampled['defect_label'] == 1]
+        
+        # 欠陥候補（非欠陥）のデータをプロット
+        sns.stripplot(data=df_ng, x=var, y='defect_label', color='blue', alpha=0.3, 
+                      jitter=True, size=5, ax=ax, dodge=True, zorder=1)
+        
+        # 欠陥（中巣）のデータをプロット
+        sns.stripplot(data=df_ok, x=var, y='defect_label', color='red', alpha=1.0, 
+                      jitter=True, size=10, ax=ax, dodge=True, zorder=2)
+        
+        # タイトルと軸ラベルの設定
+        plt.title(f'{var}と欠陥ラベルの関係')
+        plt.xlabel(var)
+        plt.ylabel('欠陥ラベル')
+        
+        # x軸の目盛りを設定
+        if var in x_axis_settings:
+            start, end, step, minor_step = x_axis_settings[var]
+            major_ticks = np.arange(start, end + step, step)
+            minor_ticks = np.arange(start, end + minor_step, minor_step)
+            ax.set_xlim(start, end)
+            ax.set_xticks(major_ticks)
+            ax.set_xticks(minor_ticks, minor=True)
+        
+        # y軸の目盛りを設定
+        plt.yticks([0, 1], ['欠陥候補（非欠陥） (0)', '欠陥（中巣） (1)'])
+        
+        # 凡例の設定
+        from matplotlib.lines import Line2D
+        legend_elements = [Line2D([0], [0], marker='o', color='w', label='欠陥候補（非欠陥） (0)', 
+                                  markerfacecolor='blue', markersize=10, alpha=0.3),
+                           Line2D([0], [0], marker='o', color='w', label='欠陥（中巣） (1)', 
+                                  markerfacecolor='red', markersize=15)]
+        ax.legend(handles=legend_elements, title='欠陥ラベル')
+        
+        # グラフの調整
+        plt.tight_layout()
+        
+        # PDFに追加
+        pdf.savefig(fig)
+        plt.close(fig)
 
-   - スズキ様の目視検査と画像検査の一致率はどういった算出方法か？ (自社)
-     → 画像検査でNGと判断したものと、目視でNGと判断したものの一致率 (先方A)
-
-   - 目視での結果のデータ (いただいているデータのどれがNGか、鋳巣の場所) をいただけるか？ (自社)
-     → 完成品検査トレーサビリティをとっているのであれば、判定結果が出てくる (先方A)
-     → 鋳巣があったけど、工程で修正している可能性がある (先方B)
-     → 8月分の履歴をとっているはずなので、データを確認する (先方B)
-
-   - パラメータの設定がいくつかあるが、どのタイミングの処理で使われるか？ (先方B)
-     → 欠陥検出フローで全て設定する (自社)
-
-   - 特徴量による分類のロジックで、パラメータは設定するか？ (先方B)
-     → 現状の特徴量による分類のロジックでは、鋳巣とみなす値の範囲をパラメータとして設けているが、鋳巣の各特徴量のパラメータの最小値と最大値 (固定値) を範囲としているため、パラメータの設定は必要ない (自社)
-
-   - AIによる分類がテクノプロさんの中であったと思うが、現時点ではAIは使わず、特徴量で分類して行うのか？ (先方B)
-     → まずは、特徴量で分類できるものを判断して、判断できないものはAIの処理で行おうと思っている (今回でいう、誤って判断した636データ) (自社)
-
-   - 画像処理の段階で欠陥候補が1ワークあたり100件ほど出てしまう状態か？ (先方B)
-     → どうしても解像度の低い鋳巣だとエッジを検出するのが難しく (見逃し率0%を達成できない)、エッジをかなり強調するようにパラメータを設定しているため、複数のエッジが検出してしまう (自社)
-
-   - キーエンスの前処理画像の設定を変えることで、検出の結果が良くなる可能性があると思われるか？ (先方B)
-     → 鋳巣のエッジを強調するように設定すれば改善できる可能性がある (自社)
-
-   - 今後について、特徴量の分類を詰めていくのか、AIを進めるのか、画像処理をもっと適切にするか、判断がなかなかできないが、そこについてどう思われるか？ (先方B)
-     → 一度社内で検討するが、欠陥画像が少ないためAIを適用できるかが懸念点としてある。キーエンスの前処理画像を鋳巣のエッジを強調するように設定できるのであれば、そちらで進めていければと思う。後日お伝えする (自社)
-
-   - キーエンスの前処理画像の準備は時間がかかるものか？ (自社)
-     → NGデータが3枚しかない状態なので、3枚に対してどんなものが出てくるか行い、来週お渡しできればと思っている (先方B)
-
-   - 画像データは、デジカメやIPhoneでとったデータでもいいか？ (先方A)
-     → 実際に、作成したモデル (ロジック) を使うのであれば、工程で実装する際と同様の撮影方法が良い。同じ撮影データではないため、精度を担保できない可能性がある (自社)
-     → 解像度などどれくらい違うかにもよるし、現工程での撮影方法と紐づけれるか検討しなければならない。本期間でできるかということと、別の撮影方法を組み合わせて行った知見がないというところもあり難しそう (自社)
-     → 8月のワークは、現物がないため写真は撮れないと思う (先方C)
-
-   - 9月分のNGデータが出たため、それもデータをお送りする (先方B)
-     → ありがとうございます (自社)
-
-   - 現状の1ワークあたりの処理時間を教えてほしい (先方B)
-     → 現状、全ての画像を一括で処理しているため、後日連絡させていただく (自社)
-
-   - 現状のロジックの欠陥候補の画像処理後の画像を見せてほしい。こちらの方でも、どのようなものが欠陥と間違って判断してしまっているか確認したい (先方B)
-     → 承知した (自社)
-
-   - 現状の特徴量分類はどのような手法を使っているか？ (先方C)
-     → ルールベースとして、鋳巣の各特徴量の最大最少値を鋳巣とみなす範囲とし、各特徴量の範囲 (条件) を満たすものを鋳巣と判断している (自社)
-
-3. ご相談事項確認
-   - いただいた鋳巣の実寸値を教えていただけるか？以前岡戸様が計測しているとのことで、計測に使用した画像を渡しただけるのことでしたので、用意できましたらいただきたい。こちらでも計測させていただく (自社)
-     → まだ対応できていないので、随時対応させていただく (先方B)
+print(f"EDAグラフをPDFに保存しました: {pdf_filename}")
