@@ -17,15 +17,15 @@ independent_vars = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'ori
                     'aspect_ratio', 'max_length']
 
 x_axis_settings = {
-    'area': (0, 105, 5, 1),
-    'perimeter': (0, 105, 5, 1),
-    'eccentricity': (-1.6, 1.6, 0.2, 0.05),
-    'orientation': (0, 1.05, 0.05, 0.01),
-    'major_axis_length': (0, 120, 5, 1),
-    'minor_axis_length': (0, 35, 5, 1),
-    'solidity': (0, 1.1, 0.05, 0.01),
-    'extent': (0, 1.1, 0.05, 0.01),
-    'aspect_ratio': (0, 80, 5, 1)
+    'area': (0, 105, 5),
+    'perimeter': (0, 105, 5),
+    'eccentricity': (-1.6, 1.6, 0.2),
+    'orientation': (0, 1.05, 0.05),
+    'major_axis_length': (0, 120, 5),
+    'minor_axis_length': (0, 35, 5),
+    'solidity': (0, 1.1, 0.05),
+    'extent': (0, 1.1, 0.05),
+    'aspect_ratio': (0, 80, 5)
 }
 
 # 日本語フォントの設定
@@ -66,19 +66,11 @@ with PdfPages(pdf_filename) as pdf:
         plt.xlabel(var)
         plt.ylabel('欠陥ラベル')
         
-        # x軸の目盛りを設定
+        # x軸の範囲とステップを設定
         if var in x_axis_settings:
-            start, end, step, minor_step = x_axis_settings[var]
-            print(f"{var}: {start}, {end}, {step}, {minor_step}")  # デバッグ用
-            major_ticks = np.arange(start, end + step, step)
-            minor_ticks = np.arange(start, end + minor_step, minor_step)
-            ax.set_xlim(start, end)
-            ax.set_xticks(major_ticks)
-            ax.set_xticks(minor_ticks, minor=True)
-        else:
-            # 設定がない場合はデータの範囲を使用
-            start, end = df_sampled[var].min(), df_sampled[var].max()
-            ax.set_xlim(start, end)
+            start, end, step = x_axis_settings[var]
+            plt.xlim(start, end)
+            plt.xticks(np.arange(start, end + step, step))
         
         # y軸の目盛りを設定
         plt.yticks([0, 1], ['欠陥候補（非欠陥） (0)', '欠陥（中巣） (1)'])
