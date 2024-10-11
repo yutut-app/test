@@ -1,97 +1,121 @@
-### 1. 依存パッケージのインストール
-まず、必要なディレクトリを作成し、依存パッケージをインストールする。
+以下に、指定された内容をすべて反映した手順を示す。
+
+### 1. `GRUB`設定の変更
+まず、GRUBの設定を変更して、Cgroupの設定を無効化する。
 
 ```bash
-sudo mkdir -p /etc/apt/keyrings
-sudo apt-get install apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+sudo nano /etc/default/grub
 ```
 
-### 2. DockerのGPGキーを追加
-DockerのGPGキーを追加する。
+`GRUB_CMDLINE_LINUX_DEFAULT` の行を次のように変更する。
 
 ```bash
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+GRUB_CMDLINE_LINUX_DEFAULT="systemd.unified_cgroup_hierarchy=false"
 ```
 
-### 3. Dockerリポジトリの追加
-リポジトリを追加する。ここでは正確なリポジトリを使うようにしている。
+変更を保存したら、GRUBの設定を更新して反映させる。
 
 ```bash
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo update-grub
 ```
 
-### 4. パッケージリストの更新
-リポジトリを追加した後、パッケージリストを更新する。
+### 2. Cgroupドライバの変更
+次に、`containerd`の設定ファイルを作成し、Cgroupの設定を変更する。
 
+#### `containerd`のデフォルト設定をファイルに出力
 ```bash
-sudo apt-get update
+containerd config default > config.toml
 ```
 
-### 5. Dockerのインストール
-Dockerの本体と関連パッケージをインストールする。
+生成された `config.toml` ファイルを編集する。
 
 ```bash
-sudo apt-get install docker-ce docker-ce-cli containerd.io -y
+sudo nano config.toml
 ```
 
-### 6. Dockerグループにユーザーを追加
-まず、自分のユーザー名を確認するため、次のコマンドを実行する。
+`SystemdCgroup` を `false` から `true` に変更する。
 
-```bash
-whoami
+```toml
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = true
 ```
 
-確認したユーザー名を使って、以下のコマンドでDockerグループに追加する。
+変更後、この設定を `/etc/containerd/config.toml` に適用する。
 
 ```bash
-sudo gpasswd -a <your-username> docker
+cat config.toml | sudo tee /etc/containerd/config.toml
 ```
 
-ここで `<your-username>` には `whoami` で確認したユーザー名を入力する。
-
-### 7. Dockerサービスのセットアップ
-Dockerサービスの設定をリロードし、再起動する。
+次に、`containerd`サービスを再起動する。
 
 ```bash
-sudo mkdir -p /etc/systemd/system/docker.service.d
-sudo systemctl daemon-reload
+sudo systemctl restart containerd
+```
+
+### 3. デフォルトのコンテナランタイムの設定
+`Docker`の設定ファイルを編集し、NVIDIAランタイムをデフォルトに設定する。
+
+```bash
+sudo nano /etc/docker/daemon.json
+```
+
+次の内容を追記する。既に設定がある場合は、ランタイム部分のみを追記する。
+
+```json
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "/usr/bin/nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+```
+
+変更後、`Docker`サービスを再起動する。
+
+```bash
 sudo systemctl restart docker
 ```
 
-### 8. NVIDIA Dockerのインストール
-次に、NVIDIAコンテナツールキットのGPGキーを追加する。
+### 4. containerdの設定変更
+最後に、`containerd`の設定ファイルを編集する。まず、`/etc/containerd/config.toml` を開く。
 
 ```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+sudo nano /etc/containerd/config.toml
 ```
 
-### 9. NVIDIA Dockerリポジトリの追加
-NVIDIA Dockerのリポジトリを追加する。
+#### 9行目付近に次を追記
+```toml
+version = 2
+```
+
+#### デフォルトランタイムの変更
+次に、`runc`を`nvidia`に変更する。
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".containerd]
+  default_runtime_name = "nvidia"
+```
+
+#### NVIDIAランタイムの設定を追加
+ランタイム設定の次行に、次の内容を追加する。
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+  privileged_without_host_devices = false
+  runtime_engine = ""
+  runtime_root = ""
+  runtime_type = "io.containerd.runc.v2"
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+    BinaryName = "/usr/bin/nvidia-container-runtime"
+```
+
+変更後、再度`containerd`サービスを再起動する。
 
 ```bash
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo systemctl restart containerd
 ```
 
-### 10. パッケージリストの更新
-再度、パッケージリストを更新する。
-
-```bash
-sudo apt -y update
-```
-
-### 11. NVIDIA Dockerのインストール
-NVIDIAコンテナツールキットと関連パッケージをインストールする。
-
-```bash
-sudo apt-get install -y nvidia-container-runtime nvidia-container-toolkit nvidia-docker2
-```
-
-### 12. Dockerデーモンのリロード
-最後に、Dockerデーモンをリロードし、変更を反映させる。
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart docker
-```
+これで、Cgroupの設定変更とNVIDIAランタイムの設定が完了した。
