@@ -1,3 +1,42 @@
+`/etc/apt/sources.list.d/nvidia-container-toolkit.list`に誤ってHTMLファイルの内容が書き込まれた可能性があります。このエラーを解決するためには、まずそのファイルの内容を確認し、正しいリポジトリ情報に修正する必要があります。以下の手順で対応します。
+
+### 1. `nvidia-container-toolkit.list`の内容を確認
+まず、`nvidia-container-toolkit.list`の内容を確認します。
+
+```bash
+cat /etc/apt/sources.list.d/nvidia-container-toolkit.list
+```
+
+おそらくHTMLファイルのような内容が表示されるはずです。
+
+### 2. `nvidia-container-toolkit.list`の内容を削除
+次に、このファイルの内容を削除します。
+
+```bash
+sudo rm /etc/apt/sources.list.d/nvidia-container-toolkit.list
+```
+
+### 3. 正しいリポジトリ情報を再追加
+削除した後、正しいリポジトリを再度追加します。
+
+```bash
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+```
+
+### 4. パッケージリストの更新
+再度、パッケージリストを更新します。
+
+```bash
+sudo apt-get update
+```
+
+これで問題が解決し、次に進めるはずです。
+
+
+
+
 以下に、指定されたすべての手順を修正しながら説明します。
 
 ### 1. 依存パッケージのインストール
