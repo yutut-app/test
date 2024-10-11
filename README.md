@@ -1,51 +1,62 @@
-GPU対応のコンテナイメージを使って、Jupyter Notebook上でCNNや転移学習を実行できる環境を構築する手順を示す。
+次に進むために、まず適切なGPU対応のコンテナイメージを選択し、VSCode上で.ipynbファイルをGPUを使用して実行できるようにする手順を説明する。
 
-### 1. TensorFlowのGPU対応イメージを使用する
+### 1. GPU対応のコンテナイメージの選択
 
-TensorFlowやPyTorchなど、一般的なディープラーニングフレームワークの公式Dockerイメージを使うと、GPUを利用したモデルのトレーニングが可能になる。ここでは、`tensorflow/tensorflow:latest-gpu-jupyter` イメージを使用して、.ipynbファイルでCNNや転移学習を実装できる環境を構築する。
+VSCode上で事前学習および転移学習が実装できる最適なGPU対応のコンテナイメージとして、TensorFlowまたはPyTorchが含まれる公式のイメージが推奨される。
 
-#### TensorFlowのGPU対応Jupyterイメージをプルする
-以下のコマンドで、TensorFlowの最新のGPU対応Jupyterイメージを取得する。
+ここでは、**TensorFlowのGPU対応コンテナ**を使用する。これは、事前学習、転移学習の両方に対応しており、Jupyter Notebookサポートも組み込まれている。
+
+#### イメージの選択:
+```bash
+tensorflow/tensorflow:latest-gpu-jupyter
+```
+
+### 2. DockerでTensorFlowのGPUコンテナを起動
+
+次に、Docker上でGPU対応のTensorFlowコンテナを起動する。以下のコマンドを実行して、Jupyter Notebook付きのGPU対応TensorFlowコンテナを立ち上げる。
 
 ```bash
-sudo docker pull tensorflow/tensorflow:latest-gpu-jupyter
+sudo docker run --gpus all -it --rm -p 8888:8888 -v ~/path_to_your_notebooks:/tf/notebooks tensorflow/tensorflow:latest-gpu-jupyter
 ```
 
-### 2. コンテナの起動
-Jupyter Notebookを使用するため、ポートを指定してコンテナを起動する。また、`--gpus all` オプションで、GPUを利用可能な設定にする。
+#### コマンド説明:
+- `--gpus all`: GPUを使用可能にする
+- `-it`: インタラクティブモードでの起動
+- `--rm`: コンテナ終了後に自動で削除
+- `-p 8888:8888`: ホストのポート8888をコンテナのポート8888にバインド（Jupyter Notebook用）
+- `-v ~/path_to_your_notebooks:/tf/notebooks`: ローカルのノートブックフォルダをコンテナ内にマウント
 
-#### コンテナを起動するコマンド
-以下のコマンドで、TensorFlowのコンテナを起動する。
+`~/path_to_your_notebooks` の部分を、実際のノートブックファイルが保存されているディレクトリに置き換える。
 
-```bash
-sudo docker run --gpus all -it --rm -p 8888:8888 tensorflow/tensorflow:latest-gpu-jupyter
-```
-
-- `--gpus all`: すべてのGPUを使用可能にするオプション
-- `-it`: インタラクティブモードでコンテナを起動
-- `--rm`: コンテナ終了時に自動で削除
-- `-p 8888:8888`: ホストとコンテナのポート8888を接続し、Jupyter Notebookにアクセス可能にする
-
-### 3. Jupyter Notebookにアクセス
-コンテナが起動すると、Jupyter Notebookのアクセス用URLが表示される。URLは、以下のような形式になっている。
+### 3. コンテナ内のJupyter Notebookへのアクセス
+コンテナが立ち上がると、Jupyter Notebookが起動し、以下のような出力が表示される。
 
 ```
-http://localhost:8888/?token=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+To access the notebook, open this file in a browser:
+    http://localhost:8888/?token=<your_token>
 ```
 
-このURLをブラウザに貼り付けることで、Jupyter Notebookにアクセスできる。
+表示されたURLをブラウザにコピー＆ペーストして、Jupyter Notebookにアクセスできる。
 
-### 4. Jupyter Notebookでの作業
-Jupyter Notebook上で、`.ipynb` ファイルを開き、CNNや転移学習の実装を行う。TensorFlowのGPUサポートが有効になっているため、GPUを活用して効率的にモデルをトレーニングできる。
+### 4. VSCodeで.ipynbファイルを開く
+VSCodeからもJupyter Notebookにアクセスするために、以下の手順を行う。
 
-#### GPUが認識されているかの確認
-以下のコードをJupyter Notebookで実行して、TensorFlowがGPUを認識しているか確認できる。
+1. VSCodeの左側のサイドバーで、**Jupyter** 拡張機能をインストール。
+2. VSCodeの**コマンドパレット** (`Ctrl + Shift + P`) を開き、「**Jupyter: Specify Jupyter Server for Connections**」を選択する。
+3. 手動で `http://localhost:8888/?token=<your_token>` の形式で、JupyterサーバーのURLを入力。
 
+これで、VSCode上で直接Jupyter Notebook (.ipynbファイル) を開いて、GPUを使用して実行できるようになる。
+
+### 5. GPUが使用されているか確認
+
+最後に、.ipynbファイル内でGPUが使用されているかを確認するために、次のコードを実行する。
+
+#### TensorFlowの場合:
 ```python
 import tensorflow as tf
 print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 ```
 
-`Num GPUs Available` の出力が `1` 以上であれば、GPUが正常に認識されている。
+`Num GPUs Available: 1` 以上が表示されれば、GPUが正しく認識されている。
 
-これで、GPU対応のコンテナイメージを使用した環境が構築され、Jupyter NotebookでCNNや転移学習が実装できる状態になる。
+これで、VSCode上でGPUを使用して.ipynbファイルが実行できる環境が整った。
