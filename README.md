@@ -1,3 +1,7 @@
+sudo docker run --gpus all -it --rm -p 8888:8888 -v ~/path_to_your_notebooks:/tf/notebooks tensorflow/tensorflow:latest-gpu-jupyter --allow-root
+
+
+
 次に進むために、まず適切なGPU対応のコンテナイメージを選択し、VSCode上で.ipynbファイルをGPUを使用して実行できるようにする手順を説明する。
 
 ### 1. GPU対応のコンテナイメージの選択
