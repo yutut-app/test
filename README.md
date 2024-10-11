@@ -1,121 +1,51 @@
-以下に、指定された内容をすべて反映した手順を示す。
+GPU対応のコンテナイメージを使って、Jupyter Notebook上でCNNや転移学習を実行できる環境を構築する手順を示す。
 
-### 1. `GRUB`設定の変更
-まず、GRUBの設定を変更して、Cgroupの設定を無効化する。
+### 1. TensorFlowのGPU対応イメージを使用する
 
-```bash
-sudo nano /etc/default/grub
-```
+TensorFlowやPyTorchなど、一般的なディープラーニングフレームワークの公式Dockerイメージを使うと、GPUを利用したモデルのトレーニングが可能になる。ここでは、`tensorflow/tensorflow:latest-gpu-jupyter` イメージを使用して、.ipynbファイルでCNNや転移学習を実装できる環境を構築する。
 
-`GRUB_CMDLINE_LINUX_DEFAULT` の行を次のように変更する。
+#### TensorFlowのGPU対応Jupyterイメージをプルする
+以下のコマンドで、TensorFlowの最新のGPU対応Jupyterイメージを取得する。
 
 ```bash
-GRUB_CMDLINE_LINUX_DEFAULT="systemd.unified_cgroup_hierarchy=false"
+sudo docker pull tensorflow/tensorflow:latest-gpu-jupyter
 ```
 
-変更を保存したら、GRUBの設定を更新して反映させる。
+### 2. コンテナの起動
+Jupyter Notebookを使用するため、ポートを指定してコンテナを起動する。また、`--gpus all` オプションで、GPUを利用可能な設定にする。
+
+#### コンテナを起動するコマンド
+以下のコマンドで、TensorFlowのコンテナを起動する。
 
 ```bash
-sudo update-grub
+sudo docker run --gpus all -it --rm -p 8888:8888 tensorflow/tensorflow:latest-gpu-jupyter
 ```
 
-### 2. Cgroupドライバの変更
-次に、`containerd`の設定ファイルを作成し、Cgroupの設定を変更する。
+- `--gpus all`: すべてのGPUを使用可能にするオプション
+- `-it`: インタラクティブモードでコンテナを起動
+- `--rm`: コンテナ終了時に自動で削除
+- `-p 8888:8888`: ホストとコンテナのポート8888を接続し、Jupyter Notebookにアクセス可能にする
 
-#### `containerd`のデフォルト設定をファイルに出力
-```bash
-containerd config default > config.toml
+### 3. Jupyter Notebookにアクセス
+コンテナが起動すると、Jupyter Notebookのアクセス用URLが表示される。URLは、以下のような形式になっている。
+
+```
+http://localhost:8888/?token=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-生成された `config.toml` ファイルを編集する。
+このURLをブラウザに貼り付けることで、Jupyter Notebookにアクセスできる。
 
-```bash
-sudo nano config.toml
+### 4. Jupyter Notebookでの作業
+Jupyter Notebook上で、`.ipynb` ファイルを開き、CNNや転移学習の実装を行う。TensorFlowのGPUサポートが有効になっているため、GPUを活用して効率的にモデルをトレーニングできる。
+
+#### GPUが認識されているかの確認
+以下のコードをJupyter Notebookで実行して、TensorFlowがGPUを認識しているか確認できる。
+
+```python
+import tensorflow as tf
+print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 ```
 
-`SystemdCgroup` を `false` から `true` に変更する。
+`Num GPUs Available` の出力が `1` 以上であれば、GPUが正常に認識されている。
 
-```toml
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-  SystemdCgroup = true
-```
-
-変更後、この設定を `/etc/containerd/config.toml` に適用する。
-
-```bash
-cat config.toml | sudo tee /etc/containerd/config.toml
-```
-
-次に、`containerd`サービスを再起動する。
-
-```bash
-sudo systemctl restart containerd
-```
-
-### 3. デフォルトのコンテナランタイムの設定
-`Docker`の設定ファイルを編集し、NVIDIAランタイムをデフォルトに設定する。
-
-```bash
-sudo nano /etc/docker/daemon.json
-```
-
-次の内容を追記する。既に設定がある場合は、ランタイム部分のみを追記する。
-
-```json
-{
-  "default-runtime": "nvidia",
-  "runtimes": {
-    "nvidia": {
-      "path": "/usr/bin/nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  }
-}
-```
-
-変更後、`Docker`サービスを再起動する。
-
-```bash
-sudo systemctl restart docker
-```
-
-### 4. containerdの設定変更
-最後に、`containerd`の設定ファイルを編集する。まず、`/etc/containerd/config.toml` を開く。
-
-```bash
-sudo nano /etc/containerd/config.toml
-```
-
-#### 9行目付近に次を追記
-```toml
-version = 2
-```
-
-#### デフォルトランタイムの変更
-次に、`runc`を`nvidia`に変更する。
-
-```toml
-[plugins."io.containerd.grpc.v1.cri".containerd]
-  default_runtime_name = "nvidia"
-```
-
-#### NVIDIAランタイムの設定を追加
-ランタイム設定の次行に、次の内容を追加する。
-
-```toml
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
-  privileged_without_host_devices = false
-  runtime_engine = ""
-  runtime_root = ""
-  runtime_type = "io.containerd.runc.v2"
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
-    BinaryName = "/usr/bin/nvidia-container-runtime"
-```
-
-変更後、再度`containerd`サービスを再起動する。
-
-```bash
-sudo systemctl restart containerd
-```
-
-これで、Cgroupの設定変更とNVIDIAランタイムの設定が完了した。
+これで、GPU対応のコンテナイメージを使用した環境が構築され、Jupyter NotebookでCNNや転移学習が実装できる状態になる。
