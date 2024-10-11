@@ -1,53 +1,111 @@
+以下の手順に従って、Docker のインストールを進めてください。示された手順にはいくつかの誤字が含まれていますので、それらを修正しながら説明します。
+
 ### 1. 必要なパッケージのインストール
-最初に `ubuntu-drivers-common` パッケージをインストールします。これは、Ubuntu がインストール可能なドライバを検出できるようにするツールです。
+
+まず、Docker インストールに必要なパッケージをインストールします。`apt-transport-https` などが含まれています。
 
 ```bash
-sudo apt install -y ubuntu-drivers-common
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg-agent software-properties-common
 ```
 
-### 2. インストール可能なドライバの確認
-次に、利用可能な NVIDIA ドライバを確認します。
+### 2. Docker の GPG キーを追加
+
+次に、Docker の GPG キーを追加します。最新のキーを追加し、認証に使用します。
 
 ```bash
-ubuntu-drivers devices
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 ```
 
-これにより、利用可能な GPU ドライバがリストされ、推奨されるドライバも表示されます。通常、推奨されたドライバをインストールするのが最も安全です。
+### 3. Docker のリポジトリを設定
 
-### 3. PPA リポジトリの追加
-最新の NVIDIA ドライバを入手するために、NVIDIA の PPA リポジトリを追加します。
+リポジトリを追加して、Docker のパッケージを取得できるようにします。リポジトリのパスに誤りがあったため、修正したものを使用します。
 
 ```bash
-sudo -E add-apt-repository ppa:graphics-drivers/ppa
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 ```
 
 ### 4. パッケージリストの更新
-次に、リポジトリを追加した後、パッケージリストを更新します。
+
+Docker リポジトリを追加した後、パッケージリストを更新します。
 
 ```bash
 sudo apt-get update
 ```
 
-### 5. NVIDIA ドライバのインストール
-NVIDIA ドライバの最新バージョンである `535` をインストールするには、以下のコマンドを使用します。
+### 5. Docker のインストール
+
+次に、Docker CE（Community Edition）、CLI、および containerd をインストールします。
 
 ```bash
-sudo apt-get install nvidia-driver-535
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io
 ```
 
-もし、EC2 の環境で別のバージョンのドライバが推奨されている場合、リストからそのバージョンを選んでインストールすることもできます。
+### 6. Docker グループにユーザーを追加
 
-### 6. 再起動
-インストールが完了したら、システムを再起動して新しいドライバを適用します。
+`sudo` なしで Docker コマンドを実行できるように、現在のユーザーを Docker グループに追加します。`<>` にはユーザー名を入れてください。通常は `$(whoami)` で現在のユーザーを取得できます。
 
 ```bash
-sudo reboot
+sudo gpasswd -a $(whoami) docker
 ```
 
-### 7. ドライバのインストール確認
-再起動後、正しく NVIDIA ドライバがインストールされているか確認するため、以下のコマンドを実行します。
+その後、セッションを再起動する必要があります。
 
 ```bash
-nvidia-smi
+newgrp docker
 ```
 
+### 7. Docker サービスの設定と再起動
+
+Docker のサービスを再起動して有効にします。
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```
+
+### 8. NVIDIA Container Toolkit のインストール（オプション）
+
+もし GPU を使用するために NVIDIA のサポートが必要であれば、次の手順で NVIDIA コンテナツールキットをインストールできます。
+
+#### (1) NVIDIA GPG キーの追加
+
+```bash
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+```
+
+#### (2) NVIDIA コンテナツールキットのリポジトリの追加
+
+```bash
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/ubuntu18.04/$(arch)/nvidia-container-toolkit.list | \
+sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+```
+
+#### (3) パッケージリストの更新
+
+```bash
+sudo apt-get update
+```
+
+#### (4) NVIDIA Docker のインストール
+
+```bash
+sudo apt-get install -y nvidia-container-runtime nvidia-container-toolkit nvidia-docker2
+```
+
+#### (5) Docker の再起動
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```
+
+### 9. Docker の動作確認
+
+最後に、Docker のインストールが正常に行われたか確認するために、以下のコマンドを実行してみてください。
+
+```bash
+docker --version
+docker run hello-world
+```
