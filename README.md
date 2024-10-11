@@ -1,45 +1,52 @@
-DockerとNVIDIA Dockerのインストール手順を修正しつつ、以下にまとめました。間違いがあった部分を修正しています。
+以下に、指定されたすべての手順を修正しながら説明します。
 
-### 1. 必要なパッケージのインストール
-まず、Dockerのインストールに必要なパッケージをインストールします。
-
-```bash
-sudo apt-get install apt-transport-https ca-certificates curl gnupg-agent software-properties-common
-```
-
-### 2. Docker GPGキーの取得
-次に、Dockerの公式GPGキーを取得します。
+### 1. 依存パッケージのインストール
+まず、必要なディレクトリを作成し、依存パッケージをインストールします。
 
 ```bash
 sudo mkdir -p /etc/apt/keyrings
+sudo apt-get install apt-transport-https ca-certificates curl gnupg-agent software-properties-common
+```
+
+### 2. DockerのGPGキーを追加
+次に、DockerのGPGキーを追加します。
+
+```bash
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 ```
 
-### 3. Dockerリポジトリの追加
-次に、Dockerリポジトリを追加します。
+### 3. Dockerのリポジトリを追加
+リポジトリを追加する際、間違いがあったので修正しました。以下のように正しいリポジトリを追加してください。
 
 ```bash
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-$(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 ```
 
-### 4. Dockerのインストール
-リポジトリを追加したら、パッケージリストを更新し、Dockerをインストールします。
+### 4. パッケージリストの更新
+リポジトリを追加後、パッケージリストを更新します。
 
 ```bash
 sudo apt-get update
+```
+
+### 5. Dockerのインストール
+Docker本体と関連パッケージをインストールします。
+
+```bash
 sudo apt-get install docker-ce docker-ce-cli containerd.io -y
 ```
 
-### 5. ユーザーを`docker`グループに追加
-現在のユーザーをDockerグループに追加して、パスワードなしでDockerを実行できるようにします。`<user>`の部分を実際のユーザー名に置き換えてください。
+### 6. ユーザーをDockerグループに追加
+`<>`には、実際のユーザー名を入力してください。
 
 ```bash
-sudo usermod -aG docker $USER
+sudo gpasswd -a <your-username> docker
 ```
 
-### 6. Dockerサービスの設定と再起動
-Dockerの設定ファイルを作成し、システムデーモンをリロードしてDockerを再起動します。
+これで、現在のユーザーがDockerコマンドをパスワードなしで実行できるようになります。
+
+### 7. Dockerサービスのセットアップ
+Dockerサービスの設定をリロードし、再起動します。
 
 ```bash
 sudo mkdir -p /etc/systemd/system/docker.service.d
@@ -47,41 +54,42 @@ sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
 
-### 7. NVIDIA Dockerのインストール
-次に、NVIDIA Container Toolkitをインストールします。
+### 8. NVIDIA Dockerのインストール
+次に、NVIDIAコンテナツールキットのGPGキーを追加します。
 
-#### GPGキーの取得
 ```bash
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 ```
 
-#### リポジトリの設定
-リポジトリの設定を行います。
+### 9. NVIDIA Dockerリポジトリの追加
+NVIDIA Dockerのリポジトリを追加します。ここでも軽微な修正を加えています。
 
 ```bash
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/ubuntu18.04/libnvidia-container.list | \
-sudo sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
 sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 ```
 
-#### パッケージリストの更新とNVIDIA Dockerのインストール
+### 10. パッケージリストの更新
+再度、パッケージリストを更新します。
+
 ```bash
-sudo apt-get update
+sudo apt -y update
+```
+
+### 11. NVIDIA Dockerのインストール
+次に、NVIDIAコンテナツールキットと関連パッケージをインストールします。
+
+```bash
 sudo apt-get install -y nvidia-container-runtime nvidia-container-toolkit nvidia-docker2
 ```
 
-### 8. Dockerの再起動
-最後に、Dockerデーモンをリロードし、再起動します。
+### 12. Dockerデーモンのリロード
+最後に、Dockerデーモンをリロードして、変更を反映させます。
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
 
-これで、DockerとNVIDIA Dockerのインストールが完了です。インストール後、以下のコマンドでNVIDIA Dockerが正しく設定されているか確認できます。
-
-```bash
-docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi
-```
-
-エラーが出た場合や問題があれば教えてください。
+これでDockerとNVIDIA Dockerのセットアップは完了です。`docker run --gpus all`を使って、GPUを活用したコンテナを実行できるようになります。
