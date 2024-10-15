@@ -15,11 +15,24 @@ features = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation
             'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
             'aspect_ratio', 'max_length']
 
-X = df[features]
-y = df['defect_label']
+# OKデータとNGデータを分離
+df_ok = df[df['defect_label'] == 0]
+df_ng = df[df['defect_label'] == 1]
 
-# データの分割（学習データとテストデータは同じものを使用）
-X_train, X_test, y_train, y_test = X, X, y, y
+# OKデータを学習データとテストデータに分割
+X_ok = df_ok[features]
+y_ok = df_ok['defect_label']
+X_ok_train, X_ok_test, y_ok_train, y_ok_test = train_test_split(X_ok, y_ok, test_size=0.2, random_state=42)
+
+# NGデータは全て使用
+X_ng = df_ng[features]
+y_ng = df_ng['defect_label']
+
+# 学習データとテストデータの作成
+X_train = pd.concat([X_ok_train, X_ng])
+y_train = pd.concat([y_ok_train, y_ng])
+X_test = pd.concat([X_ok_test, X_ng])
+y_test = pd.concat([y_ok_test, y_ng])
 
 # ランダムフォレスト分類器のインスタンスを作成
 classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-1, random_state=42)
@@ -42,13 +55,18 @@ print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
 print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
 print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
 
+# テストデータのインデックスを取得
+test_index = X_test.index
+
+# 元のデータフレームにテストデータの予測結果を追加
+df.loc[test_index, 'predicted_label'] = y_pred
+
 # ワークごとの予測
-df['predicted_label'] = y_pred
 df['work_predicted_label'] = df.groupby('work_id')['predicted_label'].transform('max')
 
-# ワークごとの精度指標の計算
-work_true = df.groupby('work_id')['defect_label'].max()
-work_pred = df.groupby('work_id')['work_predicted_label'].first()
+# ワークごとの精度指標の計算（テストデータのみ）
+work_true = df.loc[test_index].groupby('work_id')['defect_label'].max()
+work_pred = df.loc[test_index].groupby('work_id')['work_predicted_label'].first()
 
 work_tn, work_fp, work_fn, work_tp = confusion_matrix(work_true, work_pred).ravel()
 
