@@ -17,31 +17,26 @@ features = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation
             'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
             'aspect_ratio', 'max_length']
 
-# ワークごとにデータを集約
-work_data = df.groupby('work_id').agg({
-    **{feature: 'mean' for feature in features},
-    'defect_label': 'max'  # ワーク内に1つでも欠陥があれば1とする
-})
+# ワークごとにデータを分割
+defect_works = df[df['defect_label'] == 1]['work_id'].unique()
+non_defect_works = df[df['defect_label'] == 0]['work_id'].unique()
 
-# 欠陥のあるワークとないワークを分離
-defect_works = work_data[work_data['defect_label'] == 1]
-non_defect_works = work_data[work_data['defect_label'] == 0]
+# 欠陥のあるワークと欠陥のないワークを別々に分割
+defect_train, defect_test = train_test_split(defect_works, test_size=0.2, random_state=42)
+non_defect_train, non_defect_test = train_test_split(non_defect_works, test_size=0.2, random_state=42)
 
-# 欠陥のあるワークを学習データとテストデータに分割
-defect_train, defect_test = train_test_split(defect_works, test_size=0.3, random_state=42)
+# 訓練データとテストデータのワークIDを結合
+train_works = np.concatenate([defect_train, non_defect_train])
+test_works = np.concatenate([defect_test, non_defect_test])
 
-# 欠陥のないワークを学習データとテストデータに分割
-non_defect_train, non_defect_test = train_test_split(non_defect_works, test_size=0.3, random_state=42)
+# データを分割
+train_df = df[df['work_id'].isin(train_works)]
+test_df = df[df['work_id'].isin(test_works)]
 
-# 学習データとテストデータを結合
-train_data = pd.concat([defect_train, non_defect_train])
-test_data = pd.concat([defect_test, non_defect_test])
-
-# 特徴量と目的変数を分離
-X_train = train_data[features]
-y_train = train_data['defect_label']
-X_test = test_data[features]
-y_test = test_data['defect_label']
+X_train = train_df[features]
+y_train = train_df['defect_label']
+X_test = test_df[features]
+y_test = test_df['defect_label']
 
 # ランダムフォレスト分類器のインスタンスを作成
 classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-1, random_state=42)
@@ -49,40 +44,39 @@ classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-
 # 訓練データをモデルに適合させる
 classifier.fit(X_train, y_train)
 
-# テストデータで予測を実施（ワークごと）
-y_pred_work = classifier.predict(X_test)
-
-# ワークごとの精度指標の計算
-tn_work, fp_work, fn_work, tp_work = confusion_matrix(y_test, y_pred_work).ravel()
-
-fnr_work = fn_work / (fn_work + tp_work)  # False Negative Rate (見逃し率)
-fpr_work = fp_work / (fp_work + tn_work)  # False Positive Rate (見過ぎ率)
-acc_work = accuracy_score(y_test, y_pred_work)  # 正解率
-
-print("ワークごとの精度指標:")
-print(f"見逃し率: {fnr_work:.2%} ({fn_work}/{fn_work+tp_work})")
-print(f"見過ぎ率: {fpr_work:.2%} ({fp_work}/{fp_work+tn_work})")
-print(f"正解率: {acc_work:.2%} ({(y_test == y_pred_work).sum()}/{len(y_test)})")
-
-# 欠陥ごとの精度を計算するために、元のデータセットでテストを行う
-test_works = test_data.index
-X_test_defect = df[df['work_id'].isin(test_works)][features]
-y_test_defect = df[df['work_id'].isin(test_works)]['defect_label']
-
-# 欠陥ごとの予測
-y_pred_defect = classifier.predict(X_test_defect)
+# テストデータで予測を実施
+y_pred = classifier.predict(X_test)
 
 # 欠陥ごとの精度指標の計算
-tn_defect, fp_defect, fn_defect, tp_defect = confusion_matrix(y_test_defect, y_pred_defect).ravel()
+tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
-fnr_defect = fn_defect / (fn_defect + tp_defect)  # False Negative Rate (見逃し率)
-fpr_defect = fp_defect / (fp_defect + tn_defect)  # False Positive Rate (誤検出率)
-acc_defect = accuracy_score(y_test_defect, y_pred_defect)  # 正解率
+fnr = fn / (fn + tp)  # False Negative Rate
+fpr = fp / (fp + tn)  # False Positive Rate
+acc = accuracy_score(y_test, y_pred)
 
-print("\n欠陥ごとの精度指標:")
-print(f"見逃し率: {fnr_defect:.2%} ({fn_defect}/{fn_defect+tp_defect})")
-print(f"誤検出率: {fpr_defect:.2%} ({fp_defect}/{fp_defect+tn_defect})")
-print(f"正解率: {acc_defect:.2%} ({(y_test_defect == y_pred_defect).sum()}/{len(y_test_defect)})")
+print("欠陥ごとの精度指標:")
+print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
+print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
+print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
+
+# ワークごとの予測
+test_df['predicted_label'] = y_pred
+test_df['work_predicted_label'] = test_df.groupby('work_id')['predicted_label'].transform('max')
+
+# ワークごとの精度指標の計算
+work_true = test_df.groupby('work_id')['defect_label'].max()
+work_pred = test_df.groupby('work_id')['work_predicted_label'].first()
+
+work_tn, work_fp, work_fn, work_tp = confusion_matrix(work_true, work_pred).ravel()
+
+work_fnr = work_fn / (work_fn + work_tp)  # 見逃し率
+work_fpr = work_fp / (work_fp + work_tn)  # 見過ぎ率
+work_acc = accuracy_score(work_true, work_pred)  # 正解率
+
+print("\nワークごとの精度指標:")
+print(f"見逃し率: {work_fnr:.2%} ({work_fn}/{work_fn+work_tp})")
+print(f"見過ぎ率: {work_fpr:.2%} ({work_fp}/{work_fp+work_tn})")
+print(f"正解率: {work_acc:.2%} ({(work_true == work_pred).sum()}/{len(work_true)})")
 
 # 特徴量の重要度を表示
 feature_importance = pd.DataFrame({'feature': features, 'importance': classifier.feature_importances_})
