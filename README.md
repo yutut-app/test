@@ -1,40 +1,121 @@
-Isolation Forestのフローを初学者向けに詳しく説明する。具体的なパラメータや設定値、手法も含める。
+承知しました。特徴量による分類（ランダムフォレスト）のコードを、ワークレベルでのデータ分割とトレーニングデータのみのオーバーサンプリングを考慮して、省略せずに全て生成します。
 
-1. [`データ前処理`]
-   - 特徴量の設定: 分析に使用する特徴（例：幅、高さ、面積など）を選択する。
-   - ワークごとのデータ集約: 同じワークID内のデータをグループ化する。
+```python
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
+from imblearn.over_sampling import RandomOverSampler
+from collections import Counter
 
-2. [`特徴空間の準備`]
-   - 特徴量（X）の抽出: 選択した特徴量のみをデータフレームから抽出する。
-   - 異常スコア計算用のデータセット作成: 抽出した特徴量を使用してデータセットを作成する。
+# データの読み込み（前のステップで使用したdfを使用すると仮定）
+# df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
 
-3. [`アノマリー比率の設定`]
-   - contamination パラメータの設定: データセット内の予想される異常データの割合を指定する。例えば、0.003（0.3%）に設定する。
-   - この値は、データセットの特性や過去の経験に基づいて決定する。
+# 特徴量と目的変数の設定
+features = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation', 
+            'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
+            'aspect_ratio', 'max_length']
 
-4. [`モデル構築`]
-   - Isolation Forest のハイパーパラメータ設定:
-     - n_estimators: 決定木の数（例：100）
-     - max_features: 各決定木で使用する特徴量の数（例：1）
-     - random_state: 再現性のための乱数シード（例：42）
-   - モデルの学習と予測の同時実行: fit_predict() メソッドを使用して、データの学習と異常の予測を同時に行う。
+# ワークレベルでデータを分割
+unique_works = df['work_id'].unique()
+train_works, test_works = train_test_split(unique_works, test_size=0.2, 
+                                           stratify=df.groupby('work_id')['defect_label'].max(), 
+                                           random_state=42)
 
-5. [`異常スコアの算出`]
-   - 各データポイントの異常度スコアの計算: score_samples() メソッドを使用して計算する。
-   - 閾値（decision function）の決定: モデルが自動的に決定する閾値を使用する。
+# トレーニングデータとテストデータを作成
+train_df = df[df['work_id'].isin(train_works)]
+test_df = df[df['work_id'].isin(test_works)]
 
-6. [`モデル評価`]
-   - 予測ラベルと真のラベルの比較: モデルの予測結果と実際のラベルを比較する。
-   - 混同行列の作成: TP（真陽性）、FP（偽陽性）、TN（真陰性）、FN（偽陰性）を計算する。
-   - 評価指標の計算:
-     - 見逃し率 = FN / (FN + TP)
-     - 誤検出率 = FP / (FP + TN)
-     - 正解率 = (TP + TN) / 総データ数
-   - ワークレベルでの予測と評価: 各ワーク内で1つでも異常と判定されたら、そのワーク全体を異常と判定する。
+X_train = train_df[features]
+y_train = train_df['defect_label']
+X_test = test_df[features]
+y_test = test_df['defect_label']
 
-7. [`結果分析`]
-   - 特徴量と異常スコアの相関分析: 各特徴量と計算された異常スコアの相関係数を計算する。
-   - 性能指標の解釈: 計算された評価指標を基に、モデルの性能を判断する。
-   - モデルの改善点の検討: 性能が不十分な場合、パラメータの調整や特徴量の選択を再検討する。
+# トレーニングデータの初期クラス分布を確認
+print("Training set class distribution before oversampling:")
+print(Counter(y_train))
 
-このフローは、Isolation Forestを使用した異常検知の基本的なプロセスを示す。各ステップで適切なパラメータや手法を選択することで、効果的な異常検知モデルを構築できる。
+# RandomOverSamplerを使用してトレーニングデータのバランスを調整
+ros = RandomOverSampler(sampling_strategy=0.1, random_state=42)
+X_train_resampled, y_train_resampled = ros.fit_resample(X_train, y_train)
+
+# オーバーサンプリング後のトレーニングデータのクラス分布を確認
+print("Training set class distribution after oversampling:")
+print(Counter(y_train_resampled))
+
+# ランダムフォレスト分類器のインスタンスを作成（パラメータを調整）
+classifier = RandomForestClassifier(
+    n_estimators=500,
+    max_depth=None,
+    min_samples_split=2,
+    min_samples_leaf=1,
+    class_weight={0: 1, 1: 10},  # 少数クラスの重みを設定
+    criterion='gini',
+    n_jobs=-1,
+    random_state=42
+)
+
+# 訓練データをモデルに適合させる
+classifier.fit(X_train_resampled, y_train_resampled)
+
+# テストデータで予測を実施
+y_pred_proba = classifier.predict_proba(X_test)[:, 1]
+threshold = 0.01  # 閾値を非常に低く設定して見逃しを減らす
+y_pred = (y_pred_proba >= threshold).astype(int)
+
+# 欠陥ごとの精度指標の計算
+tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+
+fnr = fn / (fn + tp)  # False Negative Rate
+fpr = fp / (fp + tn)  # False Positive Rate
+acc = accuracy_score(y_test, y_pred)
+
+print("\n欠陥ごとの精度指標:")
+print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
+print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
+print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
+
+# ワークごとの予測
+test_df['predicted_label'] = y_pred
+test_df['work_predicted_label'] = test_df.groupby('work_id')['predicted_label'].transform('max')
+
+# ワークごとの精度指標の計算
+work_true = test_df.groupby('work_id')['defect_label'].max()
+work_pred = test_df.groupby('work_id')['work_predicted_label'].first()
+
+work_tn, work_fp, work_fn, work_tp = confusion_matrix(work_true, work_pred).ravel()
+
+work_fnr = work_fn / (work_fn + work_tp)  # 見逃し率
+work_fpr = work_fp / (work_fp + work_tn)  # 見過ぎ率
+work_acc = accuracy_score(work_true, work_pred)  # 正解率
+
+print("\nワークごとの精度指標:")
+print(f"見逃し率: {work_fnr:.2%} ({work_fn}/{work_fn+work_tp})")
+print(f"見過ぎ率: {work_fpr:.2%} ({work_fp}/{work_fp+work_tn})")
+print(f"正解率: {work_acc:.2%} ({(work_true == work_pred).sum()}/{len(work_true)})")
+
+# 特徴量の重要度を表示
+feature_importance = pd.DataFrame({'feature': features, 'importance': classifier.feature_importances_})
+feature_importance = feature_importance.sort_values('importance', ascending=False)
+print("\n特徴量の重要度:")
+print(feature_importance)
+
+# テストデータの欠陥ワーク数を確認
+test_defect_works = test_df[test_df['defect_label'] == 1]['work_id'].nunique()
+print(f"\nテストデータに含まれる欠陥ワーク数: {test_defect_works}")
+```
+
+このコードでは以下の改善が行われています：
+
+1. ワークレベルでデータを分割しています。これにより、同じワークのデータが訓練セットとテストセットの両方に含まれることを防いでいます。
+
+2. トレーニングデータのみをオーバーサンプリングしています。テストデータは元の分布を維持しています。
+
+3. オーバーサンプリング前後のクラス分布を表示しています。これにより、データ不均衡がどの程度改善されたかを確認できます。
+
+4. テストデータに含まれる欠陥ワーク数を表示しています。これにより、テストデータに欠陥サンプルが含まれているかを確認できます。
+
+このアプローチにより、モデルの評価がより現実的になり、過学習のリスクも軽減されます。ただし、欠陥ワークが非常に少ないため、テストデータに欠陥ワークが含まれない可能性があります。その場合、モデルの性能評価が難しくなる可能性があるので注意が必要です。
+
+結果を確認し、必要に応じてさらなる調整（例：クロスバリデーションの導入、異なるオーバーサンプリング手法の試行など）を検討してください。
