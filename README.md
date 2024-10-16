@@ -1,19 +1,10 @@
-ご質問ありがとうございます。ランダムフォレストと標準化、SMOTEに関して説明いたします。
+申し訳ありません。このエラーは、SMOTETomekを使用する際に、少数クラスのサンプル数が不足していることを示しています。エラーメッセージの意味は以下の通りです：
 
-1. ランダムフォレストと標準化：
-ランダムフォレストは、決定木をベースにしているため、基本的にはデータの標準化を必要としません。各特徴量のスケールに対して比較的ロバストです。
+- n_neighbors: SMOTEが新しいサンプルを生成する際に使用する近傍サンプルの数（デフォルトは6）
+- n_samples_fit: 少数クラスの実際のサンプル数（この場合は3）
+- n_samples: 全体のサンプル数
 
-2. SMOTEと標準化：
-SMOTEは新しいサンプルを生成する際に特徴空間を使用するため、特徴量のスケールが大きく異なる場合、標準化が有効な場合があります。しかし、必須ではありません。
-
-3. 今回のデータの場合：
-提供されたデータの不均衡が非常に極端であることを考慮すると、以下のアプローチを提案します：
-
-a) 標準化は行わない
-b) SMOTEの代わりに、より極端な不均衡に対応できる手法を使用する
-c) ランダムフォレストのパラメータを調整して、少数クラスの検出を重視する
-
-これらを踏まえて、コードを以下のように修正します：
+エラーを解決し、データの極端な不均衡に対応するために、コードを以下のように修正します：
 
 ```python
 import pandas as pd
@@ -21,8 +12,8 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
-from imblearn.over_sampling import ADASYN
-from imblearn.combine import SMOTETomek
+from imblearn.over_sampling import RandomOverSampler
+from collections import Counter
 
 # データの読み込み（前のステップで使用したdfを使用すると仮定）
 # df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
@@ -53,9 +44,17 @@ y_train = train_df['defect_label']
 X_test = test_df[features]
 y_test = test_df['defect_label']
 
-# SMOTETomekを使用してデータのバランスを調整
-smote_tomek = SMOTETomek(sampling_strategy=0.1, random_state=42)
-X_train_resampled, y_train_resampled = smote_tomek.fit_resample(X_train, y_train)
+# クラスの分布を確認
+print("Training set class distribution before oversampling:")
+print(Counter(y_train))
+
+# RandomOverSamplerを使用してデータのバランスを調整
+ros = RandomOverSampler(sampling_strategy=0.1, random_state=42)
+X_train_resampled, y_train_resampled = ros.fit_resample(X_train, y_train)
+
+# オーバーサンプリング後のクラスの分布を確認
+print("Training set class distribution after oversampling:")
+print(Counter(y_train_resampled))
 
 # ランダムフォレスト分類器のインスタンスを作成（パラメータを調整）
 classifier = RandomForestClassifier(
@@ -63,7 +62,7 @@ classifier = RandomForestClassifier(
     max_depth=None,
     min_samples_split=2,
     min_samples_leaf=1,
-    class_weight={0: 1, 1: 100},  # 少数クラスの重みを大きく設定
+    class_weight={0: 1, 1: 10},  # 少数クラスの重みを設定
     criterion='gini',
     n_jobs=-1,
     random_state=42
@@ -84,7 +83,7 @@ fnr = fn / (fn + tp)  # False Negative Rate
 fpr = fp / (fp + tn)  # False Positive Rate
 acc = accuracy_score(y_test, y_pred)
 
-print("欠陥ごとの精度指標:")
+print("\n欠陥ごとの精度指標:")
 print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
 print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
 print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
@@ -117,12 +116,20 @@ print(feature_importance)
 
 主な変更点：
 
-1. 標準化を削除しました。
-2. SMOTEの代わりにSMOTETomekを使用しました。これにより、オーバーサンプリングとアンダーサンプリングを組み合わせて、より効果的にデータのバランスを調整します。
-3. ランダムフォレストのパラメータを調整しました：
-   - `n_estimators`を500に増やし、モデルの複雑性を上げました。
-   - `class_weight`を{0: 1, 1: 100}に設定し、少数クラスの重みを大きくしました。
-   - その他のパラメータも調整して、過学習を防ぎつつ少数クラスの検出を重視します。
-4. 予測時の閾値を0.01に下げ、見逃しをさらに減らすようにしました。
+1. SMOTETomekの代わりにRandomOverSamplerを使用しました。これは単純なオーバーサンプリング手法で、少数クラスのサンプルを複製することでデータのバランスを調整します。
 
-このアプローチにより、FN/(FN+TP) (見逃し率)を0%に近づけつつ、FP/(FP+TN) (誤検出率)を可能な限り低く抑えることを目指しています。結果を確認し、必要に応じてさらにパラメータを調整してください。
+2. オーバーサンプリングの比率を0.1に設定しました。これにより、少数クラスのサンプル数を多数クラスの10%まで増やします。
+
+3. クラスの分布を確認するコードを追加し、オーバーサンプリング前後のクラス分布を表示するようにしました。
+
+4. ランダムフォレストのclass_weightパラメータを{0: 1, 1: 10}に変更しました。これは、オーバーサンプリング後のデータ分布に合わせて調整しています。
+
+このアプローチにより、極端なデータの不均衡に対処しつつ、FN/(FN+TP) (見逃し率)を0%に近づけ、FP/(FP+TN) (誤検出率)を可能な限り低く抑えることを目指しています。
+
+結果を確認し、必要に応じて以下のパラメータをさらに調整することができます：
+
+1. RandomOverSamplerのsampling_strategy
+2. ランダムフォレストのパラメータ（特にclass_weight）
+3. 予測時の閾値
+
+これらの調整を行いながら、見逃し率を0%に保ちつつ、誤検出率を最小化することを目指してください。
