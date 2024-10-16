@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, accuracy_score
+from sklearn.metrics import accuracy_score, confusion_matrix, recall_score, precision_score
+from imblearn.over_sampling import SMOTE
 
 # データの読み込み（前のステップで使用したdfを使用すると仮定）
 # df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
@@ -21,36 +22,39 @@ y = df['defect_label']
 # データの分割（学習データとテストデータを分ける）
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
+# SMOTEを使用してオーバーサンプリング
+smote = SMOTE(random_state=42)
+X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+
 # ランダムフォレスト分類器のインスタンスを作成
-classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-1, random_state=42)
+classifier = RandomForestClassifier(n_estimators=100, criterion='gini', class_weight='balanced', n_jobs=-1, random_state=42)
 
 # 訓練データをモデルに適合させる
-classifier.fit(X_train, y_train)
+classifier.fit(X_train_resampled, y_train_resampled)
 
-# テストデータで予測確率を計算
+# テストデータで予測を実施（確率で出力）
 y_pred_proba = classifier.predict_proba(X_test)[:, 1]
 
-# 最適な閾値を見つける関数
-def find_optimal_threshold(y_true, y_pred_proba):
-    thresholds = np.linspace(0, 1, 1000)
-    best_threshold = 0
-    best_fp = len(y_true)  # 初期値を最大に設定
-    
-    for threshold in thresholds:
-        y_pred = (y_pred_proba >= threshold).astype(int)
-        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-        
-        if fn == 0 and fp < best_fp:
-            best_threshold = threshold
-            best_fp = fp
-    
-    return best_threshold
+# 閾値を調整して予測を行う関数
+def predict_with_threshold(y_pred_proba, threshold):
+    return (y_pred_proba >= threshold).astype(int)
 
 # 最適な閾値を見つける
-optimal_threshold = find_optimal_threshold(y_test, y_pred_proba)
+thresholds = np.arange(0, 1, 0.01)
+best_threshold = 0
+best_precision = 0
 
-# 最適な閾値を使用して予測
-y_pred = (y_pred_proba >= optimal_threshold).astype(int)
+for threshold in thresholds:
+    y_pred = predict_with_threshold(y_pred_proba, threshold)
+    recall = recall_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred)
+    
+    if recall == 1.0 and precision > best_precision:
+        best_threshold = threshold
+        best_precision = precision
+
+# 最適な閾値で予測
+y_pred = predict_with_threshold(y_pred_proba, best_threshold)
 
 # 欠陥ごとの精度指標の計算
 tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
@@ -59,11 +63,11 @@ fnr = fn / (fn + tp)  # False Negative Rate
 fpr = fp / (fp + tn)  # False Positive Rate
 acc = accuracy_score(y_test, y_pred)
 
-print(f"最適な閾値: {optimal_threshold:.4f}")
-print("\n欠陥ごとの精度指標 (テストデータ):")
+print("欠陥ごとの精度指標 (テストデータ):")
 print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
 print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
 print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
+print(f"最適な閾値: {best_threshold:.2f}")
 
 # テストデータのインデックスを取得
 test_indices = y_test.index
