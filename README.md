@@ -49,20 +49,40 @@ classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-
 # 訓練データをモデルに適合させる
 classifier.fit(X_train, y_train)
 
-# テストデータで予測を実施
-y_pred = classifier.predict(X_test)
+# テストデータで予測を実施（ワークごと）
+y_pred_work = classifier.predict(X_test)
 
 # ワークごとの精度指標の計算
-tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+tn_work, fp_work, fn_work, tp_work = confusion_matrix(y_test, y_pred_work).ravel()
 
-fnr = fn / (fn + tp)  # False Negative Rate (見逃し率)
-fpr = fp / (fp + tn)  # False Positive Rate (見過ぎ率)
-acc = accuracy_score(y_test, y_pred)  # 正解率
+fnr_work = fn_work / (fn_work + tp_work)  # False Negative Rate (見逃し率)
+fpr_work = fp_work / (fp_work + tn_work)  # False Positive Rate (見過ぎ率)
+acc_work = accuracy_score(y_test, y_pred_work)  # 正解率
 
 print("ワークごとの精度指標:")
-print(f"見逃し率: {fnr:.2%} ({fn}/{fn+tp})")
-print(f"見過ぎ率: {fpr:.2%} ({fp}/{fp+tn})")
-print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
+print(f"見逃し率: {fnr_work:.2%} ({fn_work}/{fn_work+tp_work})")
+print(f"見過ぎ率: {fpr_work:.2%} ({fp_work}/{fp_work+tn_work})")
+print(f"正解率: {acc_work:.2%} ({(y_test == y_pred_work).sum()}/{len(y_test)})")
+
+# 欠陥ごとの精度を計算するために、元のデータセットでテストを行う
+test_works = test_data.index
+X_test_defect = df[df['work_id'].isin(test_works)][features]
+y_test_defect = df[df['work_id'].isin(test_works)]['defect_label']
+
+# 欠陥ごとの予測
+y_pred_defect = classifier.predict(X_test_defect)
+
+# 欠陥ごとの精度指標の計算
+tn_defect, fp_defect, fn_defect, tp_defect = confusion_matrix(y_test_defect, y_pred_defect).ravel()
+
+fnr_defect = fn_defect / (fn_defect + tp_defect)  # False Negative Rate (見逃し率)
+fpr_defect = fp_defect / (fp_defect + tn_defect)  # False Positive Rate (誤検出率)
+acc_defect = accuracy_score(y_test_defect, y_pred_defect)  # 正解率
+
+print("\n欠陥ごとの精度指標:")
+print(f"見逃し率: {fnr_defect:.2%} ({fn_defect}/{fn_defect+tp_defect})")
+print(f"誤検出率: {fpr_defect:.2%} ({fp_defect}/{fp_defect+tn_defect})")
+print(f"正解率: {acc_defect:.2%} ({(y_test_defect == y_pred_defect).sum()}/{len(y_test_defect)})")
 
 # 特徴量の重要度を表示
 feature_importance = pd.DataFrame({'feature': features, 'importance': classifier.feature_importances_})
