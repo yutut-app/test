@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import confusion_matrix, accuracy_score
 
 # データの読み込み（前のステップで使用したdfを使用すると仮定）
 # df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
@@ -27,39 +27,56 @@ classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-
 # 訓練データをモデルに適合させる
 classifier.fit(X_train, y_train)
 
-# テストデータで予測確率を取得
+# テストデータで予測確率を計算
 y_pred_proba = classifier.predict_proba(X_test)[:, 1]
+
+# 最適な閾値を見つける関数
+def find_optimal_threshold(y_true, y_pred_proba):
+    thresholds = np.linspace(0, 1, 1000)
+    best_threshold = 0
+    best_fp = len(y_true)  # 初期値を最大に設定
+    
+    for threshold in thresholds:
+        y_pred = (y_pred_proba >= threshold).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+        
+        if fn == 0 and fp < best_fp:
+            best_threshold = threshold
+            best_fp = fp
+    
+    return best_threshold
+
+# 最適な閾値を見つける
+optimal_threshold = find_optimal_threshold(y_test, y_pred_proba)
+
+# 最適な閾値を使用して予測
+y_pred = (y_pred_proba >= optimal_threshold).astype(int)
+
+# 欠陥ごとの精度指標の計算
+tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+
+fnr = fn / (fn + tp)  # False Negative Rate
+fpr = fp / (fp + tn)  # False Positive Rate
+acc = accuracy_score(y_test, y_pred)
+
+print(f"最適な閾値: {optimal_threshold:.4f}")
+print("\n欠陥ごとの精度指標 (テストデータ):")
+print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
+print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
+print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
 
 # テストデータのインデックスを取得
 test_indices = y_test.index
 
-# テストデータに対する予測確率をデータフレームに追加
+# テストデータに対する予測結果をデータフレームに追加
 df_test = df.loc[test_indices].copy()
-df_test['predicted_proba'] = y_pred_proba
+df_test['predicted_label'] = y_pred
 
-# ワークごとの最大予測確率を計算
-df_test['work_max_proba'] = df_test.groupby('work_id')['predicted_proba'].transform('max')
-
-# 閾値を調整して見逃し率を0%にする関数
-def find_optimal_threshold(work_true, work_max_proba):
-    thresholds = np.sort(work_max_proba.unique())
-    for threshold in thresholds:
-        work_pred = (work_max_proba >= threshold).astype(int)
-        tn, fp, fn, tp = confusion_matrix(work_true, work_pred).ravel()
-        if fn == 0:
-            return threshold
-    return 0.0  # 見逃し率0%を達成できない場合
-
-# ワークごとの真の欠陥ラベルを取得
-work_true = df_test.groupby('work_id')['defect_label'].max()
-
-# 最適な閾値を見つける
-optimal_threshold = find_optimal_threshold(work_true, df_test['work_max_proba'])
-
-# 最適な閾値を使用して予測
-df_test['work_predicted_label'] = (df_test['work_max_proba'] >= optimal_threshold).astype(int)
+# ワークごとの予測
+df_test['work_predicted_label'] = df_test.groupby('work_id')['predicted_label'].transform('max')
 
 # ワークごとの精度指標の計算
+work_true = df_test.groupby('work_id')['defect_label'].max()
 work_pred = df_test.groupby('work_id')['work_predicted_label'].first()
 
 work_tn, work_fp, work_fn, work_tp = confusion_matrix(work_true, work_pred).ravel()
@@ -68,7 +85,6 @@ work_fnr = work_fn / (work_fn + work_tp)  # 見逃し率
 work_fpr = work_fp / (work_fp + work_tn)  # 見過ぎ率
 work_acc = accuracy_score(work_true, work_pred)  # 正解率
 
-print(f"最適な閾値: {optimal_threshold:.4f}")
 print("\nワークごとの精度指標 (テストデータ):")
 print(f"見逃し率: {work_fnr:.2%} ({work_fn}/{work_fn+work_tp})")
 print(f"見過ぎ率: {work_fpr:.2%} ({work_fp}/{work_fp+work_tn})")
