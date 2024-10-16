@@ -3,12 +3,24 @@
 以下に、データ分割を行わない修正版のコードを示します：
 
 ```python
-import matplotlib.font_manager
+# 異常度スコアの可視化
+plt.figure(figsize=(12, 6))
 
-# 利用可能なフォントの一覧を表示
-fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
-japanese_fonts = [f for f in fonts if any(char in f for char in ['ゴシック', 'メイリオ', '明朝', 'Yu', 'ＭＳ'])]
-print(japanese_fonts)
+# 正常データ（青）をプロット
+sns.scatterplot(data=df[df['defect_label'] == 0], x=df[df['defect_label'] == 0].index, 
+                y='anomaly_score', color='blue', label='Normal', s=20, alpha=0.7)
+
+# 異常データ（赤）を後からプロット
+sns.scatterplot(data=df[df['defect_label'] == 1], x=df[df['defect_label'] == 1].index, 
+                y='anomaly_score', color='red', label='Defect', s=100, alpha=0.7)
+
+plt.axhline(y=clf.offset_ * -1, color='red', linestyle='--', label='Threshold')
+plt.xlabel('Data Point Index')
+plt.ylabel('Anomaly Score')
+plt.title('Isolation Forest Anomaly Detection Results')
+plt.legend(title='Defect Label')
+plt.tight_layout()
+plt.show()
 ```
 
 主な変更点：
