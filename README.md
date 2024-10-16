@@ -3,22 +3,20 @@
 以下に、データ分割を行わない修正版のコードを示します：
 
 ```python
-# 異常度スコアの可視化
-plt.figure(figsize=(12, 6))
+# 特徴量と異常度スコアの相関を計算
+correlations = df[features + ['anomaly_score']].corr()['anomaly_score'].drop('anomaly_score')
+correlations = correlations.sort_values(ascending=False)
 
-# 正常データ（青）をプロット
-sns.scatterplot(data=df[df['defect_label'] == 0], x=df[df['defect_label'] == 0].index, 
-                y='anomaly_score', color='blue', label='Normal', s=20, alpha=0.7)
+print("\nCorrelation between Features and Anomaly Score:")
+print(correlations)
 
-# 異常データ（赤）を後からプロット
-sns.scatterplot(data=df[df['defect_label'] == 1], x=df[df['defect_label'] == 1].index, 
-                y='anomaly_score', color='red', label='Defect', s=100, alpha=0.7)
-
-plt.axhline(y=clf.offset_ * -1, color='red', linestyle='--', label='Threshold')
-plt.xlabel('Data Point Index')
-plt.ylabel('Anomaly Score')
-plt.title('Isolation Forest Anomaly Detection Results')
-plt.legend(title='Defect Label')
+# 相関の可視化
+plt.figure(figsize=(10, 6))
+sns.barplot(x=correlations.index, y=correlations.values)
+plt.xticks(rotation=45, ha='right')
+plt.xlabel('Features')
+plt.ylabel('Correlation with Anomaly Score')
+plt.title('Feature Correlation with Anomaly Score')
 plt.tight_layout()
 plt.show()
 ```
