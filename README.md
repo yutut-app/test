@@ -13,37 +13,40 @@ X_train_resampled, y_train_resampled = ros.fit_resample(X_train, y_train)
 print("Training set class distribution after oversampling:")
 print(Counter(y_train_resampled))
 
-# カスタムスコアリング関数: TP/(FN+TP)を最大化
+# カスタムスコアリング関数
 def custom_scorer(y_true, y_pred):
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    return tp / (fn + tp) if (fn + tp) > 0 else 0
+    tpr = tp / (fn + tp) if (fn + tp) > 0 else 0
+    fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+    return tpr - 0.1 * fpr  # TPRを最大化しつつ、FPRにペナルティを課す
 
 # スコアラーの作成
-scorer = make_scorer(custom_scorer, greater_is_better=True)
+custom_scorer = make_scorer(custom_scorer, greater_is_better=True)
 
 # ランダムフォレスト分類器のパラメータグリッド
 param_grid = {
     'n_estimators': [100, 200, 500],
-    'max_depth': [None, 10, 20],
+    'max_depth': [None, 10, 20, 30],
     'min_samples_split': [2, 5, 10],
     'min_samples_leaf': [1, 2, 4],
-    'class_weight': [{0: 1, 1: 10}, {0: 1, 1: 50}, {0: 1, 1: 100}]
+    'class_weight': [{0: 1, 1: w} for w in [1, 10, 50, 100]]
 }
 
 # グリッドサーチの設定
 grid_search = GridSearchCV(
-    RandomForestClassifier(criterion='gini', n_jobs=-1, random_state=42),
+    RandomForestClassifier(random_state=42),
     param_grid,
-    scoring=scorer,
+    scoring=custom_scorer,
     cv=5,
-    n_jobs=-1
+    n_jobs=-1,
+    verbose=1
 )
 
 # グリッドサーチを実行
 grid_search.fit(X_train_resampled, y_train_resampled)
 
 # 最適なパラメータと最高スコアを表示
-print("\nBest parameters:", grid_search.best_params_)
+print("Best parameters:", grid_search.best_params_)
 print("Best score:", grid_search.best_score_)
 
 # 最適なモデルを使用
