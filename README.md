@@ -9,6 +9,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
+from imblearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 # データの読み込み（前のステップで使用したdfを使用すると仮定）
@@ -40,9 +42,19 @@ y_train = train_df['defect_label']
 X_test = test_df[features]
 y_test = test_df['defect_label']
 
-# SMOTEを使用してデータのバランスを調整
-smote = SMOTE(sampling_strategy=0.5, random_state=42)  # 少数クラスを多数クラスの50%まで増やす
-X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train
+# データの標準化
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# SMOTEとRandomUnderSamplerを組み合わせたパイプラインを作成
+sampling_pipeline = Pipeline([
+    ('smote', SMOTE(sampling_strategy=0.1, k_neighbors=2, random_state=42)),
+    ('undersampler', RandomUnderSampler(sampling_strategy=0.5, random_state=42))
+])
+
+# データのリサンプリング
+X_train_resampled, y_train_resampled = sampling_pipeline.fit_resample(X_train_scaled, y_train)
 
 # ランダムフォレスト分類器のインスタンスを作成（パラメータを調整）
 classifier = RandomForestClassifier(
@@ -60,7 +72,7 @@ classifier = RandomForestClassifier(
 classifier.fit(X_train_resampled, y_train_resampled)
 
 # テストデータで予測を実施
-y_pred_proba = classifier.predict_proba(X_test)[:, 1]
+y_pred_proba = classifier.predict_proba(X_test_scaled)[:, 1]
 threshold = 0.1  # 閾値を低く設定して見逃しを減らす
 y_pred = (y_pred_proba >= threshold).astype(int)
 
