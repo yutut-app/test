@@ -1,12 +1,17 @@
 はい、ランダムフォレスト分類器を使用するように変更します。以下に、ランダムフォレストを使用した特徴量による分類のコードを示します。
 
 ```python
+すみません。エラーの原因を理解しました。SMOTEを使用する際、少数クラスのサンプル数が非常に少ない場合（この場合、NGデータが3つしかない）に問題が発生することがあります。この状況に対処するため、SMOTEの代わりに、単純なオーバーサンプリング方法を使用します。
+
+以下に、修正したコードを示します：
+
+```python
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, recall_score, precision_score
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import RandomOverSampler
 
 # データの読み込み（前のステップで使用したdfを使用すると仮定）
 # df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
@@ -22,9 +27,9 @@ y = df['defect_label']
 # データの分割（学習データとテストデータを分ける）
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
-# SMOTEを使用してオーバーサンプリング
-smote = SMOTE(random_state=42)
-X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+# RandomOverSamplerを使用してオーバーサンプリング
+ros = RandomOverSampler(random_state=42)
+X_train_resampled, y_train_resampled = ros.fit_resample(X_train, y_train)
 
 # ランダムフォレスト分類器のインスタンスを作成
 classifier = RandomForestClassifier(n_estimators=100, criterion='gini', class_weight='balanced', n_jobs=-1, random_state=42)
@@ -99,6 +104,24 @@ feature_importance = pd.DataFrame({'feature': features, 'importance': classifier
 feature_importance = feature_importance.sort_values('importance', ascending=False)
 print("\n特徴量の重要度:")
 print(feature_importance)
+```
+
+主な変更点：
+
+1. SMOTEの代わりに`RandomOverSampler`を使用しています。これにより、少数クラス（NGデータ）のサンプルを単純に複製してオーバーサンプリングを行います。
+
+2. その他の部分は前回のコードと同じです。閾値の最適化、予測、精度指標の計算などは変更していません。
+
+この方法により、NGデータが非常に少ない場合でもオーバーサンプリングを実行できます。ただし、データの不均衡が極端な場合（956:3）、モデルの性能に影響を与える可能性があります。
+
+追加の改善策として以下を検討できます：
+
+1. より多くのNGデータを収集する（可能な場合）。
+2. データ拡張技術を使用して人工的にNGデータを生成する。
+3. 異常検知アルゴリズム（例：One-Class SVM、Isolation Forest）を使用する。
+4. ディープラーニングを用いた表現学習を行い、より良い特徴量を抽出する。
+
+これらの方法を組み合わせることで、極端な不均衡データセットでもより良い性能を得られる可能性があります。
 ```
 
 このコードでは以下の変更を行いました：
