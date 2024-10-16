@@ -8,6 +8,8 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
+from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import StandardScaler
 
 # データの読み込み（前のステップで使用したdfを使用すると仮定）
 # df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
@@ -38,14 +40,29 @@ y_train = train_df['defect_label']
 X_test = test_df[features]
 y_test = test_df['defect_label']
 
-# ランダムフォレスト分類器のインスタンスを作成
-classifier = RandomForestClassifier(n_estimators=100, criterion='gini', n_jobs=-1, random_state=42)
+# SMOTEを使用してデータのバランスを調整
+smote = SMOTE(sampling_strategy=0.5, random_state=42)  # 少数クラスを多数クラスの50%まで増やす
+X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train
+
+# ランダムフォレスト分類器のインスタンスを作成（パラメータを調整）
+classifier = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=10,
+    min_samples_split=5,
+    min_samples_leaf=2,
+    class_weight='balanced_subsample',  # クラスの重みを調整
+    criterion='gini',
+    n_jobs=-1,
+    random_state=42
+)
 
 # 訓練データをモデルに適合させる
-classifier.fit(X_train, y_train)
+classifier.fit(X_train_resampled, y_train_resampled)
 
 # テストデータで予測を実施
-y_pred = classifier.predict(X_test)
+y_pred_proba = classifier.predict_proba(X_test)[:, 1]
+threshold = 0.1  # 閾値を低く設定して見逃しを減らす
+y_pred = (y_pred_proba >= threshold).astype(int)
 
 # 欠陥ごとの精度指標の計算
 tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
