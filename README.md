@@ -1,66 +1,113 @@
-承知いたしました。ご指摘いただいた点を踏まえ、改めて回答を生成いたします。
+はい、Isolation Forestを使用して特徴量による分類を行うコードを生成します。以下のコードは、あなたの要件に合わせて修正しています。
 
-1. テンプレート画像について
+```python
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import IsolationForest
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, accuracy_score
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-"Data\input\template"フォルダの画像は、キーエンス前処理画像がワークの右側か左側かをテンプレートマッチングで判断するためだけに使用されています。そのため、この画像の選定はエッジ検出には直接影響せず、重要度は低いと言えます。
+# データの読み込み（前のステップで使用したdfを使用すると仮定）
+# df = pd.read_csv('your_data_path.csv')  # 必要に応じてデータを再度読み込む
 
-2. 加工面の検出について
+# 特徴量の設定
+features = ['width', 'height', 'area', 'perimeter', 'eccentricity', 'orientation', 
+            'major_axis_length', 'minor_axis_length', 'solidity', 'extent', 
+            'aspect_ratio', 'max_length']
 
-各ワークの加工面（検査したい面）を検出するロジックに関しては、それぞれのワークの元画像（Normal画像）の加工部分が明確になっている画像を使用することが重要です。これにより、エッジがワークの加工面とのズレが少なくなる可能性が高くなります。
+X = df[features]
+y = df['defect_label']
 
-3. 現状の課題
+# データの分割（学習データとテストデータを分ける）
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
-現在、元画像（Normal画像）が各データ（ワーク）によって異なる特性を持っています：
-- 明暗の差がある
-- 接合部が明るくなっているワークがある
+# Isolation Forest 分類器の設定
+# contamination は異常データの割合の推定値。今回のケースでは 3 / (956 + 3) ≈ 0.003
+clf = IsolationForest(n_estimators=100, contamination=0.003, max_features=1, random_state=42)
 
-これらの違いにより、全ての画像でエッジをワークの加工面と完全に一致させることが困難になっています。そのため、現状では可能な限り一致させるようなパラメータを設定していますが、さらなる検討が必要です。
+# 学習
+clf.fit(X_train)
 
-4. 影やクランプ痕について
+# テストデータで予測
+y_pred = clf.predict(X_test)
+y_pred = np.where(y_pred == 1, 0, 1)  # -1を1に、1を0に変換
 
-影やクランプ痕（傷ではないもの）は欠陥ではないという認識であるため、これらが加工面として判断できなくても、OK/NGの判別には影響がないと判断しています。
+# 異常度スコアの算出
+anomaly_scores = clf.score_samples(X_test) * -1
 
-5. パラメータ調整によるエッジ検出の改善
+# 欠陥ごとの精度指標の計算
+tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
-エッジがワークの加工面とズレて認識されないように、以下のパラメータを調整することが考えられます：
+fnr = fn / (fn + tp)  # False Negative Rate
+fpr = fp / (fp + tn)  # False Positive Rate
+acc = accuracy_score(y_test, y_pred)
 
-a) kernel_size（カーネルサイズ）：
-   - 大きくすると細かなエッジが消え、小さくすると細かなエッジも検出されます。
-   - 加工面の特徴に合わせて調整することが重要です。
+print("欠陥ごとの精度指標 (テストデータ):")
+print(f"FN/(FN+TP) (見逃し率): {fnr:.2%} ({fn}/{fn+tp})")
+print(f"FP/(FP+TN) (誤検出率): {fpr:.2%} ({fp}/{fp+tn})")
+print(f"正解率: {acc:.2%} ({(y_test == y_pred).sum()}/{len(y_test)})")
 
-b) iterations_open（ノイズ削除）：
-   - 値を大きくするとノイズ除去効果が高まりますが、細かなエッジも消える可能性があります。
-   - 加工面の特徴を維持しつつ、不要なノイズを除去できる値を探すことが重要です。
+# テストデータのインデックスを取得
+test_indices = y_test.index
 
-c) iterations_close（エッジの接続）：
-   - 値を大きくすると離れたエッジがつながりやすくなります。
-   - 加工面のエッジが途切れている場合は、この値を調整することで改善される可能性があります。
+# テストデータに対する予測結果をデータフレームに追加
+df_test = df.loc[test_indices].copy()
+df_test['predicted_label'] = y_pred
+df_test['anomaly_score'] = anomaly_scores
 
-これらのパラメータを調整する際は、様々なワークの画像でテストし、最適な値を見つけることが重要です。
+# ワークごとの予測
+df_test['work_predicted_label'] = df_test.groupby('work_id')['predicted_label'].transform('max')
 
-6. 代替アプローチの検討
+# ワークごとの精度指標の計算
+work_true = df_test.groupby('work_id')['defect_label'].max()
+work_pred = df_test.groupby('work_id')['work_predicted_label'].first()
 
-現状では、ワークごとに対応する元画像（Normal画像）からワークの加工面を検出していますが、以下のような代替案も考えられます：
+work_tn, work_fp, work_fn, work_tp = confusion_matrix(work_true, work_pred).ravel()
 
-a) テンプレートによる位置特定：
-   - 全てのワークが必ず同じ位置に来るのであれば、ワークの加工面検出用のテンプレートを作成して位置を特定する方法が考えられます。
-   - この方法では、個々のワークの画像特性に左右されにくくなる可能性があります。
+work_fnr = work_fn / (work_fn + work_tp)  # 見逃し率
+work_fpr = work_fp / (work_fp + work_tn)  # 見過ぎ率
+work_acc = accuracy_score(work_true, work_pred)  # 正解率
 
-b) パターンマッチングによる加工面検出：
-   - パターンマッチングを使用して加工面を検出する方法も技術的には実装可能ですが、かなり難しい課題があります。
-   - 具体的には以下の点が挙げられます：
-     - 左右の画像が分かれていることによる複雑さ
-     - ワークの形状が複雑であることによる処理の困難さ
-     - 処理時間が大幅に増加する可能性
-     - ロジックが非常に複雑になり、メンテナンスや調整が難しくなる
-   - これらの理由から、パターンマッチングの実装は技術的に可能ですが、現実的には時間がかかる可能性があります。
+print("\nワークごとの精度指標 (テストデータ):")
+print(f"見逃し率: {work_fnr:.2%} ({work_fn}/{work_fn+work_tp})")
+print(f"見過ぎ率: {work_fpr:.2%} ({work_fp}/{work_fp+work_tn})")
+print(f"正解率: {work_acc:.2%} ({(work_true == work_pred).sum()}/{len(work_true)})")
 
-7. 画像処理条件の統一について
+# 異常度スコアの可視化
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=df_test, x=df_test.index, y='anomaly_score', hue='defect_label', 
+                palette={0: 'blue', 1: 'red'}, size='defect_label', 
+                sizes={0: 20, 1: 100}, alpha=0.7)
 
-撮影条件の統一は重要ですが、元画像（Normal画像）自体が既に画像処理後の画像であることを考慮する必要があります。そのため、以下の点に注意を払うことが重要です：
+plt.axhline(y=clf.offset_ * -1, color='red', linestyle='--', label='閾値')
+plt.xlabel('データ番号')
+plt.ylabel('異常度スコア')
+plt.title('Isolation Forest による異常検知結果')
+plt.legend(title='欠陥ラベル', labels=['正常', '欠陥', '閾値'])
+plt.tight_layout()
+plt.show()
 
-- 撮影条件の統一：可能な限り、照明条件やカメラ設定を一定に保つことで、元の撮影画像の品質を安定させます。
+# 特徴量の重要度（Isolation Forestでは直接的な重要度は計算されないため、代わりに各特徴量の平均異常度スコアを表示）
+feature_importance = pd.DataFrame({
+    'feature': features,
+    'importance': [clf.score_samples(X_test[[feature]]).mean() for feature in features]
+})
+feature_importance = feature_importance.sort_values('importance', ascending=True)
+print("\n特徴量の平均異常度スコア:")
+print(feature_importance)
+```
 
-- 画像処理後の条件統一：元画像（Normal画像）に対する前処理（キーエンス処理）の段階で、可能な限り同じような条件（明暗など）に近づけるよう調整することが重要です。これにより、加工面（検査したい面）の検出精度が向上する可能性が高くなります。
+このコードでは以下の変更を行いました：
 
-- 前処理パラメータの最適化：キーエンス処理のパラメータを最適化し、異なるワーク間でも類似した画像特性が得られるよう調整することで、後続のエッジ検出処理の精度向上につながります。
+1. Isolation Forestを使用して異常検知を行います。
+2. `contamination`パラメータを0.003（3/959）に設定し、データセットの実際の異常割合に近づけています。
+3. 予測結果を、元のラベル（0: 正常、1: 異常）に合わせて変換しています。
+4. 異常度スコアを計算し、可視化しています。
+5. 欠陥ごとおよびワークごとの精度指標を計算しています。
+6. 特徴量の重要度の代わりに、各特徴量の平均異常度スコアを表示しています。
+
+このアプローチでは、Isolation Forestが正常データの構造を学習し、それから大きく外れるデータポイントを異常として検出します。これにより、極端に不均衡なデータセットでも効果的に機能することが期待できます。
+
+ただし、Isolation Forestは教師なし学習アルゴリズムであるため、必ずしも「欠陥」と「非欠陥」を完全に区別できるわけではありません。結果を注意深く解釈し、必要に応じてパラメータ（特に`contamination`と`n_estimators`）を調整することをお勧めします。
