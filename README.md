@@ -1,52 +1,104 @@
-欠陥部分を四角形で切り出すようにし、元の `shape_images` からも対応する画像を切り出すようにコードを変更しました。また、各画像を適切なディレクトリに保存するように修正しました。
+パターンマッチングのための画像分類システムのipynbを生成します。まずはデータ読み込みの部分を作成します。
 
-### 改良したコード
+```markdown
+# 欠陥検出システム - パターンマッチングによる分類
+このノートブックでは、特徴量による分類で欠陥の可能性があると判断されたワークに対して、パターンマッチングによる詳細な分類を行います。
 
-#### 9. 欠陥候補の画像の保存とCSV出力（改良版）
-
-```python
-def filter_defects_by_max_length(defects, min_size, max_size):
-    """欠陥サイズに基づいてフィルタリングする"""
-    return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
-
-def reassign_labels(filtered_defects):
-    """フィルタリング後に欠陥候補に対してラベルを再割り当てする"""
-    for i, defect in enumerate(filtered_defects, 1):
-        defect['label'] = i  # 新しいラベルを1から順に割り当て
-    return filtered_defects
-
-def process_images_for_filtering(labeled_images, image_type):
-    """画像に対する欠陥候補のフィルタリングとラベルの再割り当てを行う"""
-    filtered_images = []
-    
-    for i, (binarized_image, edge_image, defects) in enumerate(labeled_images):
-        # 欠陥のフィルタリングを実行
-        filtered_defects = filter_defects_by_max_length(defects, min_defect_size, max_defect_size)
-        
-        # フィルタリング後の欠陥候補に対してラベルを再割り当て
-        filtered_defects = reassign_labels(filtered_defects)
-        
-        image_name = f"{image_type}_{i}"
-        filtered_images.append((image_name, binarized_image, edge_image, filtered_defects))
-    
-    return filtered_images
-
-# NGとOK画像に対してフィルタリングを実行
-filtered_ng_images_label1 = process_images_for_filtering(labeled_ng_images_label1, "ng_label1")
-filtered_ng_images_label2 = process_images_for_filtering(labeled_ng_images_label2, "ng_label2")
-filtered_ng_images_label3 = process_images_for_filtering(labeled_ng_images_label3, "ng_label3")
-filtered_ok_images = process_images_for_filtering(labeled_ok_images, "ok")
-
+## 1. 必要なライブラリのインポート
 ```
 
-### 改良点
+```python
+import os
+import pandas as pd
+import numpy as np
+import cv2
+from PIL import Image
+import matplotlib.pyplot as plt
+```
 
-1. **欠陥部分を四角形で切り出し**: 元々は正方形で欠陥部分を切り出していましたが、欠陥の幅と高さに応じて正確な四角形で切り出すように変更しました。これにより、他の欠陥部分が含まれることを防ぎます。
+```markdown
+## 2. データの読み込みと前処理
+特徴量による分類（work_predict_label=1）のデータのみを処理します。
+```
 
-2. **元の `shape_images` からも切り出し**: 二値化された画像だけでなく、元々の形状画像（`shape_images`）からも対応する欠陥部分を切り出す処理を追加しました。
+```python
+# データファイルのパスを設定
+defected_data_path = r"../data/output/defect_data"
+defected_csv = "defects_data.csv"
+defected_csv_path = os.path.join(defected_data_path, defected_csv)
 
-3. **ディレクトリ分け**: 二値化画像と元の画像を別々のディレクトリ（`binarized` と `original`）に保存し、それぞれの欠陥候補の画像を整理しました。
+# CSVファイルを読み込む
+df = pd.read_csv(defected_csv_path)
+print(f"元のデータフレームの形状：{df.shape}")
 
-4. **CSV出力の拡張**: CSVファイルには、各欠陥候補に対応する二値化画像と元画像のファイルパスの両方を記録しています。
+# work_predict_label=1のデータのみを抽出
+df_filtered = df[df['work_predict_label'] == 1].copy()
+print(f"フィルタリング後のデータフレームの形状：{df_filtered.shape}")
 
-これにより、欠陥部分を正確に切り出し、元の形状画像からも対応する部分を切り出して保存できるようになっています。
+# 欠陥ラベルの分布を確認
+print("\n欠陥ラベルの分布:")
+print(df_filtered['defect_label'].value_counts())
+
+# ワーク数の確認
+n_works = df_filtered['work_id'].nunique()
+print(f"\n総ワーク数: {n_works}")
+```
+
+```python
+# 画像パスの作成と存在確認
+def verify_image_path(row):
+    img_path = os.path.join(defected_data_path, 'defect_images', row['defect_image_orig'])
+    return os.path.exists(img_path)
+
+# 画像パスの確認
+df_filtered['image_exists'] = df_filtered.apply(verify_image_path, axis=1)
+print("\n画像ファイルの存在確認:")
+print(df_filtered['image_exists'].value_counts())
+
+# サンプル画像の表示
+def show_sample_images(df, num_samples=3):
+    fig, axes = plt.subplots(1, num_samples, figsize=(15, 5))
+    
+    for i, (_, row) in enumerate(df.head(num_samples).iterrows()):
+        img_path = os.path.join(defected_data_path, 'defect_images', row['defect_image_orig'])
+        img = cv2.imread(img_path)
+        if img is not None:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            axes[i].imshow(img)
+            axes[i].set_title(f"Work ID: {row['work_id']}\nDefect: {row['defect_label']}")
+            axes[i].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+# サンプル画像の表示
+show_sample_images(df_filtered)
+```
+
+```markdown
+### データの基本情報:
+- NGデータ（欠陥あり）: 3データ
+- OKデータ（欠陥なし）: 03827データ
+- 画像パス: defected_data_path + 'defect_images' + defect_image_orig
+
+### 評価指標:
+1. 欠陥ごとの評価:
+   - 鋳巣検出率 = TP/(FN+TP) = 100%を目標
+   - 鋳巣誤検出率 = FP/(TN+FP) を最小化
+
+2. ワークごとの評価:
+   - 見逃し率 = work_FN/(work_FN+workTP)
+   - 見過ぎ率 = work_FP/(work_FP+workTN)
+
+注意: ワークに一つでも欠陥があれば、そのワークは欠陥ありと判断します。
+```
+
+このコードでは以下の処理を行っています：
+1. 必要なライブラリのインポート
+2. CSVデータの読み込み
+3. work_predict_label=1のデータのフィルタリング
+4. 基本的なデータ確認（形状、分布など）
+5. 画像パスの検証
+6. サンプル画像の表示
+
+次のステップとして、パターンマッチングのアルゴリズムの実装に進みたいと思いますが、その前に何か確認したい点はありますか？
