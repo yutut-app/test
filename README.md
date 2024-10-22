@@ -1,148 +1,178 @@
-このエラーは、テンプレート画像がマッチング対象の画像よりも大きい場合に発生します。テンプレートマッチングでは、テンプレートは常に対象画像より小さくなければなりません。この問題を解決するために、画像とテンプレートのサイズを調整するコードを追加します。
+テンプレートマッチングでは、テンプレート画像が入力画像より大きい場合にエラーが発生します。画像のサイズを確認し、必要に応じてリサイズする処理を追加します。
 
 ```python
-def resize_template(template, target_image):
-    """
-    テンプレートのサイズを対象画像に合わせてリサイズする
-    """
-    target_h, target_w = target_image.shape
-    template_h, template_w = template.shape
-    
-    # テンプレートが対象画像より大きい場合、リサイズする
-    if template_h > target_h or template_w > target_w:
-        # 縦横の比率を保ちながら、対象画像の半分のサイズにリサイズ
-        scale = 0.5 * min(target_h / template_h, target_w / template_w)
-        new_h = int(template_h * scale)
-        new_w = int(template_w * scale)
-        return cv2.resize(template, (new_w, new_h))
-    return template
+# 画像サイズ確認用の関数
+def check_image_size(image_path):
+    """画像のサイズを確認する"""
+    img = cv2.imread(os.path.join(defected_image_path, image_path))
+    if img is None:
+        return None
+    return img.shape
 
-def perform_template_matching(image, templates, threshold=0.8):
-    """
-    画像に対してテンプレートマッチングを実行（サイズ調整付き）
-    """
-    max_score = 0
-    for template in templates:
-        # テンプレートのサイズを調整
-        resized_template = resize_template(template, image)
-        try:
-            result = cv2.matchTemplate(image, resized_template, cv2.TM_CCOEFF_NORMED)
-            _, max_val, _, _ = cv2.minMaxLoc(result)
-            max_score = max(max_score, max_val)
-        except Exception as e:
-            print(f"Template matching failed: {e}")
-            continue
-    return max_score > threshold
+# NGデータの画像サイズを確認
+print("=== NGデータの画像サイズ確認 ===")
+ng_samples = df_filtered[df_filtered['defect_label'] == 1]
+ng_sizes = []
+for _, row in ng_samples.iterrows():
+    size = check_image_size(row['defect_image_orig'])
+    if size is not None:
+        ng_sizes.append(size)
+        print(f"画像パス: {row['defect_image_orig']}, サイズ: {size}")
+
+# 全データの画像サイズを確認
+print("\n=== 全データの画像サイズ範囲 ===")
+all_sizes = []
+for _, row in df_filtered.iterrows():
+    size = check_image_size(row['defect_image_orig'])
+    if size is not None:
+        all_sizes.append(size)
+
+if all_sizes:
+    heights = [s[0] for s in all_sizes]
+    widths = [s[1] for s in all_sizes]
+    print(f"高さ範囲: {min(heights)} - {max(heights)}")
+    print(f"幅範囲: {min(widths)} - {max(widths)}")
 ```
 
 ```python
-# NGデータ（欠陥あり）からテンプレートを作成
-print("テンプレートの作成開始...")
+def load_and_preprocess_image(image_path, target_size=None):
+    """画像を読み込み、前処理を行う"""
+    img = cv2.imread(os.path.join(defected_image_path, image_path))
+    if img is None:
+        raise ValueError(f"Failed to load image: {image_path}")
+    
+    # グレースケール化
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # リサイズが必要な場合
+    if target_size is not None:
+        img_gray = cv2.resize(img_gray, target_size, interpolation=cv2.INTER_AREA)
+    
+    return img_gray
+
+def perform_template_matching(image, template, threshold=0.8):
+    """
+    画像に対してテンプレートマッチングを実行
+    """
+    # 画像サイズの取得
+    img_height, img_width = image.shape
+    templ_height, templ_width = template.shape
+    
+    # テンプレートが入力画像より大きい場合、テンプレートをリサイズ
+    if templ_height > img_height or templ_width > img_width:
+        template = cv2.resize(template, (min(img_width, templ_width), min(img_height, templ_height)), 
+                            interpolation=cv2.INTER_AREA)
+    
+    # テンプレートマッチングの実行
+    result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, _ = cv2.minMaxLoc(result)
+    
+    return max_val > threshold
+```
+
+```python
+# テンプレート画像の準備
+print("=== テンプレート画像の準備 ===")
 ng_samples = df_filtered[df_filtered['defect_label'] == 1]
 templates = []
-for _, row in ng_samples.iterrows():
+for idx, row in ng_samples.iterrows():
     try:
-        img = load_image(row['defect_image_orig'])
+        img = load_and_preprocess_image(row['defect_image_orig'])
         templates.append(img)
-        print(f"テンプレート画像サイズ: {img.shape}")
+        print(f"テンプレート {idx+1}: サイズ {img.shape}")
     except Exception as e:
-        print(f"Error loading template: {e}")
+        print(f"Error loading template {idx+1}: {e}")
 
-print(f"読み込んだテンプレート数: {len(templates)}")
+print(f"\n読み込んだテンプレート数: {len(templates)}")
 ```
 
 ```python
-# サンプルとして1つの画像でテスト実行
-print("サンプル画像でのテスト実行...")
-test_row = df_filtered.iloc[0]
-try:
-    test_img = load_image(test_row['defect_image_orig'])
-    print(f"テスト画像サイズ: {test_img.shape}")
-    is_defect = perform_template_matching(test_img, templates)
-    print(f"テスト結果: {'欠陥あり' if is_defect else '欠陥なし'}")
-except Exception as e:
-    print(f"テスト実行エラー: {e}")
-```
-
-```python
-# 少数のサンプルで検証
-print("\n少数サンプルでの検証...")
-test_samples = df_filtered.head(5)
-results = []
-for _, row in test_samples.iterrows():
+# パターンマッチングによる分類の実行（1枚ずつ確認用）
+def process_single_image(image_path, templates, threshold=0.8):
+    """1枚の画像に対してパターンマッチングを実行"""
     try:
-        img = load_image(row['defect_image_orig'])
-        print(f"処理中の画像サイズ: {img.shape}")
-        is_defect = perform_template_matching(img, templates)
-        results.append({
-            'work_id': row['work_id'],
-            'true_label': row['defect_label'],
-            'predicted_label': 1 if is_defect else 0
-        })
-        print(f"予測結果: {'欠陥あり' if is_defect else '欠陥なし'} (真値: {row['defect_label']})")
+        img = load_and_preprocess_image(image_path)
+        
+        # 各テンプレートに対してマッチング
+        scores = []
+        for idx, template in enumerate(templates):
+            # 画像サイズの取得
+            img_height, img_width = img.shape
+            templ_height, templ_width = template.shape
+            
+            # テンプレートが入力画像より大きい場合、テンプレートをリサイズ
+            if templ_height > img_height or templ_width > img_width:
+                template = cv2.resize(template, (min(img_width, templ_width), min(img_height, templ_height)), 
+                                   interpolation=cv2.INTER_AREA)
+            
+            # テンプレートマッチングの実行
+            result = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            scores.append(max_val)
+            
+        max_score = max(scores)
+        matched_template = scores.index(max_score)
+        
+        return {
+            'matched': max_score > threshold,
+            'score': max_score,
+            'template_idx': matched_template
+        }
     except Exception as e:
         print(f"Error processing image: {e}")
-
-# 少数サンプルの結果を確認
-test_results_df = pd.DataFrame(results)
-if len(test_results_df) > 0:
-    test_metrics = calculate_metrics(test_results_df, test_samples)
-    print("\n=== テストサンプルの評価結果 ===")
-    print(f"欠陥検出率: {test_metrics['defect_detection_rate']:.2f}%")
-    print(f"誤検出率: {test_metrics['false_detection_rate']:.2f}%")
+        return None
 ```
 
 ```python
-# 問題なければ全データで実行
-print("\n全データでの実行...")
+# テスト用に数枚の画像で確認
+print("=== テスト画像での確認 ===")
+test_samples = df_filtered.head(5)
+for _, row in test_samples.iterrows():
+    result = process_single_image(row['defect_image_orig'], templates)
+    if result:
+        print(f"\nImage: {row['defect_image_orig']}")
+        print(f"True label: {row['defect_label']}")
+        print(f"Matched: {result['matched']}")
+        print(f"Best match score: {result['score']:.3f}")
+        print(f"Best matching template: {result['template_idx']}")
+```
+
+```python
+# 全データでの分類実行
+print("\n=== 全データでの分類実行 ===")
 results = []
 for _, row in tqdm(df_filtered.iterrows(), total=len(df_filtered)):
-    try:
-        img = load_image(row['defect_image_orig'])
-        is_defect = perform_template_matching(img, templates)
+    result = process_single_image(row['defect_image_orig'], templates)
+    if result:
         results.append({
             'work_id': row['work_id'],
             'true_label': row['defect_label'],
-            'predicted_label': 1 if is_defect else 0
+            'predicted_label': 1 if result['matched'] else 0,
+            'match_score': result['score'],
+            'template_idx': result['template_idx']
         })
-    except Exception as e:
-        print(f"Error processing image: {e}")
 
 results_df = pd.DataFrame(results)
+
+# 結果の表示
+print("\n=== マッチング結果サマリー ===")
+print(f"処理した画像数: {len(results_df)}")
+print(f"マッチした画像数: {sum(results_df['predicted_label'] == 1)}")
+print("\nマッチングスコアの統計:")
+print(results_df['match_score'].describe())
 ```
 
-```python
-# 最終評価
-if len(results_df) > 0:
-    metrics = calculate_metrics(results_df, df_filtered)
-    
-    print("\n=== 最終評価結果 ===")
-    print(f"欠陥検出率: {metrics['defect_detection_rate']:.2f}%")
-    print(f"誤検出率: {metrics['false_detection_rate']:.2f}%")
-    print(f"見逃し率: {metrics['miss_rate']:.2f}%")
-    print(f"見過ぎ率: {metrics['over_detection_rate']:.2f}%")
-    
-    # 混同行列の詳細表示
-    cm = metrics['confusion_matrix']
-    print("\n=== 欠陥レベルの混同行列 ===")
-    print(f"TP: {cm['TP']}, FP: {cm['FP']}")
-    print(f"FN: {cm['FN']}, TN: {cm['TN']}")
-    
-    print("\n=== ワークレベルの混同行列 ===")
-    print(f"TP: {cm['work_TP']}, FP: {cm['work_FP']}")
-    print(f"FN: {cm['work_FN']}, TN: {cm['work_TN']}")
-```
+このコードでは:
+1. まず画像サイズを確認
+2. 画像の読み込みと前処理を一つの関数にまとめる
+3. テンプレートと入力画像のサイズ不一致を解決
+4. 1枚ずつ確認できる関数を追加
+5. テスト用の少数サンプルでの確認を追加
+6. 詳細な結果の表示を追加
 
-改良点：
-1. テンプレートのサイズを自動調整する機能を追加
-2. 段階的な実行と検証ステップを追加
-   - テンプレート作成時のサイズ確認
-   - 単一サンプルでのテスト
-   - 少数サンプルでの検証
-   - 全データでの実行
-3. エラーハンドリングの強化
-4. 進捗状況の詳細表示
+これにより:
+- エラーを防ぎつつ、画像サイズの違いに対応
+- 処理の各段階で結果を確認可能
+- より詳細なマッチング情報を取得
 
-このコードは段階的に実行できるようになっており、各ステップで結果を確認できます。問題が発生した場合は、どのステップで発生したかを特定しやすくなっています。
-
-これらのコードブロックを順番に実行して、各段階での結果を確認できます。エラーが発生した場合は、どのステップでエラーが発生したかを教えていただければ、さらに適切な対処方法を提案できます。
+このコードを順番に実行して、各段階での結果を確認できます。特に問題がなければ、精度評価のコードを実行できます。続けて精度評価のコードを提供しましょうか？
