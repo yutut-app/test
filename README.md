@@ -1,3 +1,114 @@
+わかりました。final_results_dfを修正したコードを提供します。
+
+```python
+def process_images_with_threshold(df_filtered, templates, template_names, threshold):
+    """指定された閾値でパターンマッチングを実行"""
+    results = []
+    for _, row in df_filtered.iterrows():
+        try:
+            img = load_and_preprocess_image(row['defect_image_orig'])
+            
+            # 各テンプレートに対するスコアを計算
+            template_scores = {}
+            is_matched = False
+            
+            for template, template_name in zip(templates, template_names):
+                # 画像サイズの取得と調整
+                img_height, img_width = img.shape
+                templ_height, templ_width = template.shape
+                
+                # テンプレートが入力画像より大きい場合、テンプレートをリサイズ
+                if templ_height > img_height or templ_width > img_width:
+                    template = cv2.resize(template, 
+                                       (min(img_width, templ_width), min(img_height, templ_height)), 
+                                       interpolation=cv2.INTER_AREA)
+                
+                # テンプレートマッチングの実行
+                result = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                
+                # スコアを保存
+                template_scores[f"{template_name}_match_score"] = max_val
+                
+                # 閾値を超えるスコアがあれば、マッチしたとみなす
+                if max_val > threshold:
+                    is_matched = True
+            
+            # 元のデータフレームの行をコピー
+            result_row = row.copy()
+            # 予測結果とスコアを追加
+            result_row['predicted_label'] = 1 if is_matched else 0
+            for score_name, score in template_scores.items():
+                result_row[score_name] = score
+            
+            results.append(result_row)
+            
+        except Exception as e:
+            print(f"Error processing image: {e}")
+            continue
+    
+    return pd.DataFrame(results)
+
+# テンプレート画像の準備
+print("=== テンプレート画像の準備 ===")
+ng_samples = df_filtered[df_filtered['defect_label'] == 1]
+templates = []
+template_names = []
+for idx, row in ng_samples.iterrows():
+    try:
+        img = load_and_preprocess_image(row['defect_image_orig'])
+        templates.append(img)
+        # テンプレート名を作成（例：template_1, template_2, ...）
+        template_name = f"template_{idx+1}"
+        template_names.append(template_name)
+        print(f"{template_name}: サイズ {img.shape}")
+    except Exception as e:
+        print(f"Error loading template {idx+1}: {e}")
+
+print(f"\n読み込んだテンプレート数: {len(templates)}")
+```
+
+```python
+# 閾値の最適化
+def optimize_threshold():
+    """
+    defect_detection_rateを最大化し、
+    同じdefect_detection_rateの場合はfalse_detection_rateを最小化する閾値を探索
+    """
+    thresholds = np.arange(0.1, 1.0, 0.05)  # 探索する閾値の範囲
+    best_threshold = None
+    best_detection_rate = -1
+    best_false_rate = float('inf')
+    
+    results_dict = {}
+    
+    # 各閾値での結果を保存
+    for threshold in tqdm(thresholds, desc="閾値の最適化"):
+        results_df = process_images_with_threshold(df_filtered, templates, template_names, threshold)
+        detection_rate, false_rate = calculate_metrics(results_df)
+        
+        results_dict[threshold] = {
+            'detection_rate': detection_rate * 100,
+            'false_rate': false_rate * 100
+        }
+        
+        # 最適な閾値の更新
+        if detection_rate > best_detection_rate:
+            best_detection_rate = detection_rate
+            best_false_rate = false_rate
+            best_threshold = threshold
+        elif detection_rate == best_detection_rate and false_rate < best_false_rate:
+            best_false_rate = false_rate
+            best_threshold = threshold
+    
+    return best_threshold, results_dict
+
+# 最適化の実行
+print("\n=== 閾値の最適化を開始 ===")
+best_threshold, all_results = optimize_threshold()
+```
+
+```python
 # 最適な閾値での最終評価
 print("\n=== 最適な閾値での最終評価 ===")
 final_results_df = process_images_with_threshold(df_filtered, templates, template_names, best_threshold)
@@ -34,3 +145,22 @@ for template_name in template_names:
     score_column = f"{template_name}_match_score"
     print(f"\n{template_name}:")
     print(final_results_df[score_column].describe())
+```
+
+主な変更点：
+1. 元のデータフレームの列を保持したまま、新しい予測結果とスコアを追加
+2. 各テンプレートごとに個別のスコア列を作成（例：template_1_match_score, template_2_match_score, ...）
+3. テンプレート名を明示的に管理
+4. 各テンプレートのスコア分布を個別にプロット
+5. 詳細な結果の確認機能を追加
+
+このコードでは：
+- 元のデータフレームの情報がすべて保持されます
+- 各テンプレートのマッチングスコアが個別に追跡可能です
+- テンプレートごとの性能比較が可能です
+- より詳細な分析が可能になります
+
+結果の確認方法：
+- final_results_dfの列名を確認
+- 各テンプレートのスコア統計を確認
+- スコア分布のプロットを確認
