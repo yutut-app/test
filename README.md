@@ -1,3 +1,7 @@
+# 追加のフィルタリングパラメータ
+min_intensity_diff = 30  # 最小輝度差
+min_contrast_ratio = 0.15  # 最小コントラスト比
+
 def detect_defects_dog_dynamic(cropped_keyence_image, binarized_image):
     # DoGフィルタ適用
     dog_result = difference_of_gaussian(cropped_keyence_image, dog_ksize, dog_sigma1, dog_sigma2)
