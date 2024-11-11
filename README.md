@@ -1,32 +1,29 @@
-申し訳ありません。ご指摘ありがとうございます。元画像における白い部分（高輝度領域）を検出するように修正します。
+申し訳ありません。承知しました。元画像（shape_images[base_name]）の白い部分を検出するために、二値化処理を行う前の状態で輝度の特徴を捉えるように修正します。
 
 ```python
-# DoGフィルタのパラメータ調整
+# DoGフィルタのパラメータ
 dog_ksize = 9
 dog_sigma1 = 1.5
 dog_sigma2 = 3.5
 
-# 動的閾値処理のパラメータ調整
+# 動的閾値処理のパラメータ
 dynamic_ksize = 25
 dynamic_c = 6
 dynamic_method = cv2.ADAPTIVE_THRESH_GAUSSIAN_C
 
-# 輝度差の検出パラメータ
-min_intensity_diff_dark = 25  # 暗い部分（黒い領域）の検出用
-min_intensity_diff_bright = 20  # 明るい部分（白い領域）の検出用
+# 輝度ベースの検出パラメータ
+bright_threshold = 180  # 明るい部分の閾値
+dark_threshold = 50    # 暗い部分の閾値
+min_intensity_diff = 25
 min_contrast_ratio = 0.12
-
-# 元画像の輝度に関するパラメータ
-bright_threshold = 180  # 高輝度領域の閾値
-dark_threshold = 70    # 低輝度領域の閾値
 
 # 近接領域の統合パラメータ
 merge_distance = 15
 
 def detect_defects_dog_dynamic(cropped_keyence_image, binarized_image):
-    # 元画像から直接、高輝度領域と低輝度領域を検出
-    _, bright_regions = cv2.threshold(cropped_keyence_image, bright_threshold, 255, cv2.THRESH_BINARY)
-    _, dark_regions = cv2.threshold(cropped_keyence_image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
+    # 元画像から直接、明るい部分と暗い部分を検出
+    _, bright_mask = cv2.threshold(cropped_keyence_image, bright_threshold, 255, cv2.THRESH_BINARY)
+    _, dark_mask = cv2.threshold(cropped_keyence_image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
     
     # マルチスケールDoGの適用
     dog_results = []
@@ -43,30 +40,29 @@ def detect_defects_dog_dynamic(cropped_keyence_image, binarized_image):
     
     combined_dog = np.maximum.reduce(dog_results)
     
-    # 動的閾値処理
-    dynamic_result = cv2.adaptiveThreshold(
-        cropped_keyence_image, 255, dynamic_method, 
-        cv2.THRESH_BINARY, dynamic_ksize, dynamic_c
-    )
-    
-    # 輝度差の検出
+    # 輝度の変化率を計算
     local_mean = cv2.blur(cropped_keyence_image, (dynamic_ksize, dynamic_ksize))
     intensity_diff = cv2.absdiff(cropped_keyence_image, local_mean)
+    
+    # 明るい領域と暗い領域の周辺の変化を強調
+    gradient_x = cv2.Sobel(cropped_keyence_image, cv2.CV_64F, 1, 0, ksize=3)
+    gradient_y = cv2.Sobel(cropped_keyence_image, cv2.CV_64F, 0, 1, ksize=3)
+    gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+    gradient_magnitude = cv2.normalize(gradient_magnitude, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
     
     # コントラスト比の計算
     local_std = np.std(cropped_keyence_image)
     contrast_ratio = intensity_diff / (local_std + 1e-6)
     contrast_mask = (contrast_ratio > min_contrast_ratio).astype(np.uint8) * 255
     
-    # DoGと動的閾値の結果を統合
-    primary_result = cv2.bitwise_and(combined_dog, dynamic_result)
+    # 輝度マスクと勾配マスクを組み合わせる
+    combined_bright = cv2.bitwise_and(bright_mask, gradient_magnitude)
+    combined_dark = cv2.bitwise_and(dark_mask, gradient_magnitude)
+    combined_mask = cv2.bitwise_or(combined_bright, combined_dark)
     
-    # 高輝度領域と低輝度領域を考慮した最終結果の作成
-    defect_regions = cv2.bitwise_or(bright_regions, dark_regions)
-    defect_regions = cv2.bitwise_and(defect_regions, contrast_mask)
-    
-    # 全ての結果を統合
-    combined_result = cv2.bitwise_or(primary_result, defect_regions)
+    # DoGの結果と組み合わせる
+    combined_result = cv2.bitwise_and(combined_mask, combined_dog)
+    combined_result = cv2.bitwise_and(combined_result, contrast_mask)
     
     # マスク適用
     masked_result = cv2.bitwise_and(combined_result, combined_result, mask=binarized_image)
@@ -75,41 +71,37 @@ def detect_defects_dog_dynamic(cropped_keyence_image, binarized_image):
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (merge_distance, merge_distance))
     merged_result = cv2.morphologyEx(masked_result, cv2.MORPH_CLOSE, kernel)
     
-    return merged_result
+    # 最終的なマスクの作成（明るい部分と暗い部分の両方を含む）
+    final_mask = cv2.bitwise_or(merged_result, cv2.bitwise_and(bright_mask, binarized_image))
+    
+    return final_mask
 ```
 
 主な変更点：
 
-1. 元画像の輝度に基づく検出：
-   - 直接的な閾値処理で高輝度領域（bright_threshold以上）を検出
-   - 同様に低輝度領域（dark_threshold以下）も検出
-   - これにより、元画像の状態での白い部分と黒い部分を検出
+1. 元画像での輝度ベースの検出：
+   - bright_thresholdで明るい部分を直接検出
+   - dark_thresholdで暗い部分を直接検出
 
-2. パラメータの調整ポイント：
+2. 輝度の変化率の検出を強化：
+   - Sobelフィルタを使用して輝度の勾配を計算
+   - 勾配の大きさを使用して輝度変化の大きい領域を強調
 
-```python
-# 高輝度/低輝度領域の検出感度調整用
-bright_threshold = 180  # 小さくすると白い部分の検出感度が上がる（範囲：0-255）
-dark_threshold = 70    # 大きくすると黒い部分の検出感度が上がる（範囲：0-255）
-```
+3. 明るい領域と暗い領域の統合：
+   - 輝度マスクと勾配マスクを組み合わせて、特徴的な領域を抽出
+   - 最終的に明るい部分と暗い部分の両方を含むマスクを生成
 
-感度調整のガイドライン：
+パラメータ調整のポイント：
 
-1. 白い部分（高輝度領域）の検出を調整する場合：
-   - bright_thresholdを下げる：より多くの白い部分を検出（例：180→160）
-   - bright_thresholdを上げる：より確実な白い部分のみを検出（例：180→200）
+1. 明るい部分の検出感度：
+   - bright_thresholdを下げると、より多くの明るい領域を検出（150-200の範囲で調整）
+   - 特に元画像の白い部分の輝度値を考慮して設定
 
-2. 黒い部分（低輝度領域）の検出を調整する場合：
-   - dark_thresholdを上げる：より多くの黒い部分を検出（例：70→90）
-   - dark_thresholdを下げる：より確実な黒い部分のみを検出（例：70→50）
+2. 暗い部分の検出感度：
+   - dark_thresholdを上げると、より多くの暗い領域を検出（30-70の範囲で調整）
 
-3. 統合範囲を調整する場合：
-   - merge_distanceを大きくする：より広い範囲を一つの欠陥として統合（例：15→20）
-   - merge_distanceを小さくする：統合範囲を制限（例：15→10）
+3. 全体的な感度調整：
+   - min_contrast_ratioを下げると、より多くの変化を検出
+   - merge_distanceを調整して、検出された領域の統合範囲を制御
 
-この改良により：
-- 元画像の輝度値に基づいて直接的に白い部分と黒い部分を検出
-- DoGフィルタと動的閾値処理の結果と組み合わせることで、より確実な欠陥検出が可能
-- 近接領域の統合により、検出された領域を適切にグループ化
-
-実際の画像で試しながら、bright_thresholdとdark_thresholdの値を調整することで、最適な検出結果を得ることができます。
+この改良により、元画像における白い部分と黒い部分の両方を検出し、それらを組み合わせて鋳巣の全体を捉えることができるはずです。画像の特性に応じて、特にbright_thresholdとdark_thresholdを適切に調整することが重要です。
