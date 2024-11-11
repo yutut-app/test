@@ -1,72 +1,47 @@
-1.	Aiserv(アイサーブ)プロジェクト:
-介護施設向けの排泄検知システム「Aiserv」のソフトウェア開発と製品仕様の策定を担当しています。プロジェクトにおいては、データベースの仕様書作成、外部委託先への進捗管理、データ収集と分析を行い、排便検知モデルの構築と評価、そしてシステム組み込みのための仕様書とコードの作成まで、モデル構築に関する業務を一貫して実施しています。
-2.	AIプロジェクト:
-社内デジタルトランスフォーメーション(DX)推進チームの一員として、様々なAI技術の実用化に努めています。具体的には、自社製品の製造工程における異常検知システムの構築、開発部署向け顔認証プロジェクト、および工場ロボットのナビゲーション最適化プロジェクトにおいて、AIモデルの選定から実装、そして運用監視までを担当しました。技術教育プログラムにおいては、初学者向けにPython、データ分析、およびG検定講習の教材作成と講師を務めています。
-これらのプロジェクトを通じて、自らの手で技術問題を見つけ、解決策を提案し、実装する能力を発揮し、AIエンジニアとしての経験と実力を積んでいます。また、チームと連携し、多くの関係者と協力してタスクを遂行し、プロジェクトの成功に貢献しています。
+# 6. DoGフィルタと動的閾値処理による欠陥検出
 
+def difference_of_gaussian(img, ksize, sigma1, sigma2):
+    # ガウシアンフィルタ適用
+    gaussian_1 = cv2.GaussianBlur(img, (ksize, ksize), sigma1)
+    gaussian_2 = cv2.GaussianBlur(img, (ksize, ksize), sigma2)
+    
+    # 2種のガウシアンフィルタ適用画像の差分
+    dog = gaussian_1 - gaussian_2
+    
+    return dog
 
+def dynamic_threshold(img, ksize, method=cv2.ADAPTIVE_THRESH_GAUSSIAN_C, c=2):
+    # 適応的閾値処理
+    binary = cv2.adaptiveThreshold(img, 255, method, cv2.THRESH_BINARY_INV, ksize, c)
+    return binary
 
-【プロジェクト概要】
-新東工業株式会社において、介護施設向けウェアラブルセンサ・システム「Aiserv」の開発プロジェクトに参加しています。このプロジェクトは、利用者の排泄をリモートで検知し、職員にアラートを送るシステムを開発することを目的としています。私の参画時には、ハードウェアの基本設計は固まっていましたが、ソフトウェア面（通信、検知アルゴリズム）の開発と製品仕様の策定が求められていました。
+def detect_defects_dog_dynamic(cropped_keyence_image, binarized_image):
+    # DoGフィルタ適用
+    dog_result = difference_of_gaussian(cropped_keyence_image, dog_ksize, dog_sigma1, dog_sigma2)
+    
+    # DoG結果を8ビット unsigned int に変換
+    dog_result = cv2.normalize(dog_result, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    
+    # 動的閾値処理
+    dynamic_result = dynamic_threshold(cropped_keyence_image, dynamic_ksize, dynamic_method, dynamic_c)
+    
+    # DoGと動的閾値の結果を組み合わせる
+    combined_result = cv2.bitwise_and(dog_result, dynamic_result)
+    
+    # マスク適用
+    masked_result = cv2.bitwise_and(combined_result, combined_result, mask=binarized_image)
+    
+    return masked_result
 
-【主な業務内容】
-1.	既存製品の改良:
-販売済の製品のソフトウェアを改善し、実証実験を実施。データ分析を通じて製品の性能を向上させ、市場への適応性を高めました。
-・介護施設での実証実験を実施し、製品の性能を評価
-・データベースの仕様書作成と外部委託先への進捗管理
-・データ収集と分析を行い、アルゴリズムの選定やデータの前処理を実施
-・排便検知モデルの構築と評価、そしてシステム組み込みのための仕様書とコードの作成
-・モデルの運用監視と精度の定期確認
-2.	改良版製品の開発: 
-新しいセンサの選定、データ収集・分析環境の構築を行い、改良版の製品開発を進めています。
-・新しいセンサの選定と社内実験用の環境構築（GUIアプリ作成、デモ機とデータベースの構築）
-・排便の成分分析と候補センサのガス成分応答のデータ分析
-![image](https://github.com/user-attachments/assets/29e489f1-d447-4c40-863a-add6122390a4)
+def process_images_for_defect_detection(binarized_images):
+    processed_images = []
+    for binarized_image, cropped_keyence_image, original_filename in binarized_images:
+        defect_image = detect_defects_dog_dynamic(cropped_keyence_image, binarized_image)
+        processed_images.append((binarized_image, defect_image, original_filename))
+    return processed_images
 
-
-【プロジェクト概要】
-社内のデジタルトランスフォーメーション(DX)を推進するプロジェクトに参画しています。このプロジェクトは、AI技術を学びながら自分の仕事に活かしたいと意欲を示したメンバーを各部署から集めて結成されました。参画には上司からの推薦が必要で、開発本部からは私が選出されました。
-
-【業務内容】
-1.鋳造加工自動異常検知プロジェクト
-AutoEncoder技術を利用し、自社製品の異常検知システムを構築。
-2.開発部署向け顔認証プロジェクト
-   入口にカメラを設置し、Deep Face技術による顔認識を通じて扉の開閉制御を実現。  
-
-【担当フェーズ】
-・データの収集
-・AIモデルの選定
-・実装プログラムの作成
-・AIモデルの実装
-
-【プロジェクト規模・構成（全5名）】
-・子会社画像処理事業部からの代表（1名）（プロジェクトリーダー）
-・開発本部からの代表（1名）（私）
-・特機部門からの代表（1名）
-・表面処理部門からの代表（1名）
-・環境事業部門からの代表（1名）
-![image](https://github.com/user-attachments/assets/2a20bbb0-ca3e-4ad0-ab82-602bc071460a)
-
-定例会議の参加（要件定義、仕様策定）  
-・工程現場へのカメラ設置  
-・画像処理プログラムの作成（ AutoEncoderによる自社製品の異常検知）
-
-【概要】
-5つの部門が集まり、DX化が可能な工程の有無を検討した結果、工場の製造工程における異常検知のDX化を進めることに決定しました。このプロジェクトでは、鋳造加工機械の製造工程において発生する傷やカケを、従来の目視検査ではなく、画像処理技術を利用して自動的に判別するシステムの開発を目指しています。  
-※検討したAIモデルの: AutoEncoder
-
-【プロジェクト規模】 
-・AIプロジェクトメンバー　5名  
-（工場拠点に在籍しているのは私のみで、基本的な対応が必要な場合は主に私が行いました）  
-・鋳造部門エンジニア 2名  
-・鋳造機械工場の現場　2名
-
-【実績・取り組み】
-1. 要件明確化:  
-   本プロジェクトでは、自分の部署以外にAIを導入することが初めてであり、具体的な課題の抽出が難しかったです。しかし、定期的な会議を通じて現場の声を直接聞き、要件を明確にすることができました。時間帯によって傷の見え方が異なるというフィードバックを受け、時間帯別の画像データ収集を実施し、それを基にデータベースの構築を行いました。
-2.画像データ収集の最適化: 
-   工場内の粉塵は、カメラのレンズを汚し、クリアな画像の取得が困難でした。さまざまな角度や照明条件での撮影を試みることで、高品質な画像データの収集を実現しました。この取り組みは、私が積極的に対応し、改善策を提案・実施した結果です。
-3. 現場とのコミュニケーション: 
-   新しいシステムの導入に当たり、現場スタッフの理解と協力を得るため、プロジェクトの意義や目的を明確に伝える努力をしました。このプロセスは、プロジェクトの進行において重要なステップであり、私が主導し、現場スタッフとの連携を強化することを心がけました。
-![Uploading image.png…]()
-
+# NGとOK画像に対して欠陥検出を実行
+processed_ng_images_label1 = process_images_for_defect_detection(binarized_ng_images_label1)
+processed_ng_images_label2 = process_images_for_defect_detection(binarized_ng_images_label2)
+processed_ng_images_label3 = process_images_for_defect_detection(binarized_ng_images_label3)
+processed_ok_images = process_images_for_defect_detection(binarized_ok_images)
