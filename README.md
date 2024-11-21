@@ -1,73 +1,191 @@
-### 決定事項
-- CannyとDoGの組み合わせ手法を優先的に進める (自社・先方)
-- モデル確定後、加工面の定義部分と欠陥検出部分を他の面にも適用できる形に改良する (自社・先方)
-- 加工面の定義をテンプレートマッチングに変更する方向で検討する (自社・先方)
+申し訳ありません。まず初めに「# 6. Canny+DoGによる欠陥検出」の部分を生成させていただきます。分量が多いため、数回に分けて送信させていただきます。
 
-## ToDo
-### 先方
-- 各面で精度が担保できる穴の候補（優先順位付き）を提示する
-- クランプなどを取り除いたノーマル画像が必要な場合に備えて準備する
+```python
+# 6. Canny+DoGによる欠陥検出
 
-### 自社
-- 他の面の形状を確認し、テンプレートマッチングによる加工面定義の方法を検討する
-- CannyとDoGの組み合わせ手法の実装を行う
-- テンプレートマッチングによる加工面定義の具体的な方法を検討する
-- 提示された穴の候補を確認し、位置決めに使用可能か評価する
+# パラメータの追加
+# Cannyエッジ検出のパラメータ（大きな鋳巣用）
+canny_kernel_size = (5, 5)  # ガウシアンフィルタのカーネルサイズ
+canny_sigma = 1.0  # ガウシアンフィルタのシグマ
+canny_min_threshold = 30  # Cannyの最小閾値
+canny_max_threshold = 120  # Cannyの最大閾値
+canny_merge_distance = 15  # Canny検出結果の統合距離
 
-## 議事内容
-#### 会議の主題: CB02外観検査-欠陥候補検出の改善検討について
+# DoGフィルタのパラメータ（小さな鋳巣用）
+dog_ksize = 9  # DoGフィルタのカーネルサイズ
+dog_sigma1 = 1.5  # 1つ目のガウシアンフィルタのシグマ
+dog_sigma2 = 3.5  # 2つ目のガウシアンフィルタのシグマ
+dog_merge_distance = 15  # DoG検出結果の統合距離
 
-1. 分析案件週次報告 (報告：自社)
-   1.1. スケジュール確認
+# 共通のパラメータ
+min_large_defect_size = 10  # 大きな鋳巣の最小サイズ
+max_large_defect_size = 100  # 大きな鋳巣の最大サイズ
+min_small_defect_size = 5  # 小さな鋳巣の最小サイズ
+max_small_defect_size = 10  # 小さな鋳巣の最大サイズ
 
-   1.2. 作業タスク確認
+def detect_large_defects_canny(image, mask):
+    """
+    Cannyエッジ検出による大きな鋳巣の検出
+    """
+    # マスク領域内の画像を取得
+    masked_image = cv2.bitwise_and(image, image, mask=mask)
+    
+    # ガウシアンフィルタでノイズ除去
+    blurred = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
+    
+    # Cannyエッジ検出
+    edges = cv2.Canny(blurred, canny_min_threshold, canny_max_threshold)
+    
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (canny_merge_distance, canny_merge_distance))
+    merged_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+    
+    return merged_edges
 
-   1.3. 進捗報告
+def detect_small_defects_dog(image, mask):
+    """
+    DoGフィルタによる小さな鋳巣の検出
+    """
+    # マスク領域内の画像を取得
+    masked_image = cv2.bitwise_and(image, image, mask=mask)
+    
+    # マルチスケールDoGの適用
+    dog_results = []
+    sigma_pairs = [
+        (1.5, 3.5),
+        (2.0, 4.0),
+        (1.0, 2.5)
+    ]
+    
+    for sigma1, sigma2 in sigma_pairs:
+        dog_result = difference_of_gaussian(masked_image, dog_ksize, sigma1, sigma2)
+        dog_result = cv2.normalize(dog_result, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        dog_results.append(dog_result)
+    
+    # DoG結果の統合
+    combined_dog = np.maximum.reduce(dog_results)
+    
+    # 閾値処理
+    _, binary_dog = cv2.threshold(combined_dog, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dog_merge_distance, dog_merge_distance))
+    merged_dog = cv2.morphologyEx(binary_dog, cv2.MORPH_CLOSE, kernel)
+    
+    return merged_dog
+```
 
-      1.3.1. CB02外観検査-欠陥候補検出の改善検討
-         - BMP画像での検出可能性を評価
-           BMPへの変更による鋳巣検出の改善は見込めず
-         - 今後のアプローチ提案
-           CannyとDoGの組み合わせ手法を検討
+続きを次のメッセージで送ります。
 
-   1.3.2 質疑応答
-   - パラメータに関して、現状のH面に対して最適化していると思うが、そのモデルを他の面で仮に実装する場合の工数はどれくらいか？ (先方A)
-     → ロジック自体を変えずにH面ごとにパラメータを変更する場合は、パラメータを変えるだけで良いが形状が違うためうまくいくかは不明。現状欠陥を検出する部分(加工部)の定義を二値化で白い部分を欠陥検出部としているが、そこのロジックをテンプレートを使って検出する部分(加工部)を定義することで解決を考えている。その分工数(4~6週間)がかかる (自社A)
+はい、続きを送らせていただきます。
 
-   - 現状のロジックを他の面に適用する場合、パラメータを面ごとに変えないと使えないという認識か？ (先方A)
-     → 現状はそのとおり。加工面の定義を二値化からテンプレートにすれば、パラメータを変える必要はない (自社A)
+```python
+def difference_of_gaussian(img, ksize, sigma1, sigma2):
+    """
+    DoGフィルタの適用
+    """
+    # ガウシアンフィルタ適用
+    gaussian_1 = cv2.GaussianBlur(img, (ksize, ksize), sigma1)
+    gaussian_2 = cv2.GaussianBlur(img, (ksize, ksize), sigma2)
+    
+    # 2種のガウシアンフィルタ適用画像の差分
+    dog = gaussian_1 - gaussian_2
+    
+    return dog
 
-   - 欠陥検出の部分のパラメータ調整が必要で、その後の欠陥分類(テンプレートマッチング)は面が違っても同じものが使えるということか？ (先方A)
-     → そのとおり (自社A)
+def combine_defect_detection(image, mask):
+    """
+    CannyとDoGの結果を組み合わせて欠陥検出を行う
+    """
+    # 大きな鋳巣の検出（Canny）
+    large_defects = detect_large_defects_canny(image, mask)
+    
+    # 小さな鋳巣の検出（DoG）
+    small_defects = detect_small_defects_dog(image, mask)
+    
+    # サイズによるフィルタリング
+    large_defects_filtered = filter_by_size(large_defects, min_large_defect_size, max_large_defect_size)
+    small_defects_filtered = filter_by_size(small_defects, min_small_defect_size, max_small_defect_size)
+    
+    # 結果の統合
+    combined_result = cv2.bitwise_or(large_defects_filtered, small_defects_filtered)
+    
+    # マスク適用
+    final_result = cv2.bitwise_and(combined_result, combined_result, mask=mask)
+    
+    return final_result
 
-   - JPGの圧縮の処理が何らかの影響があったということは、装置によっても結果が変わる可能性があるか？ (先方B)
-     → JPG圧縮する機器(装置)によって、その可能性がある (自社A)
+def filter_by_size(binary_image, min_size, max_size):
+    """
+    サイズに基づいて欠陥候補をフィルタリング
+    """
+    # ラベリング処理
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_image)
+    
+    # フィルタリング結果を格納する配列
+    filtered_image = np.zeros_like(binary_image)
+    
+    # 各連結成分のサイズをチェック
+    for i in range(1, num_labels):  # 0はbackground
+        area = stats[i, cv2.CC_STAT_AREA]
+        if min_size <= area <= max_size:
+            # サイズが条件を満たす場合、その領域を残す
+            filtered_image[labels == i] = 255
+    
+    return filtered_image
 
-   - BMP画像の方がノイズなどの情報が多いのは一般的なものか？一般的にBMPの方がノイズが出てしまうものか？ (先方A)
-     → そのとおり。ノイズというより、すべての色彩情報や周波の情報が出てしまう (自社A)
-     → BMPの方が現実に近いということか？ (先方A)
-     → 実際に現実に近いのはBMPだが、人の目で直接見た画像はJPGのように見える (自社A)
-     (補足：BMPは非圧縮形式のため、実際の画像情報をより多く保持している)
+def process_images_for_defect_detection(binarized_images):
+    """
+    全画像に対して欠陥検出を実行
+    """
+    processed_images = []
+    for binarized_image, cropped_keyence_image, original_filename in binarized_images:
+        # Canny+DoGによる欠陥検出
+        defect_image = combine_defect_detection(cropped_keyence_image, binarized_image)
+        processed_images.append((binarized_image, defect_image, original_filename))
+    return processed_images
 
-   - 今後の方針について、欠陥を検出する部分(加工部)の定義を二値化で決めているが、ここが安定しない可能性もあるということで、テンプレートマッチングに変更する場合の工数はどうなるか？ (先方A)
-     → テンプレートに関しては、パラメータ調整は必要ないため、そのロジックがしっかりと適合すればすぐに終わる見込み(6面で1週間程度) (自社A)
+# NGとOK画像に対して欠陥検出を実行
+processed_ng_images_label1 = process_images_for_defect_detection(binarized_ng_images_label1)
+processed_ng_images_label2 = process_images_for_defect_detection(binarized_ng_images_label2)
+processed_ng_images_label3 = process_images_for_defect_detection(binarized_ng_images_label3)
+processed_ok_images = process_images_for_defect_detection(binarized_ok_images)
 
-   - 欠陥を検出する部分(加工部)を定義する際の懸念として、位置がワークごとにズレる可能性があったが、そこはテンプレートで位置が合うので問題ないという認識か？ (先方A)
-     → 形状によっても変わってくるため確認が必要だが、その認識で間違いない。H面に関しては円の部分があるため、円を検出し中心座標を求め、その位置に合わせてテンプレートの白部分を加工面とすることで定義できると考える。ただし、他の面形状を見ていないため、確認後検討する (自社A)
-     → 各面で精度が担保している穴はそれぞれあるので、この穴が第一希望第二希望という形で、基準にしてほしい候補を挙げるので確認してほしい (先方A)
-     → 承知した (自社A)
+# 検出結果の可視化（オプション）
+def visualize_defect_detection(image_name, original_image, defect_image, mask):
+    """
+    検出結果を可視化
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(15, 7))
+    
+    # 元画像の表示
+    axes[0].imshow(original_image, cmap='gray')
+    axes[0].set_title('Original Image')
+    axes[0].axis('off')
+    
+    # 検出結果の表示（マスク領域内のみ）
+    masked_result = cv2.bitwise_and(defect_image, defect_image, mask=mask)
+    axes[1].imshow(masked_result, cmap='gray')
+    axes[1].set_title('Detected Defects (Canny + DoG)')
+    axes[1].axis('off')
+    
+    plt.suptitle(f'Defect Detection Result - {image_name}')
+    plt.tight_layout()
+    plt.show()
 
-   - 欠陥分類のテンプレートの登録について、システム側にどういう形で保存されるのか？ (先方A)
-     → テンプレートというフォルダを定義しておき、そのフォルダに手動で切り出した鋳巣画像を入れておけばよい。そのディレクトリをテンプレートとして使用するようにロジックを組んでいる (自社A)
+# 最初のNG画像で結果を可視化（例）
+if processed_ng_images_label1:
+    _, defect_image, original_filename = processed_ng_images_label1[0]
+    original_image = cv2.imread(os.path.join(input_data_dir, "NG", "label1", original_filename), cv2.IMREAD_GRAYSCALE)
+    visualize_defect_detection(original_filename, original_image, defect_image, binarized_image)
+```
 
-   - 加工面のテンプレートの作成方法について確認したい。綺麗な画像を用意していただけるとのことだが (自社B)
-     → まだ加工面のテンプレートの作成方法が検討できていないため、一度検討してお伝えする (自社A)
-     → クランプなどを取り除いたノーマル画像が必要な場合は、新しく撮影して準備できるため、必要な際は連絡してほしい (先方A)
-     (補足：テンプレート作成には清浄な画像が必要なため、クランプなどの不要な要素を除いた撮影が有効)
+このコードでは：
+1. 大きな鋳巣をCannyエッジ検出で検出
+2. 小さな鋳巣をDoGフィルタで検出
+3. それぞれの結果に対してサイズによるフィルタリングを実施
+4. 両方の結果を統合して最終的な検出結果を得る
 
-   - 今後の方針についてまとめると、CannyとDoGの組み合わせ手法を優先的に進めつつ、他の面でも適用できるようにするという方針で良いか？ (自社B)
-     → CannyとDoGの組み合わせ手法を行い、モデルが決まったら加工面の定義部分と欠陥検出部分を他の面にも適応できる形にするように進めてほしい (先方A)
-     → 承知した (自社A)
+という処理を行っています。また、各処理段階で近接領域の統合を行い、検出精度の向上を図っています。
 
-#### 次回打ち合わせ：11/27(木) 10:00~11:00
-
+これで「# 6. Canny+DoGによる欠陥検出」の部分の生成が完了しました。このコードは他の部分（#1〜#5、#7〜#9）と組み合わせて使用することができます。
