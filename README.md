@@ -1,9 +1,27 @@
 申し訳ありません。まず初めに「# 6. Canny+DoGによる欠陥検出」の部分を生成させていただきます。分量が多いため、数回に分けて送信させていただきます。
 
-```python
-# 6. Canny+DoGによる欠陥検出
+はい、全パラメータをまとめて示します。
 
-# パラメータの追加
+```python
+# 2. パラメータの設定
+
+# ディレクトリとファイルパス
+input_data_dir = r"../data/input"
+output_data_dir = r"../data/output"
+template_dir = os.path.join(input_data_dir, "template")
+right_template_path = os.path.join(template_dir, "right_keyence.jpg")
+left_template_path = os.path.join(template_dir, "left_keyence.jpg")
+
+# ラベル定義
+ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
+
+# 画像処理パラメータ
+crop_width = 1360  # ワーク接合部を削除するための幅
+threshold_value = 150  # 二値化しきい値
+kernel_size = (5, 5)  # カーネルサイズ
+iterations_open = 3  # 膨張処理の繰り返し回数
+iterations_close = 20  # 収縮処理の繰り返し回数
+
 # Cannyエッジ検出のパラメータ（大きな鋳巣用）
 canny_kernel_size = (5, 5)  # ガウシアンフィルタのカーネルサイズ
 canny_sigma = 1.0  # ガウシアンフィルタのシグマ
@@ -17,11 +35,45 @@ dog_sigma1 = 1.5  # 1つ目のガウシアンフィルタのシグマ
 dog_sigma2 = 3.5  # 2つ目のガウシアンフィルタのシグマ
 dog_merge_distance = 15  # DoG検出結果の統合距離
 
-# 共通のパラメータ
-min_large_defect_size = 10  # 大きな鋳巣の最小サイズ
-max_large_defect_size = 100  # 大きな鋳巣の最大サイズ
-min_small_defect_size = 5  # 小さな鋳巣の最小サイズ
-max_small_defect_size = 10  # 小さな鋳巣の最大サイズ
+# 欠陥サイズパラメータ
+min_large_defect_size = 10  # 大きな鋳巣の最小サイズ（1mm = 10px）
+max_large_defect_size = 100  # 大きな鋳巣の最大サイズ（10mm = 100px）
+min_small_defect_size = 5  # 小さな鋳巣の最小サイズ（0.5mm = 5px）
+max_small_defect_size = 10  # 小さな鋳巣の最大サイズ（1mm = 10px）
+
+# エッジ補完のパラメータ
+edge_kernel_size = (3, 3)  # エッジ補完のカーネルサイズ
+edge_open_iterations = 2   # ノイズ削除の繰り返し回数
+edge_close_iterations = 2  # エッジ補完の繰り返し回数
+
+# マスクエッジ検出のパラメータ
+mask_edge_min_threshold = 100
+mask_edge_max_threshold = 200
+mask_edge_margin = 5  # マスクエッジの余裕幅（ピクセル単位）
+
+# 欠陥候補の保存パラメータ
+enlargement_factor = 10  # 欠陥候補画像の拡大倍率
+```
+
+これらのパラメータは、画像処理の各ステップで使用され、検出精度に大きく影響します。特に注意すべきパラメータは：
+
+1. 二値化関連
+   - threshold_value: マスク作成の基準となる
+   - kernel_size, iterations_open, iterations_close: ノイズ除去と形状の保持のバランス
+
+2. Canny/DoG関連
+   - canny_min/max_threshold: エッジ検出の感度
+   - dog_sigma1/sigma2: 特徴検出のスケール
+   - merge_distance: 検出結果の統合範囲
+
+3. サイズフィルタリング
+   - min/max_defect_size: 欠陥候補のサイズ範囲
+   - 実際の鋳巣サイズに応じて調整が必要
+
+これらのパラメータは実際の画像特性に応じて調整することで、検出精度を向上させることができます。
+
+
+```python
 
 def detect_large_defects_canny(image, mask):
     """
