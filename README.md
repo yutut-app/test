@@ -1,69 +1,51 @@
-def filter_defects_by_max_length(defects, min_size, max_size):
-    return [defect for defect in defects if min_size <= defect['max_length'] <= max_size]
+#6の`visualize_defect_detection`関数の部分を修正します。エラーは画像の読み込み方法とデータ型の問題です。以下が修正したコードです：
 
-def process_images_for_filtering(labeled_images, image_type):
-    filtered_images = []
-    for i, (binarized_image, edge_image, defects) in enumerate(labeled_images):
-        # 大きな欠陥（Cannyで検出）のフィルタリング
-        large_defects = filter_defects_by_max_length(defects, min_large_defect_size, max_large_defect_size)
-        for j, defect in enumerate(large_defects, 1):
-            defect['label'] = j
-            defect['detection_type'] = 'canny'  # Cannyで検出したことを記録
-        
-        # 小さな欠陥（DoGで検出）のフィルタリング
-        small_defects = filter_defects_by_max_length(defects, min_small_defect_size, max_small_defect_size)
-        for j, defect in enumerate(small_defects, len(large_defects) + 1):
-            defect['label'] = j
-            defect['detection_type'] = 'dog'  # DoGで検出したことを記録
-        
-        # 大きな欠陥と小さな欠陥を統合
-        filtered_defects = large_defects + small_defects
-        
-        image_name = f"{image_type}_{i}"
-        filtered_images.append((image_name, binarized_image, edge_image, filtered_defects))
-    return filtered_images
-
-# NGとOK画像に対してフィルタリングを実行
-filtered_ng_images_label1 = process_images_for_filtering(labeled_ng_images_label1, "ng_label1")
-filtered_ng_images_label2 = process_images_for_filtering(labeled_ng_images_label2, "ng_label2")
-filtered_ng_images_label3 = process_images_for_filtering(labeled_ng_images_label3, "ng_label3")
-filtered_ok_images = process_images_for_filtering(labeled_ok_images, "ok")
-
-# フィルタリング結果の可視化
-def visualize_filtered_defects(image_name, image, defects, mask):
-    fig, ax = plt.subplots(figsize=(20, 20))
-    ax.imshow(image, cmap='gray')
+```python
+# 検出結果の可視化（オプション）
+def visualize_defect_detection(image_name, original_image, defect_image, mask):
+    """
+    検出結果を可視化
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(15, 7))
     
-    # マスクのエッジを可視化
-    mask_edges = create_mask_edge_margin(mask, mask_edge_margin)
-    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
+    # 元画像の表示
+    # original_imageがパスの場合は読み込む
+    if isinstance(original_image, str):
+        original_image = cv2.imread(original_image, cv2.IMREAD_GRAYSCALE)
+    # OpenCVで読み込んだ画像をmatplotlibで表示するための変換
+    if original_image is not None:
+        axes[0].imshow(original_image, cmap='gray')
+        axes[0].set_title('Original Image')
+        axes[0].axis('off')
+    else:
+        print("Error: Could not load original image")
     
-    # 検出方法によって色を変える
-    colors = {
-        'canny': 'red',    # Cannyで検出した欠陥は赤色
-        'dog': 'blue'      # DoGで検出した欠陥は青色
-    }
+    # 検出結果の表示（マスク領域内のみ）
+    masked_result = cv2.bitwise_and(defect_image, defect_image, mask=mask)
+    axes[1].imshow(masked_result, cmap='gray')
+    axes[1].set_title('Detected Defects (Canny + DoG)')
+    axes[1].axis('off')
     
-    for defect in defects:
-        color = colors.get(defect['detection_type'], 'yellow')  # デフォルトは黄色
-        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
-                           fill=False, edgecolor=color, linewidth=2)
-        ax.add_patch(rect)
-        ax.text(defect['x'], defect['y'], str(defect['label']), 
-                color=color, fontsize=12)
-    
-    # 凡例の追加
-    legend_elements = [
-        plt.Rectangle((0, 0), 1, 1, facecolor='none', edgecolor='red', label='Canny (Large Defects)'),
-        plt.Rectangle((0, 0), 1, 1, facecolor='none', edgecolor='blue', label='DoG (Small Defects)')
-    ]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=12)
-    
-    plt.title(f"Filtered Defects with Mask Edges - {image_name}", fontsize=20)
-    plt.axis('off')
+    plt.suptitle(f'Defect Detection Result - {image_name}')
+    plt.tight_layout()
     plt.show()
 
-# フィルタリング結果の可視化（例：最初のNG画像）
-if filtered_ng_images_label1:
-    image_name, binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
-    visualize_filtered_defects(image_name, edge_image, filtered_defects, binarized_image)
+# 最初のNG画像で結果を可視化（例）
+if processed_ng_images_label1:
+    _, defect_image, original_filename = processed_ng_images_label1[0]
+    # 元画像のパスを正しく構築
+    original_image_path = os.path.join(input_data_dir, "NG", "label1", original_filename)
+    if os.path.exists(original_image_path):
+        original_image = cv2.imread(original_image_path, cv2.IMREAD_GRAYSCALE)
+        visualize_defect_detection(original_filename, original_image, defect_image, binarized_image)
+    else:
+        print(f"Error: Could not find original image at {original_image_path}")
+```
+
+主な修正点：
+1. `original_image`がパスの場合は読み込むように対応
+2. 画像の存在チェックを追加
+3. エラーハンドリングの追加
+4. OpenCVで読み込んだ画像の適切な処理の追加
+
+これにより`TypeError`が解消されるはずです。また、画像が見つからない場合などのエラーメッセージも表示されるようになります。
