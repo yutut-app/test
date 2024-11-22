@@ -1,214 +1,69 @@
-Cannyで検出した大きな鋳巣を赤色、DoGで検出した小さな鋳巣を青色で表示するように改良します。フィルタリング結果の可視化部分のコードを変更するため、#7、#8、#9の全体を記載します。
-
-該当の変更があるのは#8のvisualize_filtered_defectsですが、関連する処理の変更も必要なため、全体を記載します。
+はい、DoGと同様にCannyでも白い部分を検出できるように改良します。#6の該当部分を修正します。
 
 ```python
-# 7. エッジの補完とラベリング処理
-
-def create_mask_edge_margin(mask, margin):
-    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
-    kernel = np.ones((margin * 2 + 1, margin * 2 + 1), np.uint8)
-    dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
-    return dilated_edges
-
-def complete_edges(edge_image, mask):
-    mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
-    skeleton = skeletonize(edge_image > 0)
-    kernel = np.ones(edge_kernel_size, np.uint8)
+def detect_large_defects_canny(image, mask):
+    """
+    Cannyエッジ検出による大きな鋳巣の検出（明るい部分と暗い部分の両方を検出）
+    """
+    # マスク領域内の画像を取得
+    masked_image = cv2.bitwise_and(image, image, mask=mask)
     
-    # オープン処理でノイズを削除
-    opened_skeleton = cv2.morphologyEx(skeleton.astype(np.uint8), cv2.MORPH_OPEN, kernel, iterations=edge_open_iterations)
+    # 明るい部分と暗い部分の検出
+    _, bright_mask = cv2.threshold(masked_image, 180, 255, cv2.THRESH_BINARY)  # 明るい部分の閾値
+    _, dark_mask = cv2.threshold(masked_image, 50, 255, cv2.THRESH_BINARY_INV)  # 暗い部分の閾値
     
-    # クローズ処理でエッジを接続
-    connected_skeleton = cv2.morphologyEx(opened_skeleton, cv2.MORPH_CLOSE, kernel, iterations=edge_close_iterations)
+    # それぞれの部分に対してCanny処理を適用
+    # 暗い部分のエッジ検出
+    blurred_dark = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
+    edges_dark = cv2.Canny(blurred_dark, canny_min_threshold, canny_max_threshold)
+    edges_dark = cv2.bitwise_and(edges_dark, dark_mask)
     
-    completed_edges = np.maximum(edge_image, connected_skeleton * 255)
-    completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
-    return completed_edges.astype(np.uint8)
-
-def process_images_for_edge_completion(processed_images):
-    completed_edge_images = []
-    for binarized_image, edge_image, original_filename in processed_images:
-        completed_edges = complete_edges(edge_image, binarized_image)
-        completed_edge_images.append((binarized_image, completed_edges, original_filename))
-    return completed_edge_images
-
-# NGとOK画像に対してエッジ補完を実行
-completed_ng_images_label1 = process_images_for_edge_completion(processed_ng_images_label1)
-completed_ng_images_label2 = process_images_for_edge_completion(processed_ng_images_label2)
-completed_ng_images_label3 = process_images_for_edge_completion(processed_ng_images_label3)
-completed_ok_images = process_images_for_edge_completion(processed_ok_images)
-
-# 8. 欠陥候補のフィルタリング
-
-def filter_and_measure_defects(edge_image, mask, min_size, max_size):
-    mask_edges_with_margin = create_mask_edge_margin(mask, mask_edge_margin)
-    binary_edge_image = (edge_image > 0).astype(np.uint8)
-    binary_edge_image[mask_edges_with_margin > 0] = 0  # マスクエッジ部分を除外
+    # 明るい部分のエッジ検出
+    blurred_bright = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
+    edges_bright = cv2.Canny(blurred_bright, canny_min_threshold, canny_max_threshold)
+    edges_bright = cv2.bitwise_and(edges_bright, bright_mask)
     
-    labels = measure.label(binary_edge_image, connectivity=2)
-    defects = []
+    # 輝度の変化を強調
+    gradient_x = cv2.Sobel(masked_image, cv2.CV_64F, 1, 0, ksize=3)
+    gradient_y = cv2.Sobel(masked_image, cv2.CV_64F, 0, 1, ksize=3)
+    gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+    gradient_magnitude = cv2.normalize(gradient_magnitude, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
     
-    for region in measure.regionprops(labels):
-        if min_size <= region.area <= max_size:
-            y, x = region.bbox[0], region.bbox[1]
-            h, w = region.bbox[2] - y, region.bbox[3] - x
-            defect_info = {
-                'label': region.label,
-                'x': x, 'y': y, 'width': w, 'height': h,
-                'area': region.area,
-                'centroid_y': region.centroid[0], 'centroid_x': region.centroid[1],
-                'perimeter': region.perimeter,
-                'eccentricity': region.eccentricity,
-                'orientation': region.orientation,
-                'major_axis_length': region.major_axis_length,
-                'minor_axis_length': region.minor_axis_length,
-                'solidity': region.solidity,
-                'extent': region.extent,
-                'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
-                'max_length': max(w, h),
-                'detection_method': 'canny' if max(w, h) >= min_large_defect_size else 'dog'  # 検出方法を追加
-            }
-            defects.append(defect_info)
+    # 明るい領域と暗い領域の周辺の変化を強調
+    combined_bright = cv2.bitwise_and(edges_bright, gradient_magnitude)
+    combined_dark = cv2.bitwise_and(edges_dark, gradient_magnitude)
     
-    return defects
-
-def process_images_for_filtering(completed_edge_images):
-    filtered_images = []
-    for binarized_image, edge_image, original_filename in completed_edge_images:
-        defects = filter_and_measure_defects(edge_image, binarized_image, min_small_defect_size, max_large_defect_size)
-        filtered_images.append((original_filename, binarized_image, edge_image, defects))
-    return filtered_images
-
-# NGとOK画像に対してフィルタリングを実行
-filtered_ng_images_label1 = process_images_for_filtering(completed_ng_images_label1)
-filtered_ng_images_label2 = process_images_for_filtering(completed_ng_images_label2)
-filtered_ng_images_label3 = process_images_for_filtering(completed_ng_images_label3)
-filtered_ok_images = process_images_for_filtering(completed_ok_images)
-
-def visualize_filtered_defects(image_name, image, defects, mask):
-    fig, ax = plt.subplots(figsize=(20, 20))
-    ax.imshow(image, cmap='gray')
+    # 結果の統合
+    combined_edges = cv2.bitwise_or(combined_bright, combined_dark)
     
-    # マスクのエッジを可視化
-    mask_edges = create_mask_edge_margin(mask, mask_edge_margin)
-    ax.imshow(mask_edges, alpha=0.3, cmap='cool')
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (canny_merge_distance, canny_merge_distance))
+    merged_edges = cv2.morphologyEx(combined_edges, cv2.MORPH_CLOSE, kernel)
     
-    # 凡例用のパッチを作成
-    legend_elements = [
-        patches.Patch(facecolor='none', edgecolor='red', label='Large defect (Canny)'),
-        patches.Patch(facecolor='none', edgecolor='blue', label='Small defect (DoG)')
-    ]
+    # マスク適用
+    final_result = cv2.bitwise_and(merged_edges, merged_edges, mask=mask)
     
-    for defect in defects:
-        # 検出方法に応じて色を選択
-        color = 'red' if defect['detection_method'] == 'canny' else 'blue'
-        
-        rect = plt.Rectangle((defect['x'], defect['y']), defect['width'], defect['height'],
-                           fill=False, edgecolor=color, linewidth=2)
-        ax.add_patch(rect)
-        ax.text(defect['x'], defect['y'], str(defect['label']), color=color, fontsize=12)
-    
-    # 凡例を追加
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=12)
-    
-    plt.title(f"Filtered Defects with Mask Edges - {image_name}\nRed: Canny (Large), Blue: DoG (Small)", fontsize=20)
-    plt.axis('off')
-    plt.show()
-
-# フィルタリング結果の可視化（例：最初のNG画像）
-if filtered_ng_images_label1:
-    image_name, binarized_image, edge_image, filtered_defects = filtered_ng_images_label1[0]
-    visualize_filtered_defects(image_name, edge_image, filtered_defects, binarized_image)
+    return final_result
 ```
 
-```python
-# 9. 欠陥候補の画像の保存とCSV出力
+この改良版では以下の変更を加えています：
 
-def save_defect_image(image, defect, output_dir, image_name, defect_number):
-    cx, cy = defect['centroid_x'], defect['centroid_y']
-    size = max(defect['width'], defect['height'])
-    
-    x1 = max(int(cx - size), 0)
-    y1 = max(int(cy - size), 0)
-    x2 = min(int(cx + size), image.shape[1])
-    y2 = min(int(cy + size), image.shape[0])
-    
-    defect_image = image[y1:y2, x1:x2]
-    enlarged_image = cv2.resize(defect_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
-    
-    output_filename = f"defect_{defect_number}.png"
-    output_path = os.path.join(output_dir, output_filename)
-    cv2.imwrite(output_path, enlarged_image)
-    
-    return output_filename
+1. 明るい部分と暗い部分を個別に閾値処理で抽出
+- bright_mask: 輝度値180以上の領域（白い部分）
+- dark_mask: 輝度値50以下の領域（黒い部分）
 
-def process_images_for_saving(filtered_images, base_output_dir, image_label):
-    if filtered_images is None:
-        return []  # フィルタリングされた画像がない場合は空のリストを返す
-    
-    defects_data = []
-    
-    for original_filename, binarized_image, edge_image, defects in filtered_images:
-        image_type = "ng" if image_label == 1 else "ok"
-        output_dir = os.path.join(base_output_dir, image_type, original_filename.replace(".jpg", ""))
-        os.makedirs(output_dir, exist_ok=True)
-        
-        for defect in defects:
-            output_filename = save_defect_image(edge_image, defect, output_dir, original_filename, defect['label'])
-            
-            defect_data = {
-                'image_name': original_filename,
-                'defect_image': os.path.join(image_type, original_filename.replace(".jpg", ""), output_filename),
-                'Image_label': image_label,
-                'defect_label': 0,  # デフォルトで0（OK）とする
-                'detection_method': defect['detection_method']  # 検出方法を追加
-            }
-            defect_data.update(defect)
-            defects_data.append(defect_data)
-    
-    return defects_data
+2. それぞれの領域に対して個別にCanny処理を適用
+- edges_dark: 暗い部分のエッジ検出
+- edges_bright: 明るい部分のエッジ検出
 
-# メインの処理部分
-output_dir = os.path.join(output_data_dir, "defect_images")
-os.makedirs(output_dir, exist_ok=True)
+3. 輝度変化の強調
+- Sobelフィルタで勾配を計算
+- 輝度変化の大きい領域を強調
 
-all_defects_data = []
-for name, filtered_images, label in [
-    ("NG Label 1", filtered_ng_images_label1, 1),
-    ("NG Label 2", filtered_ng_images_label2, 1),
-    ("NG Label 3", filtered_ng_images_label3, 1),
-    ("OK", filtered_ok_images, 0)
-]:
-    if filtered_images:
-        print(f"Processing {name} images...")
-        all_defects_data.extend(process_images_for_saving(filtered_images, output_dir, label))
-    else:
-        print(f"No data for {name} images.")
+4. 検出結果の統合
+- 明るい部分と暗い部分のエッジを統合
+- 近接領域の統合処理を適用
 
-# CSVファイルに出力
-csv_output_dir = os.path.join(output_data_dir, "defect_data")
-os.makedirs(csv_output_dir, exist_ok=True)
-csv_output_path = os.path.join(csv_output_dir, "defects_data.csv")
+これにより、DoGと同様に、白い部分（高輝度領域）のエッジも検出できるようになります。また、元の検出能力を維持しながら、より包括的な欠陥検出が可能になります。
 
-df = pd.DataFrame(all_defects_data)
-
-if os.path.exists(csv_output_path):
-    # 既存のCSVファイルが存在する場合、列名なしで上書き
-    df.to_csv(csv_output_path, mode='a', header=False, index=False)
-    print(f"Appended defects data to existing file: {csv_output_path}")
-else:
-    # 新規作成の場合、列名ありで保存
-    df.to_csv(csv_output_path, index=False)
-    print(f"Created new defects data file: {csv_output_path}")
-
-print(f"Defects data saved to {csv_output_path}")
-```
-
-主な変更点：
-1. defect_infoに'detection_method'を追加し、Cannyで検出したか、DoGで検出したかを記録
-2. visualize_filtered_defectsを改良し、検出方法に応じて色分け表示（Canny:赤、DoG:青）
-3. 凡例を追加して検出方法を明示
-4. CSVファイルにdetection_methodカラムを追加
-
-これにより、可視化結果で各欠陥がどちらの手法で検出されたかが一目でわかるようになります。
+この変更は、白い部分も欠陥として認識する必要がある場合に特に有効です。パラメータ（閾値など）は、実際の画像の特性に応じて調整することができます。
