@@ -1,9 +1,9 @@
 ```python
 # 9. 欠陥候補の画像の保存とCSV出力
 
-def save_defect_image(original_image, edge_image, defect, output_dir, output_dir_original, image_name, defect_number):
+def save_defect_image(edge_image, original_image, defect, output_dir, edge_output_dir, original_output_dir, defect_number):
     """
-    欠陥候補のエッジ画像とオリジナル画像を保存
+    欠陥部分の画像を切り出して保存（エッジ画像とオリジナル画像の両方）
     """
     cx, cy = defect['centroid_x'], defect['centroid_y']
     size = max(defect['width'], defect['height'])
@@ -14,55 +14,50 @@ def save_defect_image(original_image, edge_image, defect, output_dir, output_dir
     y2 = min(int(cy + size), edge_image.shape[0])
     
     # エッジ画像の切り出しと保存
-    defect_edge_image = edge_image[y1:y2, x1:x2]
-    enlarged_edge_image = cv2.resize(defect_edge_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
-    
-    output_filename = f"defect_{defect_number}.png"
-    output_path = os.path.join(output_dir, output_filename)
-    cv2.imwrite(output_path, enlarged_edge_image)
+    edge_defect_image = edge_image[y1:y2, x1:x2]
+    edge_enlarged_image = cv2.resize(edge_defect_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    edge_output_filename = f"defect_{defect_number}.png"
+    edge_output_path = os.path.join(edge_output_dir, edge_output_filename)
+    cv2.imwrite(edge_output_path, edge_enlarged_image)
     
     # オリジナル画像の切り出しと保存
-    defect_original_image = original_image[y1:y2, x1:x2]
-    enlarged_original_image = cv2.resize(defect_original_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    original_defect_image = original_image[y1:y2, x1:x2]
+    original_enlarged_image = cv2.resize(original_defect_image, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    original_output_filename = f"defect_{defect_number}.png"
+    original_output_path = os.path.join(original_output_dir, original_output_filename)
+    cv2.imwrite(original_output_path, original_enlarged_image)
     
-    output_original_filename = f"defect_{defect_number}.png"
-    output_original_path = os.path.join(output_dir_original, output_original_filename)
-    cv2.imwrite(output_original_path, enlarged_original_image)
-    
-    return output_filename
+    return edge_output_filename, original_output_filename
 
 def process_images_for_saving(filtered_images, base_output_dir, image_label):
+    """
+    検出結果を保存
+    """
     if filtered_images is None:
         return []  # フィルタリングされた画像がない場合は空のリストを返す
     
     defects_data = []
     
-    for original_filename, binarized_image, edge_image, defects in filtered_images:
+    for original_filename, binarized_image, edge_image, original_image, defects in filtered_images:
         image_type = "ng" if image_label == 1 else "ok"
+        base_dir = os.path.join(base_output_dir, image_type, original_filename.replace(".jpg", ""))
         
-        # エッジ画像用のディレクトリ
-        output_dir = os.path.join(base_output_dir, "edge_images", image_type, original_filename.replace(".jpg", ""))
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # オリジナル画像用のディレクトリ
-        output_dir_original = os.path.join(base_output_dir, "original_images", image_type, original_filename.replace(".jpg", ""))
-        os.makedirs(output_dir_original, exist_ok=True)
+        # エッジ画像用とオリジナル画像用のディレクトリを作成
+        edge_output_dir = os.path.join(base_dir, "edge")
+        original_output_dir = os.path.join(base_dir, "original")
+        os.makedirs(edge_output_dir, exist_ok=True)
+        os.makedirs(original_output_dir, exist_ok=True)
         
         for defect in defects:
-            output_filename = save_defect_image(
-                binarized_image, 
-                edge_image, 
-                defect, 
-                output_dir, 
-                output_dir_original,
-                original_filename, 
-                defect['label']
+            edge_output_filename, original_output_filename = save_defect_image(
+                edge_image, original_image, defect, base_dir,
+                edge_output_dir, original_output_dir, defect['label']
             )
             
             defect_data = {
                 'image_name': original_filename,
-                'defect_image': os.path.join("edge_images", image_type, original_filename.replace(".jpg", ""), output_filename),
-                'original_defect_image': os.path.join("original_images", image_type, original_filename.replace(".jpg", ""), output_filename),
+                'edge_defect_image': os.path.join(image_type, original_filename.replace(".jpg", ""), "edge", edge_output_filename),
+                'original_defect_image': os.path.join(image_type, original_filename.replace(".jpg", ""), "original", original_output_filename),
                 'Image_label': image_label,
                 'defect_label': 0,  # デフォルトで0（OK）とする
                 'detection_method': defect['detection_method']
@@ -87,7 +82,7 @@ for name, filtered_images, label in [
         print(f"Processing {name} images...")
         all_defects_data.extend(process_images_for_saving(filtered_images, output_dir, label))
     else:
-        print(f"No data for {name} images...")
+        print(f"No data for {name} images.")
 
 # CSVファイルに出力
 csv_output_dir = os.path.join(output_data_dir, "defect_data")
@@ -109,28 +104,32 @@ print(f"Defects data saved to {csv_output_path}")
 ```
 
 主な変更点：
-1. 保存ディレクトリを "edge_images" と "original_images" に分割
-2. save_defect_image 関数を修正して両方の画像を保存
-3. CSVファイルに original_defect_image カラムを追加
+1. save_defect_image関数を改良：
+   - エッジ画像とオリジナル画像の両方を切り出して保存
+   - 別々のディレクトリに保存
 
-出力ディレクトリ構造：
+2. process_images_for_saving関数の更新：
+   - edge用とoriginal用のサブディレクトリを作成
+   - 両方の画像のパスをCSVに記録
+
+3. ディレクトリ構造の変更：
 ```
-output_data_dir/
-└── defect_images/
-    ├── edge_images/
-    │   ├── ng/
-    │   │   └── [image_name]/
-    │   │       └── defect_[number].png
-    │   └── ok/
-    │       └── [image_name]/
-    │           └── defect_[number].png
-    └── original_images/
-        ├── ng/
-        │   └── [image_name]/
-        │       └── defect_[number].png
-        └── ok/
-            └── [image_name]/
-                └── defect_[number].png
+output_dir/
+  ├── ng/
+  │   └── [image_name]/
+  │       ├── edge/
+  │       │   └── defect_[number].png
+  │       └── original/
+  │           └── defect_[number].png
+  └── ok/
+      └── [image_name]/
+          ├── edge/
+          │   └── defect_[number].png
+          └── original/
+              └── defect_[number].png
 ```
 
-これにより、エッジ検出画像とオリジナル画像の両方が別々のディレクトリに保存され、CSVファイルから両方の画像への参照が可能になります。
+4. CSVファイルの出力内容の更新：
+   - edge_defect_imageとoriginal_defect_imageの両方のパスを記録
+
+この変更により、欠陥候補領域のエッジ画像とオリジナル画像の両方を保存し、それぞれの画像への参照をCSVファイルに記録することができます。
