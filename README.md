@@ -1,150 +1,146 @@
+# 9. 欠陥候補の画像の保存とCSV出力を修正し、バイナリイメージとオリジナル画像の両方を保存するように変更します。
+
 ```python
-# 6. Canny+DoGによる欠陥検出
+def save_defect_image(binary_image, original_image, defect, base_output_dir, image_type, original_filename, defect_number):
+    """
+    欠陥候補のバイナリイメージとオリジナル画像を保存
+    """
+    cx, cy = defect['centroid_x'], defect['centroid_y']
+    size = max(defect['width'], defect['height'])
+    
+    x1 = max(int(cx - size), 0)
+    y1 = max(int(cy - size), 0)
+    x2 = min(int(cx + size), binary_image.shape[1])
+    y2 = min(int(cy + size), binary_image.shape[0])
+    
+    # バイナリイメージの切り出しと保存
+    binary_defect = binary_image[y1:y2, x1:x2]
+    enlarged_binary = cv2.resize(binary_defect, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    
+    binary_output_dir = os.path.join(base_output_dir, "binary_images", image_type, original_filename.replace(".jpg", ""))
+    os.makedirs(binary_output_dir, exist_ok=True)
+    
+    binary_filename = f"defect_{defect_number}.png"
+    binary_path = os.path.join(binary_output_dir, binary_filename)
+    cv2.imwrite(binary_path, enlarged_binary)
+    
+    # オリジナル画像の切り出しと保存
+    original_defect = original_image[y1:y2, x1:x2]
+    enlarged_original = cv2.resize(original_defect, (0, 0), fx=enlargement_factor, fy=enlargement_factor)
+    
+    original_output_dir = os.path.join(base_output_dir, "original_images", image_type, original_filename.replace(".jpg", ""))
+    os.makedirs(original_output_dir, exist_ok=True)
+    
+    original_filename = f"defect_{defect_number}.png"
+    original_path = os.path.join(original_output_dir, original_filename)
+    cv2.imwrite(original_path, enlarged_original)
+    
+    return binary_filename, original_filename
 
-def detect_edges_and_texture(cropped_keyence_image, binarized_image):
-    """
-    Cannyエッジ検出とテクスチャ検出（大きな鋳巣用）
-    """
-    masked_image = cv2.bitwise_and(cropped_keyence_image, cropped_keyence_image, mask=binarized_image)
-    blurred_image = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
-    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+def process_images_for_saving(filtered_images, base_output_dir, image_label):
+    if filtered_images is None:
+        return []  # フィルタリングされた画像がない場合は空のリストを返す
     
-    # テクスチャ検出
-    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
-    abs_laplacian = np.absolute(laplacian)
-    laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
+    defects_data = []
     
-    # エッジとテクスチャの統合
-    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+    for original_filename, binarized_image, edge_image, defects in filtered_images:
+        image_type = "ng" if image_label == 1 else "ok"
+        
+        # 元のKeynce画像を読み込み
+        original_image_path = os.path.join(input_data_dir, 
+                                         "NG" if image_label == 1 else "OK",
+                                         original_filename)
+        original_image = cv2.imread(original_image_path, cv2.IMREAD_GRAYSCALE)
+        
+        for defect in defects:
+            # バイナリとオリジナル両方の画像を保存
+            binary_filename, original_filename = save_defect_image(
+                edge_image, original_image, defect, base_output_dir, 
+                image_type, original_filename, defect['label']
+            )
+            
+            defect_data = {
+                'image_name': original_filename,
+                'binary_image': os.path.join(image_type, "binary_images", original_filename.replace(".jpg", ""), binary_filename),
+                'original_image': os.path.join(image_type, "original_images", original_filename.replace(".jpg", ""), original_filename),
+                'Image_label': image_label,
+                'defect_label': 0,  # デフォルトで0（OK）とする
+                'detection_method': defect['detection_method']
+            }
+            defect_data.update(defect)
+            defects_data.append(defect_data)
     
-    # 近接領域の統合
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (canny_merge_distance, canny_merge_distance))
-    merged_result = cv2.morphologyEx(combined_edges, cv2.MORPH_CLOSE, kernel)
-    
-    return merged_result
+    return defects_data
 
-def detect_defects_dog_dynamic(cropped_keyence_image, binarized_image):
-    """
-    DoGフィルタと動的閾値処理による検出（小さな鋳巣用）
-    """
-    # 元画像から直接、明るい部分と暗い部分を検出
-    _, bright_mask = cv2.threshold(cropped_keyence_image, bright_threshold, 255, cv2.THRESH_BINARY)
-    _, dark_mask = cv2.threshold(cropped_keyence_image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
-    
-    # マルチスケールDoGの適用
-    dog_results = []
-    sigma_pairs = [
-        (1.5, 3.5),
-        (2.0, 4.0),
-        (1.0, 2.5)
-    ]
-    
-    for sigma1, sigma2 in sigma_pairs:
-        dog_result = difference_of_gaussian(cropped_keyence_image, dog_ksize, sigma1, sigma2)
-        dog_result = cv2.normalize(dog_result, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-        dog_results.append(dog_result)
-    
-    combined_dog = np.maximum.reduce(dog_results)
-    
-    # 動的閾値処理
-    binary_dog = dynamic_threshold(cropped_keyence_image, dynamic_ksize, dynamic_method, dynamic_c)
-    
-    # 輝度の変化率を計算
-    local_mean = cv2.blur(cropped_keyence_image, (dynamic_ksize, dynamic_ksize))
-    intensity_diff = cv2.absdiff(cropped_keyence_image, local_mean)
-    
-    # 明るい領域と暗い領域の周辺の変化を強調
-    gradient_x = cv2.Sobel(cropped_keyence_image, cv2.CV_64F, 1, 0, ksize=3)
-    gradient_y = cv2.Sobel(cropped_keyence_image, cv2.CV_64F, 0, 1, ksize=3)
-    gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
-    gradient_magnitude = cv2.normalize(gradient_magnitude, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-    
-    # コントラスト比の計算
-    local_std = np.std(cropped_keyence_image)
-    contrast_ratio = intensity_diff / (local_std + 1e-6)
-    contrast_mask = (contrast_ratio > min_contrast_ratio).astype(np.uint8) * 255
-    
-    # 輝度マスクと勾配マスクを組み合わせる
-    combined_bright = cv2.bitwise_and(bright_mask, gradient_magnitude)
-    combined_dark = cv2.bitwise_and(dark_mask, gradient_magnitude)
-    combined_mask = cv2.bitwise_or(combined_bright, combined_dark)
-    
-    # DoGの結果と組み合わせる
-    combined_result = cv2.bitwise_and(combined_mask, combined_dog)
-    combined_result = cv2.bitwise_and(combined_result, contrast_mask)
-    combined_result = cv2.bitwise_and(combined_result, binary_dog)
-    
-    # マスク適用
-    masked_result = cv2.bitwise_and(combined_result, combined_result, mask=binarized_image)
-    
-    # 近接領域の統合
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dog_merge_distance, dog_merge_distance))
-    merged_result = cv2.morphologyEx(masked_result, cv2.MORPH_CLOSE, kernel)
-    
-    # 最終的なマスクの作成（明るい部分と暗い部分の両方を含む）
-    final_mask = cv2.bitwise_or(merged_result, cv2.bitwise_and(bright_mask, binarized_image))
-    
-    return final_mask
+# メインの処理部分
+output_dir = os.path.join(output_data_dir, "defect_images")
+os.makedirs(output_dir, exist_ok=True)
 
-def difference_of_gaussian(img, ksize, sigma1, sigma2):
-    """
-    DoGフィルタの適用
-    """
-    # ガウシアンフィルタ適用
-    gaussian_1 = cv2.GaussianBlur(img, (ksize, ksize), sigma1)
-    gaussian_2 = cv2.GaussianBlur(img, (ksize, ksize), sigma2)
-    
-    # 2種のガウシアンフィルタ適用画像の差分
-    dog = gaussian_1 - gaussian_2
-    
-    return dog
+all_defects_data = []
+for name, filtered_images, label in [
+    ("NG Label 1", filtered_ng_images_label1, 1),
+    ("NG Label 2", filtered_ng_images_label2, 1),
+    ("NG Label 3", filtered_ng_images_label3, 1),
+    ("OK", filtered_ok_images, 0)
+]:
+    if filtered_images:
+        print(f"Processing {name} images...")
+        all_defects_data.extend(process_images_for_saving(filtered_images, output_dir, label))
+    else:
+        print(f"No data for {name} images.")
 
-def dynamic_threshold(img, ksize, method=cv2.ADAPTIVE_THRESH_GAUSSIAN_C, c=2):
-    """
-    適応的閾値処理
-    """
-    binary = cv2.adaptiveThreshold(img, 255, method, cv2.THRESH_BINARY_INV, ksize, c)
-    return binary
+# CSVファイルに出力
+csv_output_dir = os.path.join(output_data_dir, "defect_data")
+os.makedirs(csv_output_dir, exist_ok=True)
+csv_output_path = os.path.join(csv_output_dir, "defects_data.csv")
 
-def combine_defect_detection(image, mask):
-    """
-    CannyとDoGの結果を組み合わせて欠陥検出を行う
-    """
-    # 大きな鋳巣の検出（Canny）
-    large_defects = detect_edges_and_texture(image, mask)
-    
-    # 小さな鋳巣の検出（DoG）
-    small_defects = detect_defects_dog_dynamic(image, mask)
-    
-    # 結果の統合
-    combined_result = cv2.bitwise_or(large_defects, small_defects)
-    
-    return combined_result, large_defects, small_defects  # 検出方法の区別のために個別の結果も返す
+df = pd.DataFrame(all_defects_data)
 
-def process_images_for_defect_detection(binarized_images):
-    """
-    全画像に対して欠陥検出を実行。
-    元のCanny/DoG形式に合わせて(binarized_image, defect_image, original_filename)の形式で出力
-    """
-    processed_images = []
-    for binarized_image, cropped_keyence_image, original_filename in binarized_images:
-        # Canny+DoGによる欠陥検出
-        combined_result, _, _ = combine_defect_detection(cropped_keyence_image, binarized_image)
-        # 元の形式に合わせて出力
-        processed_images.append((binarized_image, combined_result, original_filename))
-    return processed_images
+if os.path.exists(csv_output_path):
+    # 既存のCSVファイルが存在する場合、列名なしで上書き
+    df.to_csv(csv_output_path, mode='a', header=False, index=False)
+    print(f"Appended defects data to existing file: {csv_output_path}")
+else:
+    # 新規作成の場合、列名ありで保存
+    df.to_csv(csv_output_path, index=False)
+    print(f"Created new defects data file: {csv_output_path}")
 
-# NGとOK画像に対して欠陥検出を実行
-processed_ng_images_label1 = process_images_for_defect_detection(binarized_ng_images_label1)
-processed_ng_images_label2 = process_images_for_defect_detection(binarized_ng_images_label2)
-processed_ng_images_label3 = process_images_for_defect_detection(binarized_ng_images_label3)
-processed_ok_images = process_images_for_defect_detection(binarized_ok_images)
+print(f"Defects data saved to {csv_output_path}")
 ```
 
 主な変更点：
-1. 元々のCanny処理とDoG処理を両方維持
-2. 両方の処理に近接領域の統合を追加
-3. 動的閾値処理をDoG処理に追加
-4. 検出方法を区別するために、大きな鋳巣（Canny）と小さな鋳巣（DoG）の検出結果を個別に保持
+1. save_defect_image関数を拡張
+   - バイナリイメージとオリジナル画像の両方を保存
+   - それぞれ別のディレクトリに保存
+   - 両方の画像パスを返す
 
-この修正により、元々の処理を維持しながら、CannyとDoGの特徴を活かした統合的な検出が可能になります。
+2. ディレクトリ構造の変更
+```
+defect_images/
+├── binary_images/
+│   ├── ng/
+│   │   └── [original_filename]/
+│   │       └── defect_[number].png
+│   └── ok/
+│       └── [original_filename]/
+│           └── defect_[number].png
+└── original_images/
+    ├── ng/
+    │   └── [original_filename]/
+    │       └── defect_[number].png
+    └── ok/
+        └── [original_filename]/
+            └── defect_[number].png
+```
+
+3. CSVファイルの内容を拡張
+   - binary_imageパス
+   - original_imageパス
+   両方のパスを記録
+
+4. process_images_for_saving関数の拡張
+   - オリジナル画像の読み込みを追加
+   - 両方の画像を保存するように変更
+   - CSVデータに両方の画像パスを追加
+
+これにより、欠陥候補領域のバイナリイメージとオリジナル画像の両方が保存され、それぞれの画像に簡単にアクセスできるようになります。
