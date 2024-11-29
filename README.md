@@ -1,18 +1,21 @@
-はい、欠陥部分をより正確に切り出すように改良します。
+すみません。`bbox`プロパティの使用方法を間違えていました。`measure.regionprops`で得られる領域の最小・最大座標を正しく取得するように修正します。
 
 ```python
 def save_defect_image(edge_image, original_image, defect, output_dir_edge, output_dir_original, image_name, defect_number):
     """
     欠陥候補領域の画像を保存（エッジ検出画像とオリジナル画像の両方）
     """
-    # 欠陥候補の位置情報を取得
-    y1, x1, y2, x2 = defect['bbox']  # bboxは(min_row, min_col, max_row, max_col)を返す
+    # defectから直接x, y, width, heightを取得
+    x = defect['x']
+    y = defect['y']
+    width = defect['width']
+    height = defect['height']
     
     # 余白を1ピクセル追加（ただし画像の範囲内に収める）
-    x1_with_margin = max(x1 - 1, 0)
-    y1_with_margin = max(y1 - 1, 0)
-    x2_with_margin = min(x2 + 1, edge_image.shape[1])
-    y2_with_margin = min(y2 + 1, edge_image.shape[0])
+    x1_with_margin = max(x - 1, 0)
+    y1_with_margin = max(y - 1, 0)
+    x2_with_margin = min(x + width + 1, edge_image.shape[1])
+    y2_with_margin = min(y + height + 1, edge_image.shape[0])
     
     # エッジ検出画像の切り出しと保存
     defect_edge = edge_image[y1_with_margin:y2_with_margin, x1_with_margin:x2_with_margin]
@@ -31,15 +34,8 @@ def save_defect_image(edge_image, original_image, defect, output_dir_edge, outpu
     return edge_filename, original_filename
 ```
 
-主な変更点：
-1. regionprops()から得られるbbox（境界ボックス）プロパティを直接使用
-2. centroidベースの切り出しから、実際の欠陥領域に基づく切り出しに変更
-3. 欠陥領域の周囲に1ピクセルの余白を追加
-4. 画像の範囲外にはみ出さないよう制限
+変更点：
+- `bbox`プロパティの代わりに、すでにdefectに格納されている'x', 'y', 'width', 'height'を使用
+- これらの値から切り出し範囲を計算し、1ピクセルの余白を追加
 
-この改良により：
-- より正確な欠陥部分の切り出しが可能
-- 不要な背景領域の削減
-- 効率的なデータ保存が実現
-
-切り出し範囲のサイズが欠陥の実際の大きさに基づくため、より適切な可視化と分析が可能になります。
+これで正しく動作するはずです。
