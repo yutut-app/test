@@ -85,3 +85,65 @@ print(f"最終誤検出率: {false_rate * 100:.2f}%")
 - 形が存在するデータのみにテンプレートマッチングを実行
 - 処理時間の短縮（不要なマッチング処理の削減）
 - より正確な欠陥判定が可能
+
+- すみません。メイン処理の実行部分を現状に合わせて修正します。
+
+```python
+# メイン処理の実行
+print("=== データの読み込み ===")
+df = pd.read_csv(defected_csv_path)
+df_filtered = df.copy()
+
+# 特徴量チェックを行い、予測ラベルを設定
+print("\n=== 特徴量チェック ===")
+df_filtered['predicted_label_features'] = df_filtered.apply(check_features, axis=1)
+# 特徴量が全て0のものは予測ラベルを0に設定（形がないもの）
+df_filtered['predicted_label_features'] = ~df_filtered['predicted_label_features']
+print(f"形が存在しないデータ数: {sum(~df_filtered['predicted_label_features'])}")
+
+# テンプレートの読み込み
+templates, template_names = load_templates()
+
+# 形が存在し、work_predict_label=1のデータのみでテンプレートマッチングを実行
+df_matching = df_filtered[
+    (df_filtered['predicted_label_features'] == 1) & 
+    (df_filtered['work_predict_label'] == 1)
+].copy()
+print(f"\nテンプレートマッチング対象データ数: {len(df_matching)}")
+
+# 閾値の最適化
+print("\n=== 閾値の最適化を開始 ===")
+best_threshold, all_results = optimize_threshold()
+
+# 最終評価
+print("\n=== 最適な閾値での最終評価 ===")
+matching_results_df = process_images_with_threshold(df_matching, templates, template_names, best_threshold)
+
+# 最終的な予測結果を統合
+final_results_df = df_filtered.copy()
+final_results_df['predicted_label'] = 0  # デフォルトで0に設定
+
+# テンプレートマッチング結果を反映
+for idx, row in matching_results_df.iterrows():
+    final_results_df.loc[idx, 'predicted_label'] = row['predicted_label']
+    # スコアも保存
+    for template_name in template_names:
+        score_col = f"{template_name}_match_score"
+        if score_col in row:
+            final_results_df.loc[idx, score_col] = row[score_col]
+
+# 最終評価の計算と表示
+detection_rate, false_rate = calculate_metrics(final_results_df)
+print(f"最終検出率: {detection_rate * 100:.2f}%")
+print(f"最終誤検出率: {false_rate * 100:.2f}%")
+```
+
+主な変更点：
+1. df_filteredの作成方法を修正
+   - `df[df['work_predict_label'] == 1]`を削除し、全データをコピー
+
+2. テンプレートマッチング対象の選定条件を修正
+   - 形が存在する（predicted_label_features == 1）
+   - かつwork_predict_label == 1のデータのみを対象
+
+これにより、全データに対して特徴量チェックを行い、その後必要なデータのみにテンプレートマッチングを実行する流れになります。
