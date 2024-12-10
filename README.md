@@ -22,6 +22,9 @@ processing_template_dir = os.path.join(input_data_dir, "processing_template")
 right_processing_template_path = os.path.join(processing_template_dir, "right_processing.jpg")
 left_processing_template_path = os.path.join(processing_template_dir, "left_processing.jpg")
 
+# ラベル定義
+ng_labels = ['label1', 'label2', 'label3']  # label1: 鋳巣, label2: 凹み, label3: 亀裂
+
 # 円検出パラメータ
 circle_dp = 1.0  # 分解能の逆比（1.0が標準、大きいほど検出感度が下がる）
 circle_min_dist = 20  # 検出される円の中心間の最小距離（ピクセル）
@@ -39,11 +42,12 @@ scale_max = 1.2  # 最大スケール倍率
 scale_step = 0.1  # スケール調整のステップ幅
 
 # Cannyエッジ検出パラメータ（大きな欠陥用）
-canny_kernel_size = (5, 5)  # ガウシアンフィルタのカーネルサイズ
-canny_sigma = 1.0  # ガウシアンフィルタのシグマ値
-canny_min_threshold = 30  # Cannyの最小閾値
-canny_max_threshold = 120  # Cannyの最大閾値
+canny_kernel_size = (3, 3)  # ガウシアンフィルタのカーネルサイズ
+canny_sigma = 2.0  # ガウシアンフィルタのシグマ値
+canny_min_threshold = 55  # Cannyの最小閾値
+canny_max_threshold = 250  # Cannyの最大閾値
 canny_merge_distance = 15  # Canny検出結果の統合距離
+texture_threshold = 30 # テクスチャ検出用閾値
 
 # DoGフィルタパラメータ（小さな欠陥用）
 dog_ksize = 9  # DoGフィルタのカーネルサイズ
@@ -52,25 +56,25 @@ dog_sigma2 = 3.5  # 2つ目のガウシアンフィルタのシグマ値
 dog_merge_distance = 15  # DoG検出結果の統合距離
 
 # 動的閾値処理パラメータ
-dynamic_ksize = 11  # 局所領域のサイズ
-dynamic_c = 2  # 閾値調整用定数
+dynamic_ksize = 25  # 局所領域のサイズ
+dynamic_c = 6  # 閾値調整用定数
 dynamic_method = cv2.ADAPTIVE_THRESH_GAUSSIAN_C  # 適応的閾値処理の方法
 
 # 欠陥サイズパラメータ
-min_large_defect_size = 10  # 大きな欠陥の最小サイズ（ピクセル）
+min_large_defect_size = 60  # 大きな欠陥の最小サイズ（ピクセル）
 max_large_defect_size = 100  # 大きな欠陥の最大サイズ（ピクセル）
 min_small_defect_size = 5   # 小さな欠陥の最小サイズ（ピクセル）
-max_small_defect_size = 10  # 小さな欠陥の最大サイズ（ピクセル）
+max_small_defect_size = 60  # 小さな欠陥の最大サイズ（ピクセル）
 
 # エッジ補完パラメータ
 edge_kernel_size = (3, 3)  # エッジ補完のカーネルサイズ
 edge_open_iterations = 2   # ノイズ削除の繰り返し回数
-edge_close_iterations = 2  # エッジ補完の繰り返し回数
+edge_close_iterations = 10  # エッジ補完の繰り返し回数
 
 # マスクエッジ検出パラメータ
-mask_edge_min_threshold = 100  # マスクエッジ検出の最小閾値
-mask_edge_max_threshold = 200  # マスクエッジ検出の最大閾値
-mask_edge_margin = 5  # マスクエッジの余裕幅（ピクセル）
+mask_edge_min_threshold = 50  # マスクエッジ検出の最小閾値
+mask_edge_max_threshold = 150  # マスクエッジ検出の最大閾値
+mask_edge_margin = 10  # マスクエッジの余裕幅（ピクセル）
 
 # コントラストと輝度パラメータ
 min_contrast_ratio = 0.12  # 最小コントラスト比
@@ -79,7 +83,7 @@ bright_threshold = 180     # 明るい領域の閾値
 dark_threshold = 50        # 暗い領域の閾値
 
 # ファイル出力パラメータ
-enlargement_factor = 10  # 欠陥候補画像の保存時の拡大倍率
+enlargement_factor = 1  # 欠陥候補画像の保存時の拡大倍率
 ```
 
 これらのパラメータは以下の目的で使用されます：
