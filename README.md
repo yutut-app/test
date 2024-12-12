@@ -1,132 +1,152 @@
 ```python
-# 1. ライブラリのインポート
-import os
-import cv2
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
-from tqdm import tqdm
+# 4. テンプレートマッチング実装
 
-# 2. データの読み込み
-# パスの設定 
-defected_data_path = r"../data/output/defect_data"
-defected_image_path = r"../data/output/defect_data/defect_images" 
-template_path = r"../data/input/template_matching_template"
-defected_csv = "defects_data.csv"
-defected_csv_path = os.path.join(defected_data_path, defected_csv)
-
-# CSVファイル読み込み
-print("=== データの読み込み ===")
-df = pd.read_csv(defected_csv_path)
-print(f"読み込んだデータ数: {len(df)}")
-
-# work_predict_label=1のデータのみ抽出
-df_filtered = df[df['work_predict_label'] == 1].copy()
-print(f"処理対象データ数: {len(df_filtered)}")
+def load_and_preprocess_image(image_path, is_template=False):
+    """
+    画像を読み込み、グレースケールに変換します
+    
+    引数:
+    image_path (str): 画像ファイルのパス
+    is_template (bool): テンプレート画像かどうか
+    
+    戻り値:
+    numpy.ndarray: 前処理済みのグレースケール画像
+    """
+    try:
+        # テンプレート画像と入力画像でパスの扱いを分ける
+        if is_template:
+            img = cv2.imread(image_path)
+        else:
+            img = cv2.imread(os.path.join(defected_image_path, image_path))
+            
+        if img is None:
+            raise ValueError(f"Failed to load image: {image_path}")
+        
+        # グレースケール化
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return img_gray
+    
+    except Exception as e:
+        print(f"画像の読み込みに失敗: {e}")
+        return None
 ```
 
 ```python
-# 3. 前処理
-
-def add_work_id(df):
+def load_templates():
     """
-    データフレームにwork_id列を追加します
-    
-    引数:
-    df (pandas.DataFrame): 処理対象のデータフレーム
+    テンプレートフォルダから全てのテンプレート画像を読み込みます
     
     戻り値:
-    pandas.DataFrame: work_id列が追加されたデータフレーム
+    tuple: (templates, template_names)
+        templates (list): 前処理済みテンプレート画像のリスト
+        template_names (list): テンプレート名のリスト
     """
-    # image_nameのユニークな値を取得してソート
-    unique_images = sorted(df['image_name'].unique())
+    templates = []
+    template_names = []
     
-    # work_idの辞書を作成（2枚ずつ同じIDを割り当て）
-    work_id_dict = {}
-    for i in range(0, len(unique_images), 2):
-        if i + 1 < len(unique_images):  # 2枚目が存在する場合
-            work_id_dict[unique_images[i]] = i // 2
-            work_id_dict[unique_images[i + 1]] = i // 2
-        else:  # 最後の1枚の場合
-            work_id_dict[unique_images[i]] = i // 2
+    try:
+        # テンプレートフォルダ内の画像ファイルを取得
+        template_files = [f for f in os.listdir(template_path) 
+                         if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        print("=== テンプレート画像の読み込み ===")
+        for template_file in template_files:
+            template_full_path = os.path.join(template_path, template_file)
+            img = load_and_preprocess_image(template_full_path, is_template=True)
+            
+            if img is not None:
+                templates.append(img)
+                template_name = os.path.splitext(template_file)[0]
+                template_names.append(template_name)
+                print(f"テンプレート {template_name}: サイズ {img.shape}")
+        
+        print(f"\n読み込んだテンプレート数: {len(templates)}")
+        return templates, template_names
     
-    # work_id列を追加
-    df['work_id'] = df['image_name'].map(work_id_dict)
-    
-    return df
-
-def verify_image_paths(df, image_path):
-    """
-    画像ファイルの存在を確認します
-    
-    引数:
-    df (pandas.DataFrame): 確認対象のデータフレーム
-    image_path (str): 画像ファイルの基本パス
-    
-    戻り値:
-    tuple: (存在する画像数, 存在しない画像数)
-    """
-    exists_count = 0
-    not_exists_count = 0
-    
-    print("画像ファイルの確認中...")
-    for _, row in tqdm(df.iterrows(), total=len(df)):
-        full_path = os.path.join(image_path, row['defect_image_orig'])
-        if os.path.exists(full_path):
-            exists_count += 1
-        else:
-            not_exists_count += 1
-            print(f"画像が存在しません: {full_path}")
-    
-    return exists_count, not_exists_count
-
-def print_dataframe_info(df):
-    """
-    データフレームの基本情報を表示します
-    
-    引数:
-    df (pandas.DataFrame): 表示対象のデータフレーム
-    """
-    print("\n=== データフレーム情報 ===")
-    print(f"行数: {len(df)}")
-    print(f"カラム: {df.columns.tolist()}")
-    print("\nデータ型:")
-    print(df.dtypes)
-    print("\n欠損値の数:")
-    print(df.isnull().sum())
-
-# 前処理の実行
-print("=== 前処理の開始 ===")
-
-# work_id列の追加
-df_filtered = add_work_id(df_filtered)
-
-# 画像ファイルの存在確認
-exists_count, not_exists_count = verify_image_paths(df_filtered, defected_image_path)
-print(f"\n画像ファイル確認結果:")
-print(f"存在する画像: {exists_count}")
-print(f"存在しない画像: {not_exists_count}")
-
-# データフレームの情報表示
-print_dataframe_info(df_filtered)
-
-# 作業用データフレームの保存（必要に応じて）
-# df_filtered.to_csv('preprocessed_data.csv', index=False)
+    except Exception as e:
+        print(f"テンプレート読み込みエラー: {e}")
+        return [], []
 ```
 
-主な特徴：
-1. 各関数に詳細なドキュメント文字列を追加
-2. 処理を機能ごとに分割し、単一責任の原則に従う
-3. エラーが発生しやすい箇所（ファイル存在確認など）を個別の関数に分離
-4. 進捗状況の表示を追加（tqdmの使用）
-5. データフレームの情報確認機能を追加
+```python
+def calculate_image_similarity(image, template):
+    """
+    2つの画像間の類似度を計算します
+    
+    引数:
+    image (numpy.ndarray): 入力画像
+    template (numpy.ndarray): テンプレート画像
+    
+    戻り値:
+    float: 類似度スコア
+    """
+    try:
+        # 画像サイズの取得
+        img_height, img_width = image.shape
+        templ_height, templ_width = template.shape
+        
+        # テンプレートが入力画像より大きい場合、テンプレートをリサイズ
+        if templ_height > img_height or templ_width > img_width:
+            template = cv2.resize(template, 
+                                (min(img_width, templ_width), 
+                                 min(img_height, templ_height)), 
+                                interpolation=cv2.INTER_AREA)
+        
+        # 画像全体の類似度を計算
+        result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+        similarity_score = result[0][0]
+        
+        return similarity_score
+    
+    except Exception as e:
+        print(f"類似度計算エラー: {e}")
+        return 0.0
+```
 
-改良点：
-- 関数の責任を明確に分離
-- エラーハンドリングの改善
-- 詳細なログ出力の追加
-- コードの再利用性の向上
-- 可読性の向上
+```python
+def process_single_image(image_path, templates, template_names, threshold):
+    """
+    1枚の画像に対して全てのテンプレートでマッチングを実行します
+    
+    引数:
+    image_path (str): 画像のパス
+    templates (list): テンプレート画像のリスト
+    template_names (list): テンプレート名のリスト
+    threshold (float): 類似度の閾値
+    
+    戻り値:
+    dict: マッチング結果と各テンプレートのスコア
+    """
+    try:
+        img = load_and_preprocess_image(image_path)
+        if img is None:
+            return None
+        
+        template_scores = {}
+        max_similarity = 0.0
+        
+        # 各テンプレートとの類似度を計算
+        for template, template_name in zip(templates, template_names):
+            similarity = calculate_image_similarity(img, template)
+            template_scores[f"{template_name}_match_score"] = similarity
+            max_similarity = max(max_similarity, similarity)
+        
+        return {
+            'is_matched': max_similarity > threshold,
+            'template_scores': template_scores,
+            'max_similarity': max_similarity
+        }
+    
+    except Exception as e:
+        print(f"画像処理エラー: {e}")
+        return None
+```
 
-続けて、テンプレートマッチングの実装部分を提供しましょうか？
+次のメッセージで続きを提供します。このコードの特徴は：
+1. 各機能を独立した関数に分割
+2. 詳細なエラーハンドリングと報告
+3. 明確なドキュメント文字列
+4. 単一責任の原則に従った設計
+5. 再利用可能な関数構造
+
+続けて、画像処理のメイン部分と評価機能を提供しましょうか？
