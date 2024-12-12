@@ -1,152 +1,166 @@
 ```python
-# 4. テンプレートマッチング実装
+# 5. 画像処理のメイン実装
 
-def load_and_preprocess_image(image_path, is_template=False):
+def process_images_with_threshold(df_filtered, templates, template_names, threshold):
     """
-    画像を読み込み、グレースケールに変換します
+    全画像に対してテンプレートマッチングを実行します
     
     引数:
-    image_path (str): 画像ファイルのパス
-    is_template (bool): テンプレート画像かどうか
-    
-    戻り値:
-    numpy.ndarray: 前処理済みのグレースケール画像
-    """
-    try:
-        # テンプレート画像と入力画像でパスの扱いを分ける
-        if is_template:
-            img = cv2.imread(image_path)
-        else:
-            img = cv2.imread(os.path.join(defected_image_path, image_path))
-            
-        if img is None:
-            raise ValueError(f"Failed to load image: {image_path}")
-        
-        # グレースケール化
-        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        return img_gray
-    
-    except Exception as e:
-        print(f"画像の読み込みに失敗: {e}")
-        return None
-```
-
-```python
-def load_templates():
-    """
-    テンプレートフォルダから全てのテンプレート画像を読み込みます
-    
-    戻り値:
-    tuple: (templates, template_names)
-        templates (list): 前処理済みテンプレート画像のリスト
-        template_names (list): テンプレート名のリスト
-    """
-    templates = []
-    template_names = []
-    
-    try:
-        # テンプレートフォルダ内の画像ファイルを取得
-        template_files = [f for f in os.listdir(template_path) 
-                         if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        
-        print("=== テンプレート画像の読み込み ===")
-        for template_file in template_files:
-            template_full_path = os.path.join(template_path, template_file)
-            img = load_and_preprocess_image(template_full_path, is_template=True)
-            
-            if img is not None:
-                templates.append(img)
-                template_name = os.path.splitext(template_file)[0]
-                template_names.append(template_name)
-                print(f"テンプレート {template_name}: サイズ {img.shape}")
-        
-        print(f"\n読み込んだテンプレート数: {len(templates)}")
-        return templates, template_names
-    
-    except Exception as e:
-        print(f"テンプレート読み込みエラー: {e}")
-        return [], []
-```
-
-```python
-def calculate_image_similarity(image, template):
-    """
-    2つの画像間の類似度を計算します
-    
-    引数:
-    image (numpy.ndarray): 入力画像
-    template (numpy.ndarray): テンプレート画像
-    
-    戻り値:
-    float: 類似度スコア
-    """
-    try:
-        # 画像サイズの取得
-        img_height, img_width = image.shape
-        templ_height, templ_width = template.shape
-        
-        # テンプレートが入力画像より大きい場合、テンプレートをリサイズ
-        if templ_height > img_height or templ_width > img_width:
-            template = cv2.resize(template, 
-                                (min(img_width, templ_width), 
-                                 min(img_height, templ_height)), 
-                                interpolation=cv2.INTER_AREA)
-        
-        # 画像全体の類似度を計算
-        result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
-        similarity_score = result[0][0]
-        
-        return similarity_score
-    
-    except Exception as e:
-        print(f"類似度計算エラー: {e}")
-        return 0.0
-```
-
-```python
-def process_single_image(image_path, templates, template_names, threshold):
-    """
-    1枚の画像に対して全てのテンプレートでマッチングを実行します
-    
-    引数:
-    image_path (str): 画像のパス
+    df_filtered (pandas.DataFrame): 処理対象のデータフレーム
     templates (list): テンプレート画像のリスト
     template_names (list): テンプレート名のリスト
     threshold (float): 類似度の閾値
     
     戻り値:
-    dict: マッチング結果と各テンプレートのスコア
+    pandas.DataFrame: マッチング結果を含むデータフレーム
     """
-    try:
-        img = load_and_preprocess_image(image_path)
-        if img is None:
-            return None
-        
-        template_scores = {}
-        max_similarity = 0.0
-        
-        # 各テンプレートとの類似度を計算
-        for template, template_name in zip(templates, template_names):
-            similarity = calculate_image_similarity(img, template)
-            template_scores[f"{template_name}_match_score"] = similarity
-            max_similarity = max(max_similarity, similarity)
-        
-        return {
-            'is_matched': max_similarity > threshold,
-            'template_scores': template_scores,
-            'max_similarity': max_similarity
-        }
+    results = []
+    for _, row in tqdm(df_filtered.iterrows(), total=len(df_filtered), desc="画像処理中"):
+        try:
+            # 元のデータフレームの行をコピー
+            result_row = row.copy()
+            
+            # マッチング実行
+            matching_result = process_single_image(
+                row['defect_image_orig'], 
+                templates, 
+                template_names, 
+                threshold
+            )
+            
+            if matching_result is not None:
+                # 予測結果とスコアを追加
+                result_row['predicted_label'] = 1 if matching_result['is_matched'] else 0
+                result_row['max_similarity'] = matching_result['max_similarity']
+                
+                # 各テンプレートのスコアを追加
+                for score_name, score in matching_result['template_scores'].items():
+                    result_row[score_name] = score
+                
+                results.append(result_row)
+            
+        except Exception as e:
+            print(f"行の処理でエラー: {e}")
+            continue
     
-    except Exception as e:
-        print(f"画像処理エラー: {e}")
-        return None
+    return pd.DataFrame(results)
 ```
 
-次のメッセージで続きを提供します。このコードの特徴は：
-1. 各機能を独立した関数に分割
-2. 詳細なエラーハンドリングと報告
-3. 明確なドキュメント文字列
-4. 単一責任の原則に従った設計
-5. 再利用可能な関数構造
+```python
+# 6. 評価指標の計算
 
-続けて、画像処理のメイン部分と評価機能を提供しましょうか？
+def calculate_metrics(results_df):
+    """
+    精度指標を計算します
+    
+    引数:
+    results_df (pandas.DataFrame): 予測結果を含むデータフレーム
+    
+    戻り値:
+    dict: 各種評価指標
+    """
+    # 混同行列の要素を計算
+    TP = sum((results_df['defect_label'] == 1) & (results_df['predicted_label'] == 1))
+    FP = sum((results_df['defect_label'] == 0) & (results_df['predicted_label'] == 1))
+    FN = sum((results_df['defect_label'] == 1) & (results_df['predicted_label'] == 0))
+    TN = sum((results_df['defect_label'] == 0) & (results_df['predicted_label'] == 0))
+    
+    # 各指標の計算
+    total = TP + TN + FP + FN
+    detection_rate = (TP / (TP + FN)) * 100 if (TP + FN) > 0 else 0
+    false_detection_rate = (FP / (TN + FP)) * 100 if (TN + FP) > 0 else 0
+    accuracy = ((TP + TN) / total) * 100 if total > 0 else 0
+    
+    return {
+        'detection_rate': (detection_rate, f"{TP}/{TP+FN}"),
+        'false_detection_rate': (false_detection_rate, f"{FP}/{TN+FP}"),
+        'accuracy': (accuracy, f"{TP+TN}/{total}"),
+        'confusion_matrix': {
+            'TP': TP, 'FP': FP, 'FN': FN, 'TN': TN
+        }
+    }
+```
+
+```python
+def optimize_threshold():
+    """
+    最適な閾値を探索します
+    1. 鋳巣検出率100%（または最大化）
+    2. 鋳巣誤検出率の最小化
+    
+    戻り値:
+    tuple: (best_threshold, results_dict)
+    """
+    thresholds = np.arange(0.1, 1.0, 0.05)
+    best_threshold = None
+    best_metrics = None
+    best_detection_rate = -1
+    best_false_rate = float('inf')
+    
+    results_dict = {}
+    
+    print("\n=== 閾値の最適化 ===")
+    for threshold in tqdm(thresholds, desc="閾値探索中"):
+        results_df = process_images_with_threshold(df_filtered, templates, template_names, threshold)
+        metrics = calculate_metrics(results_df)
+        
+        detection_rate = metrics['detection_rate'][0]
+        false_rate = metrics['false_detection_rate'][0]
+        
+        results_dict[threshold] = metrics
+        
+        # 最適な閾値の更新
+        if detection_rate > best_detection_rate or \
+           (detection_rate == best_detection_rate and false_rate < best_false_rate):
+            best_detection_rate = detection_rate
+            best_false_rate = false_rate
+            best_threshold = threshold
+            best_metrics = metrics
+    
+    return best_threshold, results_dict
+```
+
+```python
+# メイン処理の実行
+print("\n=== テンプレートマッチング実行 ===")
+
+# テンプレートの読み込み
+templates, template_names = load_templates()
+
+if templates:
+    # 閾値の最適化
+    best_threshold, all_results = optimize_threshold()
+    
+    # 最終結果の表示
+    print("\n=== 最終結果 ===")
+    print(f"最適な閾値: {best_threshold:.2f}")
+    best_metrics = all_results[best_threshold]
+    
+    print(f"\n鋳巣検出率: {best_metrics['detection_rate'][0]:.2f}% {best_metrics['detection_rate'][1]}")
+    print(f"鋳巣誤検出率: {best_metrics['false_detection_rate'][0]:.2f}% {best_metrics['false_detection_rate'][1]}")
+    print(f"正解率: {best_metrics['accuracy'][0]:.2f}% {best_metrics['accuracy'][1]}")
+    
+    # 混同行列の表示
+    cm = best_metrics['confusion_matrix']
+    print("\n=== 混同行列 ===")
+    print(f"True Positive (TP): {cm['TP']}")
+    print(f"False Positive (FP): {cm['FP']}")
+    print(f"False Negative (FN): {cm['FN']}")
+    print(f"True Negative (TN): {cm['TN']}")
+else:
+    print("テンプレート画像の読み込みに失敗しました")
+```
+
+このコードの特徴：
+1. 明確な評価指標の計算と表示
+2. 詳細なエラーハンドリング
+3. 進捗状況の表示
+4. 分母と分子の表示による透明性の確保
+5. モジュール化された関数構造
+
+改善点：
+1. 各関数の責任を明確に分離
+2. 評価指標の計算を独立した関数に分割
+3. エラー処理の強化
+4. 結果の可視化と詳細な報告
+5. コードの再利用性の向上
