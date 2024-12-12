@@ -1,57 +1,132 @@
-### 決定事項
-- テンプレート画像は各面の条件の良い撮影画像を使用する (自社・先方)
-- 納品物は以下の4点とする (自社・先方)
-  - 最終報告書
-  - 最終報告会議事録
-  - 分析スクリプト一式
-  - ワークごとの各面ごとの欠陥画像候補一式
+```python
+# 1. ライブラリのインポート
+import os
+import cv2
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+from tqdm import tqdm
 
-## ToDo
-### 先方
-- 各面のテンプレートとして使用する条件の良い撮影画像をJPEGで提供する
-- 面ごとの優先順位を提示する
-- H面と同じ月の他面のOKワーク画像をBOXにアップロードする
+# 2. データの読み込み
+# パスの設定 
+defected_data_path = r"../data/output/defect_data"
+defected_image_path = r"../data/output/defect_data/defect_images" 
+template_path = r"../data/input/template_matching_template"
+defected_csv = "defects_data.csv"
+defected_csv_path = os.path.join(defected_data_path, defected_csv)
 
-### 自社
-- 受領した画像をテンプレートとして実装する
-- 各面のパラメータ最適化を実施する
-- 面ごとの欠陥検出パラメータを調整する
+# CSVファイル読み込み
+print("=== データの読み込み ===")
+df = pd.read_csv(defected_csv_path)
+print(f"読み込んだデータ数: {len(df)}")
 
-## 議事内容
-#### 会議の主題: CB02外観検査-前処理の改善検討について
+# work_predict_label=1のデータのみ抽出
+df_filtered = df[df['work_predict_label'] == 1].copy()
+print(f"処理対象データ数: {len(df_filtered)}")
+```
 
-#### 次回打ち合わせ：12/19(木) 11:00~12:00
+```python
+# 3. 前処理
 
-1. 分析案件週次報告 (報告：自社)
-   1.1. スケジュール確認
-   1.2. 作業タスク確認
-   1.3. 進捗報告
-      1.3.1. CB02外観検査-実施内容
-         - 前処理の改善
+def add_work_id(df):
+    """
+    データフレームにwork_id列を追加します
+    
+    引数:
+    df (pandas.DataFrame): 処理対象のデータフレーム
+    
+    戻り値:
+    pandas.DataFrame: work_id列が追加されたデータフレーム
+    """
+    # image_nameのユニークな値を取得してソート
+    unique_images = sorted(df['image_name'].unique())
+    
+    # work_idの辞書を作成（2枚ずつ同じIDを割り当て）
+    work_id_dict = {}
+    for i in range(0, len(unique_images), 2):
+        if i + 1 < len(unique_images):  # 2枚目が存在する場合
+            work_id_dict[unique_images[i]] = i // 2
+            work_id_dict[unique_images[i + 1]] = i // 2
+        else:  # 最後の1枚の場合
+            work_id_dict[unique_images[i]] = i // 2
+    
+    # work_id列を追加
+    df['work_id'] = df['image_name'].map(work_id_dict)
+    
+    return df
 
-   1.3.2 質疑応答
-   - 撮影画像の歪みは真ん中（バレルディストーション）のイメージに近い。プログラムでの補正は難しいため、実際の撮影画像で条件の良い画像をテンプレート画像として使用したい (先方A)
-     → 承知した (自社A)
-     (補足：バレルディストーションは画像中心部から外側に向かって膨らむような歪み)
+def verify_image_paths(df, image_path):
+    """
+    画像ファイルの存在を確認します
+    
+    引数:
+    df (pandas.DataFrame): 確認対象のデータフレーム
+    image_path (str): 画像ファイルの基本パス
+    
+    戻り値:
+    tuple: (存在する画像数, 存在しない画像数)
+    """
+    exists_count = 0
+    not_exists_count = 0
+    
+    print("画像ファイルの確認中...")
+    for _, row in tqdm(df.iterrows(), total=len(df)):
+        full_path = os.path.join(image_path, row['defect_image_orig'])
+        if os.path.exists(full_path):
+            exists_count += 1
+        else:
+            not_exists_count += 1
+            print(f"画像が存在しません: {full_path}")
+    
+    return exists_count, not_exists_count
 
-   - 各面で条件の良い撮影画像をピックアップしJPEGで提供するので、それをテンプレートとして使用してほしい (先方A)
-     → 承知した (自社A)
+def print_dataframe_info(df):
+    """
+    データフレームの基本情報を表示します
+    
+    引数:
+    df (pandas.DataFrame): 表示対象のデータフレーム
+    """
+    print("\n=== データフレーム情報 ===")
+    print(f"行数: {len(df)}")
+    print(f"カラム: {df.columns.tolist()}")
+    print("\nデータ型:")
+    print(df.dtypes)
+    print("\n欠損値の数:")
+    print(df.isnull().sum())
 
-   - パラメータの最適化と他の面での欠陥検出は今月中に実施可能か？ (先方A)
-     → 面ごとにスクリプトやロジックは変えないが、面ごとに最適なパラメータを見つける必要がある。ただし、全ての面のパラメータ最適化が完了しない可能性がある (自社A)
-     → H面の現状のパラメータで他面を実施した場合の結果は実施してみないとわからないか？ (先方A)
-     → 円検出に関しては、検出する円によってパラメータを変える必要があり、ワークごとに検出する円が異なるため変更が必要 (自社A)
-     → 欠陥候補検出以降の処理は同じで実施可能か？ (先方A)
-     → 欠陥候補検出は、ワークごとに凹凸が異なるため変更の可能性がある。テンプレートマッチングによる分類は変更不要 (自社A)
+# 前処理の実行
+print("=== 前処理の開始 ===")
 
-   - H面以外の優先度について確認したい (自社B)
-     → 優先順位も合わせて、テンプレートに使用する画像を送付する (先方A)
+# work_id列の追加
+df_filtered = add_work_id(df_filtered)
 
-   1.3.3 相談事項
-   - 納品物（4点）について認識の齟齬がないか確認したい (自社B)
-     → 特に問題ない (先方A)
+# 画像ファイルの存在確認
+exists_count, not_exists_count = verify_image_paths(df_filtered, defected_image_path)
+print(f"\n画像ファイル確認結果:")
+print(f"存在する画像: {exists_count}")
+print(f"存在しない画像: {not_exists_count}")
 
-   - OKワークは他面もH面と同様にBOXに入っているか？ (自社A)
-     → 現在は入っていないため、H面と同じ月の分画像をアップロードする (先方A)
+# データフレームの情報表示
+print_dataframe_info(df_filtered)
 
-これにて議事録の内容は以上となります。次回は12/19(木) 11:00~12:00に打ち合わせを実施予定です。
+# 作業用データフレームの保存（必要に応じて）
+# df_filtered.to_csv('preprocessed_data.csv', index=False)
+```
+
+主な特徴：
+1. 各関数に詳細なドキュメント文字列を追加
+2. 処理を機能ごとに分割し、単一責任の原則に従う
+3. エラーが発生しやすい箇所（ファイル存在確認など）を個別の関数に分離
+4. 進捗状況の表示を追加（tqdmの使用）
+5. データフレームの情報確認機能を追加
+
+改良点：
+- 関数の責任を明確に分離
+- エラーハンドリングの改善
+- 詳細なログ出力の追加
+- コードの再利用性の向上
+- 可読性の向上
+
+続けて、テンプレートマッチングの実装部分を提供しましょうか？
