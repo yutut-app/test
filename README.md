@@ -1,106 +1,89 @@
-# 5. Canny+DoGによる欠陥検出
+# 6. エッジ補完
 
-def apply_canny_detection(image, mask):
-    """
-    Cannyエッジ検出を用いて大きな鋳巣を検出します
-    
-    引数:
-        image (numpy.ndarray): 入力画像
-        mask (numpy.ndarray): マスク画像
-        
-    戻り値:
-        numpy.ndarray: エッジ検出結果
-    """
-    # マスク領域内の画像を取得
-    masked_image = cv2.bitwise_and(image, image, mask=mask)
-    
-    # ガウシアンブラーでノイズ除去
-    blurred_image = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
-    
-    # Cannyエッジ検出
-    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
-    
-    # テクスチャ検出
-    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
-    laplacian_edges = np.uint8(np.absolute(laplacian) > texture_threshold) * 255
-    
-    # エッジとテクスチャの統合
-    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
-    
-    # 近接領域の統合
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, 
-                                     (canny_merge_distance, canny_merge_distance))
-    merged_result = cv2.morphologyEx(combined_edges, cv2.MORPH_CLOSE, kernel)
-    
-    return merged_result
+本セクションでは、検出された欠陥候補のエッジを補完し、より正確な欠陥領域を特定する処理について説明する。エッジ補完は以下の3つの主要な処理で構成される：
 
-def apply_dog_filter(image, ksize, sigma1, sigma2):
-    """
-    DoGフィルタを適用します
-    
-    引数:
-        image (numpy.ndarray): 入力画像
-        ksize (int): カーネルサイズ
-        sigma1 (float): 1つ目のガウシアンのシグマ
-        sigma2 (float): 2つ目のガウシアンのシグマ
-        
-    戻り値:
-        numpy.ndarray: DoGフィルタ適用結果
-    """
-    gaussian_1 = cv2.GaussianBlur(image, (ksize, ksize), sigma1)
-    gaussian_2 = cv2.GaussianBlur(image, (ksize, ksize), sigma2)
-    return gaussian_1 - gaussian_2
+1. マスクエッジの処理
+2. エッジの細線化と接続
+3. エッジの統合
 
-def apply_dynamic_threshold(image):
-    """
-    動的閾値処理を適用します
-    
-    引数:
-        image (numpy.ndarray): 入力画像
-        
-    戻り値:
-        numpy.ndarray: 二値化結果
-    """
-    return cv2.adaptiveThreshold(image, 255, dynamic_method, cv2.THRESH_BINARY_INV, 
-                               dynamic_ksize, dynamic_c)
+## 関数の詳細説明
 
-def calculate_contrast_mask(image):
-    """
-    コントラストに基づくマスクを生成します
-    
-    引数:
-        image (numpy.ndarray): 入力画像
-        
-    戻り値:
-        numpy.ndarray: コントラストマスク
-    """
-    # 局所的な平均との差を計算
-    local_mean = cv2.blur(image, (dynamic_ksize, dynamic_ksize))
-    intensity_diff = cv2.absdiff(image, local_mean)
-    
-    # コントラスト比を計算
-    local_std = np.std(image)
-    contrast_ratio = intensity_diff / (local_std + 1e-6)
-    
-    return (contrast_ratio > min_contrast_ratio).astype(np.uint8) * 255
+### create_mask_edge_margin()
+マスクのエッジ部分に余裕幅を持たせる関数である：
 
-def apply_dog_detection(image, mask):
-    """
-    DoGフィルタを用いて小さな鋳巣を検出します
-    
-    引数:
-        image (numpy.ndarray): 入力画像
-        mask (numpy.ndarray): マスク画像
-        
-    戻り値:
-        numpy.ndarray: 検出結果
-    """
-    # 明暗領域の検出
-    _, bright_mask = cv2.threshold(image, bright_threshold, 255, cv2.THRESH_BINARY)
-    _, dark_mask = cv2.threshold(image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
-    
-    # マルチスケールDoGの適用
-    dog_results = []
+1. エッジ検出
+   - Cannyエッジ検出を使用
+   - パラメータ：
+     - mask_edge_min_threshold：エッジ検出の最小閾値
+     - mask_edge_max_threshold：エッジ検出の最大閾値
+
+2. 余裕幅の生成
+   - 検出されたエッジを膨張処理で拡張
+   - パラメータ：
+     - mask_edge_margin：余裕幅のサイズ（ピクセル単位）
+
+### complete_edges()
+エッジの途切れを補完し、連続的なエッジを生成する関数である：
+
+1. 前処理
+   - マスクエッジの余裕幅を生成
+   - スケルトン化によるエッジの細線化
+
+2. ノイズ除去
+   - モルフォロジー演算（オープニング）の適用
+   - パラメータ：
+     - edge_kernel_size：カーネルサイズ
+     - edge_open_iterations：オープニング処理の繰り返し回数
+
+3. エッジの接続
+   - モルフォロジー演算（クロージング）の適用
+   - パラメータ：
+     - edge_close_iterations：クロージング処理の繰り返し回数
+
+4. 結果の統合
+   - 元のエッジと補完したエッジの統合
+   - マスクエッジ部分は元のエッジを優先
+
+### process_defect_edges()
+全ての欠陥検出結果に対してエッジ補完を実行する関数である：
+
+1. 処理対象
+   - 統合結果のエッジ
+   - Cannyによる大きな欠陥のエッジ
+   - DoGによる小さな欠陥のエッジ
+
+2. 処理手順
+   - 各エッジに対して個別に補完処理を実行
+   - 処理結果をリストとして保持
+
+## 可視化関数
+
+### visualize_completed_edges()
+エッジ補完の結果を可視化する関数である：
+
+1. 表示内容
+   - 元の画像
+   - 補完済みのCannyエッジ結果
+   - 補完済みのDoG結果
+   - 補完済みの統合結果
+
+2. 表示形式
+   - 2×2のサブプロット構成
+   - グレースケールでの表示
+   - ファイル名をタイトルとして表示
+
+## パラメータ調整のポイント
+
+1. マスクエッジの処理
+   - mask_edge_min_threshold, mask_edge_max_thresholdでエッジ検出感度を調整
+   - mask_edge_marginで余裕幅の大きさを調整
+
+2. エッジの補完
+   - edge_kernel_sizeでモルフォロジー演算の範囲を調整
+   - edge_open_iterationsでノイズ除去の強度を調整
+   - edge_close_iterationsでエッジ接続の強度を調整
+
+これらのパラメータは、ワークの形状や欠陥の特徴に応じて適切に調整する必要がある。
     sigma_pairs = [(1.5, 3.5), (2.0, 4.0), (1.0, 2.5)]
     
     for sigma1, sigma2 in sigma_pairs:
