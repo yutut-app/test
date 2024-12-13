@@ -1,92 +1,178 @@
-# 4. 加工領域の特定
+# 4. テンプレートを使用した加工領域の検出
 
-本セクションでは、ワークの撮影画像から加工領域を特定する処理について説明する。この処理は以下の手順で実行される：
+def detect_circles(image):
+    """
+    画像から円を検出します
+    
+    引数:
+        image (numpy.ndarray): 入力グレースケール画像
+        
+    戻り値:
+        numpy.ndarray or None: 検出された円の情報[x, y, r]のリスト。検出失敗時はNone
+    """
+    circles = cv2.HoughCircles(image, 
+                              cv2.HOUGH_GRADIENT, 
+                              dp=circle_dp,
+                              minDist=circle_min_dist,
+                              param1=circle_param1,
+                              param2=circle_param2,
+                              minRadius=circle_min_radius,
+                              maxRadius=circle_max_radius)
+    
+    if circles is not None:
+        return np.uint16(np.around(circles[0]))
+    return None
 
-1. 撮影画像の向き判定（左右どちらの撮影画像か）
-2. 画像内の円の検出
-3. テンプレートとの位置合わせ
-4. 加工領域のマスク生成
+def get_optimal_scale_and_transform(template_circles, target_circles):
+    """
+    テンプレートと対象画像の円の位置から最適なスケールと変換行列を計算します
+    
+    引数:
+        template_circles (numpy.ndarray): テンプレート画像の円の情報
+        target_circles (numpy.ndarray): 対象画像の円の情報
+        
+    戻り値:
+        tuple: (最適なスケール, 変換行列)。失敗時は(None, None)
+    """
+    if len(template_circles) < 3 or len(target_circles) < 3:
+        return None, None
+    
+    best_scale = 1.0
+    min_error = float('inf')
+    best_matrix = None
+    
+    for scale in np.arange(scale_min, scale_max + scale_step, scale_step):
+        scaled_template_pts = template_circles[:3, :2].astype(np.float32) * scale
+        target_pts = target_circles[:3, :2].astype(np.float32)
+        
+        M = cv2.getAffineTransform(scaled_template_pts, target_pts)
+        transformed_pts = cv2.transform(scaled_template_pts.reshape(1, -1, 2), M)
+        error = np.sum(np.sqrt(np.sum((transformed_pts - target_pts) ** 2, axis=2)))
+        
+        if error < min_error:
+            min_error = error
+            best_scale = scale
+            best_matrix = M
+    
+    return best_scale, best_matrix
 
-## 関数の詳細説明
+def determine_image_orientation(image, judge_templates):
+    """
+    撮影画像が左か右かをテンプレートより判定します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        judge_templates (dict): 左右判定用テンプレート画像
+        
+    戻り値:
+        str: 'left' または 'right'
+    """
+    left_result = cv2.matchTemplate(image, judge_templates['left'], cv2.TM_CCOEFF_NORMED)
+    right_result = cv2.matchTemplate(image, judge_templates['right'], cv2.TM_CCOEFF_NORMED)
+    
+    left_val = np.max(left_result)
+    right_val = np.max(right_result)
+    
+    return 'right' if right_val > left_val else 'left'
 
-### detect_circles()
+def create_processing_area_mask(image, mask_templates, judge_templates):
+    """
+    加工領域のマスクを作成します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        mask_templates (dict): マスク用テンプレート画像
+        judge_templates (dict): 左右判定用テンプレート画像
+        
+    戻り値:
+        numpy.ndarray: 加工領域のマスク画像
+    """
+    # 画像の向きを判定
+    orientation = determine_image_orientation(image, judge_templates)
+    template = mask_templates[orientation]
+    
+    # 円を検出
+    template_circles = detect_circles(template)
+    target_circles = detect_circles(image)
+    
+    if template_circles is None or target_circles is None:
+        return np.ones_like(image) * 255  # 検出失敗時は全領域を対象とする
+    
+    # スケールと変換行列を計算
+    scale, M = get_optimal_scale_and_transform(template_circles, target_circles)
+    if M is None:
+        return np.ones_like(image) * 255
+    
+    # テンプレートを変換
+    template_inv = cv2.bitwise_not(template)
+    scaled_template = cv2.resize(template_inv, None, fx=scale, fy=scale)
+    aligned_mask = cv2.warpAffine(scaled_template, M, (image.shape[1], image.shape[0]))
+    
+    return aligned_mask
 
-画像から円を検出する関数である。
+def process_images(shape_images, judge_templates, mask_templates):
+    """
+    全画像に対して加工領域の検出を行います
+    
+    引数:
+        shape_images (list): Shape画像のリスト
+        judge_templates (dict): 左右判定用テンプレート画像
+        mask_templates (dict): マスク用テンプレート画像
+        
+    戻り値:
+        list: (Shape画像, マスク画像, ファイル名)のタプルのリスト
+    """
+    processed_images = []
+    for shape_path, filename in shape_images:
+        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+        mask = create_processing_area_mask(shape_image, mask_templates, judge_templates)
+        processed_images.append((shape_image, mask, filename))
+    
+    return processed_images
 
-1. 実装内容
-   - OpenCVのHoughCircles関数を使用
-   - 画像内の円を検出し、中心座標(x, y)と半径(r)を取得
+# 画像の処理実行
+processed_ng_images = process_images(ng_images, judge_templates, mask_templates)
+#processed_ok_images = process_images(ok_images, judge_templates, mask_templates)
 
-2. パラメータ調整のポイント
-   - circle_dpで検出感度を調整（値が大きいほど感度が下がる）
-   - circle_min_dist, circle_min_radius, circle_max_radiusで円のサイズや間隔を制限
-   - circle_param1, circle_param2で検出精度と誤検出のバランスを調整
 
-### determine_image_orientation()
 
-撮影画像の向き（左右どちらを撮影した画像か）を判定する関数である。
+def visualize_processed_images(processed_images, num_samples=1):
+    """
+    処理結果を可視化します
+    
+    引数:
+        processed_images (list): 処理済み画像のリスト
+        num_samples (int): 表示するサンプル数
+    """
+    num_samples = min(num_samples, len(processed_images))
+    
+    for i in range(num_samples):
+        shape_image, mask, filename = processed_images[i]
+        
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # 元画像
+        axes[0].imshow(shape_image, cmap='gray')
+        axes[0].set_title('Original Shape Image')
+        axes[0].axis('off')
+        
+        # マスク
+        axes[1].imshow(mask, cmap='gray')
+        axes[1].set_title('Processing Area Mask')
+        axes[1].axis('off')
+        
+        # マスク適用結果
+        masked_image = cv2.bitwise_and(shape_image, shape_image, mask=mask)
+        axes[2].imshow(masked_image, cmap='gray')
+        axes[2].set_title('Masked Image')
+        axes[2].axis('off')
+        
+        plt.suptitle(f'Processing Results: {filename}')
+        plt.tight_layout()
+        plt.show()
 
-1. 判定方法
-   - テンプレートマッチング（cv2.TM_CCOEFF_NORMED）を使用
-   - 左右それぞれのテンプレートとのマッチング度を計算
-   - より高いマッチング度を示した方を撮影方向として判定
-
-2. 判定の特徴
-   - 正規化相関係数を使用することで照明条件の影響を軽減
-   - template_match_thresholdでマッチングの閾値を調整可能
-
-### get_optimal_scale_and_transform()
-
-テンプレートと対象画像の位置合わせのためのスケールと変換行列を計算する関数である。
-
-1. 計算プロセス
-   - テンプレートと対象画像の円の位置情報を使用
-   - スケールを変化させながら最適な位置合わせを探索
-   - アフィン変換行列を計算
-
-2. パラメータ調整のポイント
-   - scale_min, scale_maxでスケールの探索範囲を設定
-   - scale_stepでスケールの探索精度を調整
-
-### create_processing_area_mask()
-
-加工領域のマスクを生成する関数である。
-
-1. 処理手順
-   - 画像の向きを判定
-   - 適切なマスクテンプレートを選択
-   - テンプレートを対象画像に合わせて変形
-   - マスク画像を生成
-
-2. 特徴
-   - 円検出に失敗した場合は全領域をマスク対象とする
-   - テンプレートの反転処理により、加工領域を白で表現
-
-### process_images()
-
-画像群に対して一括で加工領域の検出を行う関数である。
-
-1. 処理内容
-   - Shape画像の読み込み
-   - 加工領域のマスク生成
-   - 処理結果をリストとして保持
-
-2. 実行時の注意点
-   - メモリ使用量を考慮し、OKワークは分割して処理する
-   - processed_ng_images, processed_ok_imagesとして結果を保持
-
-## 可視化関数
-
-### visualize_processed_images()
-
-処理結果を可視化する関数である。
-
-1. 表示内容
-   - 元の撮影画像
-   - 生成されたマスク
-   - マスクを適用した結果
-
-2. 表示形式
-   - 1枚の画像につき3つのサブプロットで表示
-   - グレースケールで表示
-   - ファイル名をタイトルとして表示
+# 処理結果の可視化
+print("Visualizing processed NG images:")
+visualize_processed_images(processed_ng_images, num_samples=1)
+#print("\nVisualizing processed OK images:")
+#visualize_processed_images(processed_ok_images, num_samples=1
