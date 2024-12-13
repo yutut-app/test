@@ -50,3 +50,18 @@
    - ラベル情報（画像ラベル、欠陥ラベル）
 
 これらのデータは後続の前処理および分類処理で使用される。特に、手動で切り出した鋳巣画像は、テンプレートマッチングの基準として重要な役割を果たす。
+
+
+
+# 2. データの読み込み
+# パスの設定 
+defected_data_path = r"../data/output/defect_data"
+defected_image_path = r"../data/output/defect_data/defect_images" 
+defects_template_path = r"../data/input/defects_template_dir"
+defected_csv = "defects_data.csv"
+defected_csv_path = os.path.join(defected_data_path, defected_csv)
+
+# CSVファイル読み込み
+print("=== データの読み込み ===")
+df = pd.read_csv(defected_csv_path)
+print(f"読み込んだデータ数: {len(df)}")
