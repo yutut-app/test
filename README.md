@@ -1,121 +1,72 @@
-# 5. 最適な閾値の探索
+# 6. 欠陥ごとのモデル評価
 
-本セクションでは、テンプレートマッチングの判定に用いる最適な閾値を探索する処理について説明する。最適な閾値は、鋳巣の検出率を最大化しつつ、誤検出率を最小化するように決定される。
+本セクションでは、欠陥（鋳巣）単位での分類性能を評価する。各欠陥に対する検出精度を詳細に分析し、モデルの性能を定量的に評価する。
 
-## optimize_threshold()
+## 評価指標の解釈
 
-### 目的
-- 鋳巣検出率の最大化（理想的には100%）
-- 誤検出率の最小化
-- 最適な判定閾値の特定
+1. 鋳巣検出率
+   - 実際の鋳巣をどれだけ検出できたか
+   - 高いほど見逃しが少ない
 
-### 探索プロセス
+2. 鋳巣誤検出率
+   - 非鋳巣をどれだけ誤って鋳巣と判定したか
+   - 低いほど過剰検出が少ない
 
-1. 探索範囲の設定
-   - 閾値：0.1から0.95まで
-   - ステップ幅：0.05
-   - `np.arange(0.1, 1.0, 0.05)`で生成
+3. 正解率
+   - 全判定のうち、正しい判定の割合
+   - 総合的な性能指標
 
-2. 各閾値での評価
-   - テンプレートマッチングの実行
-   - 精度指標の計算
-   - 結果の記録と表示
+これらの評価により、欠陥検出システムの性能を定量的に把握し、必要に応じたパラメータの調整や改善点の特定が可能となる。
 
-3. 最適閾値の判定基準
-   - 第一優先：鋳巣検出率の最大化
-   - 第二優先：誤検出率の最小化
-   - 同一検出率の場合は誤検出率が低い方を選択
+## 実装の詳細
 
-### 出力情報
+### calculate_defect_metrics()
+欠陥レベルでの各種性能指標を計算する関数：
 
-1. リアルタイム表示
+1. 混同行列の計算
+   - True Positive (TP)：正しく検出された鋳巣
+   - False Positive (FP)：誤って検出された鋳巣
+   - False Negative (FN)：見逃された鋳巣
+   - True Negative (TN)：正しく非鋳巣と判定
+
+2. 評価指標の算出
+   - 鋳巣検出率 = TP / (TP + FN) × 100
+   - 鋳巣誤検出率 = FP / (TN + FP) × 100
+   - 正解率 = (TP + TN) / 総数 × 100
+
+3. エラー処理
+   - 分母が0となる場合の処理
+   - 例外発生時のエラーハンドリング
+
+### print_defect_metrics()
+評価結果を可読性の高い形式で表示する関数：
+
+1. 基本指標の表示
    ```
-   === 閾値の最適化 ===
-   閾値  検出率(%)  誤検出率(%)
-   ------------------------
-   0.10    100.00     15.20
-   0.15     98.50     12.30
-   ...
+   === 欠陥レベルでの評価結果 ===
+   鋳巣検出率: XX.XX% (検出数/総数)
+   鋳巣誤検出率: XX.XX% (誤検出数/非欠陥総数)
+   正解率: XX.XX% (正解数/総数)
    ```
 
-2. 最終結果
+2. 混同行列の表示
    ```
-   === 最適な閾値での結果 ===
-   閾値: X.XX
-   鋳巣検出率: XX.XX%
-   鋳巣誤検出率: XX.XX%
+   === 混同行列 ===
+   True Positive (TP): XX
+   False Positive (FP): XX
+   False Negative (FN): XX
+   True Negative (TN): XX
    ```
 
-3. 戻り値
-   - best_threshold：最適な閾値
-   - results_dict：全閾値での評価結果
-   - best_results_df：最適閾値での詳細結果
+### evaluate_defect_level_performance()
+欠陥レベルでの性能評価を実行する関数：
 
-この最適化プロセスにより、後続の評価プロセスで使用する閾値が決定される。閾値の選択は分類性能に直接影響するため、この処理は特に重要である。
+1. 処理フロー
+   - 評価指標の計算
+   - 結果の表示
+   - 指標のデータ保持
 
-def optimize_threshold(df_filtered, templates, template_names):
-    """
-    最適な閾値を探索します
-    1. 鋳巣検出率100%（または最大化）
-    2. 鋳巣誤検出率の最小化
-    
-    引数:
-    df_filtered (pandas.DataFrame): 処理対象のデータフレーム
-    templates (list): テンプレート画像のリスト
-    template_names (list): テンプレート名のリスト
-    
-    戻り値:
-    tuple: (best_threshold, results_dict, best_results_df)
-    """
-    thresholds = np.arange(0.1, 1.0, 0.05)
-    best_threshold = None
-    best_metrics = None
-    best_detection_rate = -1
-    best_false_rate = float('inf')
-    best_results_df = None
-    
-    results_dict = {}
-    
-    print("\n=== 閾値の最適化 ===")
-    print("閾値  検出率(%)  誤検出率(%)")
-    print("-" * 35)
-    
-    for threshold in tqdm(thresholds, desc="閾値探索中"):
-        # 現在の閾値でテンプレートマッチングを実行
-        results_df = process_images_with_threshold(
-            df_filtered, templates, template_names, threshold
-        )
-        
-        # 精度指標の計算
-        defect_metrics = calculate_defect_metrics(results_df)
-        detection_rate = defect_metrics['detection_rate'][0]
-        false_rate = defect_metrics['false_detection_rate'][0]
-        
-        results_dict[threshold] = defect_metrics
-        
-        # 結果の表示
-        print(f"{threshold:.2f}  {detection_rate:8.2f}  {false_rate:8.2f}")
-        
-        # 最適な閾値の更新
-        if detection_rate > best_detection_rate or \
-           (detection_rate == best_detection_rate and false_rate < best_false_rate):
-            best_detection_rate = detection_rate
-            best_false_rate = false_rate
-            best_threshold = threshold
-            best_metrics = defect_metrics
-            best_results_df = results_df
-    
-    print("\n=== 最適な閾値での結果 ===")
-    print(f"閾値: {best_threshold:.2f}")
-    print(f"鋳巣検出率: {best_detection_rate:.2f}%")
-    print(f"鋳巣誤検出率: {best_false_rate:.2f}%")
-    
-    return best_threshold, results_dict, best_results_df
+2. エラー処理
+   - 計算失敗時の処理
+   - 異常値のハンドリング
 
-# 閾値最適化の実行
-if templates:
-    best_threshold, all_results, final_results_df = optimize_threshold(
-        df, templates, template_names
-    )
-else:
-    print("テンプレート画像の読み込みに失敗しました")
