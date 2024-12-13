@@ -1,88 +1,193 @@
-# 7. 欠陥候補のフィルタリング
+def extract_region_features(region):
+    """
+    領域から特徴量を抽出します
+    
+    引数:
+        region (RegionProperties): skimageのregionpropsによる領域情報
+        
+    戻り値:
+        dict: 抽出された特徴量の辞書
+    """
+    y, x = region.bbox[0], region.bbox[1]
+    h, w = region.bbox[2] - y, region.bbox[3] - x
+    max_length = max(w, h)
+    
+    # 検出方法の判定を修正
+    if min_large_defect_size <= max_length <= max_large_defect_size:
+        detection_method = 'canny'
+    elif min_small_defect_size <= max_length <= max_small_defect_size:
+        detection_method = 'dog'
+    else:
+        detection_method = None
+    
+    return {
+        'label': region.label,
+        'x': x,
+        'y': y,
+        'width': w,
+        'height': h,
+        'area': region.area,
+        'centroid_y': region.centroid[0],
+        'centroid_x': region.centroid[1],
+        'perimeter': region.perimeter,
+        'eccentricity': region.eccentricity,
+        'orientation': region.orientation,
+        'major_axis_length': region.major_axis_length,
+        'minor_axis_length': region.minor_axis_length,
+        'solidity': region.solidity,
+        'extent': region.extent,
+        'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
+        'max_length': max_length,
+        'detection_method': detection_method
+    }
 
-本セクションでは、検出された欠陥候補から実際の欠陥を識別し、その特徴量を計測する処理について説明する。
+def create_binary_edge_image(edge_image, mask):
+    """
+    エッジ画像を二値化し、マスクエッジ部分を除外します
+    
+    引数:
+        edge_image (numpy.ndarray): エッジ画像
+        mask (numpy.ndarray): マスク画像
+        
+    戻り値:
+        numpy.ndarray: 二値化されたエッジ画像
+    """
+    mask_edges = create_mask_edge_margin(mask)
+    binary_edge_image = (edge_image > 0).astype(np.uint8)
+    binary_edge_image[mask_edges > 0] = 0
+    return binary_edge_image
 
-## パラメータ調整のポイント
+def filter_defects(edge_image, mask):
+    """
+    欠陥候補をフィルタリングし、特徴量を計測します
+    
+    引数:
+        edge_image (numpy.ndarray): エッジ画像
+        mask (numpy.ndarray): マスク画像
+        
+    戻り値:
+        list: 欠陥情報の辞書のリスト
+    """
+    # エッジ画像の二値化とマスクエッジの除外
+    binary_edge_image = create_binary_edge_image(edge_image, mask)
+    
+    # 連結成分のラベリング
+    labels = measure.label(binary_edge_image, connectivity=2)
+    
+    # 各領域の特徴量を計測
+    defects = []
+    for region in measure.regionprops(labels):
+        defect_info = extract_region_features(region)
+        # 検出方法がNoneでない（有効なサイズ範囲内の）欠陥のみを追加
+        if defect_info['detection_method'] is not None:
+            defects.append(defect_info)
+    
+    return defects
 
-1. 欠陥サイズの閾値
-   - min_large_defect_size, max_large_defect_size：大きな欠陥の判定範囲
-   - min_small_defect_size, max_small_defect_size：小さな欠陥の判定範囲
+def process_completed_edges(completed_results):
+    """
+    補完済みエッジに対してフィルタリングと特徴量計測を実行します
+    
+    引数:
+        completed_results (list): 補完済みエッジのリスト
+        
+    戻り値:
+        list: フィルタリング結果のリスト
+        [(画像, 統合結果, Canny結果の欠陥, DoG結果の欠陥, ファイル名)]
+    """
+    filtered_results = []
+    
+    for shape_image, completed_combined, completed_large, completed_small, filename in completed_results:
+        # 各結果に対してフィルタリングを実行
+        combined_defects = filter_defects(completed_combined, shape_image)
+        large_defects = filter_defects(completed_large, shape_image)
+        small_defects = filter_defects(completed_small, shape_image)
+        
+        filtered_results.append(
+            (shape_image, completed_combined, large_defects, small_defects, filename)
+        )
+    
+    return filtered_results
 
-2. マスクエッジの処理
-   - mask_edge_marginで余裕幅の大きさを調整
+# フィルタリングの実行
+filtered_ng_results = process_completed_edges(completed_ng_images)
+#filtered_ok_results = process_completed_edges(completed_ok_images)
 
-これらのパラメータは、実際の欠陥サイズや検査要件に応じて適切に調整する必要がある。
+def visualize_filtered_defects(filtered_results, num_samples=1):
+    """
+    フィルタリング結果を可視化します
+    
+    引数:
+        filtered_results (list): フィルタリング結果のリスト
+        num_samples (int): 表示するサンプル数
+    """
+    num_samples = min(num_samples, len(filtered_results))
+    
+    for i in range(num_samples):
+        shape_image, combined, large_defects, small_defects, filename = filtered_results[i]
+        
+        fig, ax = plt.subplots(figsize=(15, 15))
+        ax.imshow(shape_image, cmap='gray')
+        
+        # 大きな欠陥を赤色で表示（Canny検出）
+        for defect in large_defects:
+            if defect['detection_method'] == 'canny':
+                rect = plt.Rectangle(
+                    (defect['x'], defect['y']),
+                    defect['width'],
+                    defect['height'],
+                    fill=False,
+                    edgecolor='red',
+                    linewidth=2
+                )
+                ax.add_patch(rect)
+                ax.text(
+                    defect['x'],
+                    defect['y'],
+                    f"L{defect['label']}",
+                    color='red',
+                    fontsize=12
+                )
+        
+        # 小さな欠陥を青色で表示（DoG検出）
+        for defect in small_defects:
+            if defect['detection_method'] == 'dog':
+                rect = plt.Rectangle(
+                    (defect['x'], defect['y']),
+                    defect['width'],
+                    defect['height'],
+                    fill=False,
+                    edgecolor='blue',
+                    linewidth=2
+                )
+                ax.add_patch(rect)
+                ax.text(
+                    defect['x'],
+                    defect['y'],
+                    f"S{defect['label']}",
+                    color='blue',
+                    fontsize=12
+                )
+        
+        # 凡例を追加
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='none', edgecolor='red', label='Large Defects (Canny)'),
+            Patch(facecolor='none', edgecolor='blue', label='Small Defects (DoG)')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right')
+        
+        plt.title(f'Filtered Defects: {filename}')
+        plt.axis('off')
+        plt.show()
 
-## 関数の説明
+# フィルタリングの実行
+filtered_ng_results = process_completed_edges(completed_ng_images)
+#filtered_ok_results = process_completed_edges(completed_ok_images)
 
-### extract_region_features()
-検出された領域から各種特徴量を抽出する関数である：
-
-1. 基本的な特徴量
-   - 位置情報：x, y（左上座標）
-   - サイズ情報：width, height, area
-   - 中心位置：centroid_x, centroid_y
-
-2. 形状特徴量
-   - perimeter：周囲長
-   - eccentricity：離心率
-   - orientation：主軸の向き
-   - major_axis_length：長軸長
-   - minor_axis_length：短軸長
-   - solidity：凸包に対する充填率
-   - extent：バウンディングボックスに対する充填率
-   - aspect_ratio：アスペクト比
-
-3. 欠陥分類
-   - max_length：最大辺長
-   - detection_method：検出方法の判定
-     - canny：min_large_defect_size ≤ max_length ≤ max_large_defect_size
-     - dog：min_small_defect_size ≤ max_length ≤ max_small_defect_size
-
-### create_binary_edge_image()
-エッジ画像を二値化し、マスクエッジ部分を除外する関数である：
-
-1. 処理手順
-   - エッジ画像の二値化
-   - マスクエッジの余裕幅の生成
-   - マスクエッジ部分の除外
-
-### filter_defects()
-欠陥候補をフィルタリングし、特徴量を計測する関数である：
-
-1. 前処理
-   - エッジ画像の二値化
-   - マスクエッジの除外
-
-2. 領域解析
-   - 連結成分のラベリング（8近傍接続）
-   - 各領域の特徴量計測
-   - サイズによる欠陥の分類（大小）
-
-### process_completed_edges()
-補完済みエッジに対してフィルタリングを実行する関数である：
-
-1. 処理対象
-   - 統合結果のエッジ
-   - 大きな欠陥（Canny）のエッジ
-   - 小さな欠陥（DoG）のエッジ
-
-2. 処理内容
-   - 各エッジに対する欠陥フィルタリング
-   - 特徴量の計測と保存
-
-## 可視化関数
-
-### visualize_filtered_defects()
-フィルタリング結果を可視化する関数である：
-
-1. 表示内容
-   - 元画像上に検出結果を重ねて表示
-   - 大きな欠陥：赤色の矩形とラベル
-   - 小さな欠陥：青色の矩形とラベル
-
-2. 表示要素
-   - バウンディングボックス
-   - 欠陥ラベル（L：大きな欠陥、S：小さな欠陥）
-   - 凡例
+# フィルタリング結果の可視化
+print("Visualizing filtered defects for NG images:")
+visualize_filtered_defects(filtered_ng_results, num_samples=1)
+#print("\nVisualizing filtered defects for OK images:")
+#visualize_filtered_defects(filtered_ok_results, num_samples=1)
 
