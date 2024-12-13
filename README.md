@@ -1,140 +1,87 @@
-# 6. エッジの補完とラベリング処理
+# 7. 欠陥候補のフィルタリング
 
-def create_mask_edge_margin(mask):
-   """
-   マスクのエッジ部分に余裕幅を持たせます
-   
-   引数:
-       mask (numpy.ndarray): 入力マスク画像
-       
-   戻り値:
-       numpy.ndarray: エッジに余裕幅を持たせたマスク
-   """
-   # エッジを検出
-   mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
-   
-   # 余裕幅のためのカーネルを作成
-   kernel = np.ones((mask_edge_margin * 2 + 1, mask_edge_margin * 2 + 1), np.uint8)
-   
-   # エッジを膨張させて余裕幅を作成
-   dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
-   
-   return dilated_edges
+本セクションでは、検出された欠陥候補から実際の欠陥を識別し、その特徴量を計測する処理について説明する。
 
-def complete_edges(edge_image, mask):
-   """
-   エッジの途切れを補完し、連続的なエッジを作成します
-   
-   引数:
-       edge_image (numpy.ndarray): エッジ画像
-       mask (numpy.ndarray): マスク画像
-       
-   戻り値:
-       numpy.ndarray: 補完されたエッジ画像
-   """
-   # マスクエッジの余裕幅を作成
-   mask_edges_with_margin = create_mask_edge_margin(mask)
-   
-   # スケルトン化でエッジを細線化
-   skeleton = skeletonize(edge_image > 0)
-   
-   # モルフォロジー演算用のカーネルを作成
-   kernel = np.ones(edge_kernel_size, np.uint8)
-   
-   # ノイズ除去（オープニング処理）
-   opened_skeleton = cv2.morphologyEx(
-       skeleton.astype(np.uint8), 
-       cv2.MORPH_OPEN, 
-       kernel, 
-       iterations=edge_open_iterations
-   )
-   
-   # エッジの接続（クロージング処理）
-   connected_skeleton = cv2.morphologyEx(
-       opened_skeleton, 
-       cv2.MORPH_CLOSE, 
-       kernel, 
-       iterations=edge_close_iterations
-   )
-   
-   # 元のエッジと補完したエッジを統合
-   completed_edges = np.maximum(edge_image, connected_skeleton * 255)
-   
-   # マスクエッジ部分は元のエッジを使用
-   completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
-   
-   return completed_edges.astype(np.uint8)
+## 関数の詳細説明
 
-def process_defect_edges(defect_results):
-   """
-   全ての欠陥検出結果に対してエッジ補完を実行します
-   
-   引数:
-       defect_results (list): 欠陥検出結果のリスト
-       
-   戻り値:
-       list: エッジ補完後の結果リスト
-       [(画像, 補完済み検出結果, 補完済みCanny結果, 補完済みDoG結果, ファイル名)]
-   """
-   completed_results = []
-   
-   for shape_image, combined, large, small, filename in defect_results:
-       # それぞれの結果に対してエッジ補完を実行
-       completed_combined = complete_edges(combined, shape_image)
-       completed_large = complete_edges(large, shape_image)
-       completed_small = complete_edges(small, shape_image)
-       
-       completed_results.append(
-           (shape_image, completed_combined, completed_large, completed_small, filename)
-       )
-   
-   return completed_results
+### extract_region_features()
+検出された領域から各種特徴量を抽出する関数である：
 
-# エッジ補完の実行
-completed_ng_images = process_defect_edges(defect_ng_images)
-#completed_ok_images = process_defect_edges(defect_ok_images)
+1. 基本的な特徴量
+   - 位置情報：x, y（左上座標）
+   - サイズ情報：width, height, area
+   - 中心位置：centroid_x, centroid_y
 
-def visualize_completed_edges(completed_results, num_samples=1):
-    """
-    エッジ補完結果を可視化します
-    
-    引数:
-        completed_results (list): エッジ補完結果のリスト
-        num_samples (int): 表示するサンプル数
-    """
-    num_samples = min(num_samples, len(completed_results))
-    
-    for i in range(num_samples):
-        shape_image, completed_combined, completed_large, completed_small, filename = completed_results[i]
-        
-        fig, axes = plt.subplots(2, 2, figsize=(15, 15))
-        
-        # 元画像
-        axes[0, 0].imshow(shape_image, cmap='gray')
-        axes[0, 0].set_title('Original Shape Image')
-        axes[0, 0].axis('off')
-        
-        # 補完済みCannyエッジ
-        axes[0, 1].imshow(completed_large, cmap='gray')
-        axes[0, 1].set_title('Completed Large Defects (Canny)')
-        axes[0, 1].axis('off')
-        
-        # 補完済みDoG
-        axes[1, 0].imshow(completed_small, cmap='gray')
-        axes[1, 0].set_title('Completed Small Defects (DoG)')
-        axes[1, 0].axis('off')
-        
-        # 補完済み統合結果
-        axes[1, 1].imshow(completed_combined, cmap='gray')
-        axes[1, 1].set_title('Completed Combined Result')
-        axes[1, 1].axis('off')
-        
-        plt.suptitle(f'Edge Completion Results: {filename}')
-        plt.tight_layout()
-        plt.show()
+2. 形状特徴量
+   - perimeter：周囲長
+   - eccentricity：離心率
+   - orientation：主軸の向き
+   - major_axis_length：長軸長
+   - minor_axis_length：短軸長
+   - solidity：凸包に対する充填率
+   - extent：バウンディングボックスに対する充填率
+   - aspect_ratio：アスペクト比
 
-# エッジ補完結果の可視化
-print("Visualizing edge completion results for NG images:")
-visualize_completed_edges(completed_ng_images, num_samples=1)
-#print("\nVisualizing edge completion results for OK images:")
-#visualize_completed_edges(completed_ok_images, num_samples=1)
+3. 欠陥分類
+   - max_length：最大辺長
+   - detection_method：検出方法の判定
+     - canny：min_large_defect_size ≤ max_length ≤ max_large_defect_size
+     - dog：min_small_defect_size ≤ max_length ≤ max_small_defect_size
+
+### create_binary_edge_image()
+エッジ画像を二値化し、マスクエッジ部分を除外する関数である：
+
+1. 処理手順
+   - エッジ画像の二値化
+   - マスクエッジの余裕幅の生成
+   - マスクエッジ部分の除外
+
+### filter_defects()
+欠陥候補をフィルタリングし、特徴量を計測する関数である：
+
+1. 前処理
+   - エッジ画像の二値化
+   - マスクエッジの除外
+
+2. 領域解析
+   - 連結成分のラベリング（8近傍接続）
+   - 各領域の特徴量計測
+   - サイズによる欠陥の分類（大小）
+
+### process_completed_edges()
+補完済みエッジに対してフィルタリングを実行する関数である：
+
+1. 処理対象
+   - 統合結果のエッジ
+   - 大きな欠陥（Canny）のエッジ
+   - 小さな欠陥（DoG）のエッジ
+
+2. 処理内容
+   - 各エッジに対する欠陥フィルタリング
+   - 特徴量の計測と保存
+
+## 可視化関数
+
+### visualize_filtered_defects()
+フィルタリング結果を可視化する関数である：
+
+1. 表示内容
+   - 元画像上に検出結果を重ねて表示
+   - 大きな欠陥：赤色の矩形とラベル
+   - 小さな欠陥：青色の矩形とラベル
+
+2. 表示要素
+   - バウンディングボックス
+   - 欠陥ラベル（L：大きな欠陥、S：小さな欠陥）
+   - 凡例
+
+## パラメータ調整のポイント
+
+1. 欠陥サイズの閾値
+   - min_large_defect_size, max_large_defect_size：大きな欠陥の判定範囲
+   - min_small_defect_size, max_small_defect_size：小さな欠陥の判定範囲
+
+2. マスクエッジの処理
+   - mask_edge_marginで余裕幅の大きさを調整
+
+これらのパラメータは、実際の欠陥サイズや検査要件に応じて適切に調整する必要がある。
