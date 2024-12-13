@@ -2,7 +2,18 @@
 
 本セクションでは、検出された欠陥候補から実際の欠陥を識別し、その特徴量を計測する処理について説明する。
 
-## 関数の詳細説明
+## パラメータ調整のポイント
+
+1. 欠陥サイズの閾値
+   - min_large_defect_size, max_large_defect_size：大きな欠陥の判定範囲
+   - min_small_defect_size, max_small_defect_size：小さな欠陥の判定範囲
+
+2. マスクエッジの処理
+   - mask_edge_marginで余裕幅の大きさを調整
+
+これらのパラメータは、実際の欠陥サイズや検査要件に応じて適切に調整する必要がある。
+
+## 関数の説明
 
 ### extract_region_features()
 検出された領域から各種特徴量を抽出する関数である：
@@ -75,13 +86,3 @@
    - 欠陥ラベル（L：大きな欠陥、S：小さな欠陥）
    - 凡例
 
-## パラメータ調整のポイント
-
-1. 欠陥サイズの閾値
-   - min_large_defect_size, max_large_defect_size：大きな欠陥の判定範囲
-   - min_small_defect_size, max_small_defect_size：小さな欠陥の判定範囲
-
-2. マスクエッジの処理
-   - mask_edge_marginで余裕幅の大きさを調整
-
-これらのパラメータは、実際の欠陥サイズや検査要件に応じて適切に調整する必要がある。
