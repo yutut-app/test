@@ -1,112 +1,255 @@
-# 3. 前処理
+# 4. テンプレートマッチング処理
 
-本セクションでは、欠陥検出結果のデータに対して分類処理のための前処理を実施する。主な目的は、ワーク単位での分析を可能にするためのデータ構造の整備である。
+本セクションでは、欠陥画像とテンプレート画像の類似度を計算し、欠陥の分類を行う処理について説明する。
 
-## 関数の詳細説明
+## 主要な処理フロー
 
-### add_work_id()
-各画像に対してワークIDを付与する関数である：
+1. テンプレート画像の読み込み
+2. 画像の前処理（グレースケール化）
+3. 類似度の計算
+4. マッチング結果の判定と出力
+
+これらの処理により、欠陥画像とテンプレートの類似度に基づく分類が実現される。次のセクションでは、この分類結果の評価と最適な閾値の探索を行う。
+
+## 関数の説明
+
+### load_and_preprocess_image()
+画像の読み込みと前処理を行う基本関数：
+
+1. 画像の読み込み
+   - テンプレート画像と入力画像で異なるパス処理
+   - 読み込みエラーのハンドリング
+
+2. 前処理
+   - BGR形式からグレースケールへの変換
+   - エラー時はNoneを返却
+
+### load_templates()
+テンプレート画像を一括で読み込む関数：
+
+1. テンプレートの読み込み
+   - PNG, JPG, JPEG形式に対応
+   - 各テンプレートのサイズを表示
+
+2. エラー処理
+   - 読み込み失敗時の例外処理
+   - 空のリストを返却
+
+### calculate_image_similarity()
+画像間の類似度を計算する関数：
+
+1. サイズ調整
+   - テンプレートが大きい場合はリサイズ
+   - アスペクト比を考慮した縮小
+
+2. 類似度計算
+   - 正規化相関係数による類似度計算
+   - 0~1の範囲で類似度を出力
+
+### process_single_image()
+1枚の画像に対するテンプレートマッチング処理：
+
+1. マッチング処理
+   - 全テンプレートと類似度計算
+   - 最大類似度の記録
+
+2. 結果の出力
+   - マッチング判定（閾値との比較）
+   - 各テンプレートのスコア
+   - 最大類似度
+
+### process_images_with_threshold()
+全画像に対するテンプレートマッチング処理：
 
 1. 処理内容
-   - 1つのワークに対して左右2枚の画像が存在
-   - 画像名を基準に同一ワークの画像を特定
-   - 連番のwork_idを付与
+   - DataFrame内の全画像を処理
+   - 進捗表示付きの一括処理
 
-2. 処理手順
-   - image_nameのユニーク値を取得・ソート
-   - 2枚単位でwork_idを割り当て
-   - 末尾が1枚のみの場合も考慮
+2. 出力データ
+   - 予測ラベル（1/0）
+   - 最大類似度
+   - テンプレートごとのスコア
 
-3. データ構造
-   ```
-   例：
-   image_name     work_id
-   work1_left.jpg    0
-   work1_right.jpg   0
-   work2_left.jpg    1
-   work2_right.jpg   1
-   ```
 
-### print_dataframe_info()
-データフレームの状態を確認するための関数である：
+''' 
+def load_and_preprocess_image(image_path, is_template=False):
+   """
+   画像を読み込み、グレースケールに変換します
+   
+   引数:
+   image_path (str): 画像ファイルのパス
+   is_template (bool): テンプレート画像かどうか
+   
+   戻り値:
+   numpy.ndarray: 前処理済みのグレースケール画像
+   """
+   try:
+       # テンプレート画像と入力画像でパスの扱いを分ける
+       if is_template:
+           img = cv2.imread(image_path)
+       else:
+           img = cv2.imread(os.path.join(defected_image_path, image_path))
+           
+       if img is None:
+           raise ValueError(f"Failed to load image: {image_path}")
+       
+       # グレースケール化
+       img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+       return img_gray
+   
+   except Exception as e:
+       print(f"画像の読み込みに失敗: {e}")
+       return None
 
-1. 表示内容
-   - データ行数
-   - カラム一覧
-   - 各カラムのデータ型
-   - 欠損値の数
-
-2. 確認ポイント
-   - データの過不足
-   - データ型の整合性
-   - 欠損値の有無
-
-## 前処理の実行フロー
-
-1. work_idの付与
-   - 画像名を基準にワークを特定
-   - 同一ワークの画像に同じIDを付与
-
-2. データ確認
-   - 処理結果の妥当性確認
-   - データの整合性チェック
-
-3. データの保存（オプション）
-   - 必要に応じて中間データとして保存
-   - 後続の分析で再利用可能
-
-この前処理により、後続の分析でワーク単位での評価や集計が可能になる。特に、1つのワークに対して左右の画像が存在する場合の整合性を保つために重要な処理となる。
-
-def add_work_id(df):
+def load_templates():
     """
-    データフレームにwork_id列を追加します
-    
-    引数:
-    df (pandas.DataFrame): 処理対象のデータフレーム
+    テンプレートフォルダから全てのテンプレート画像を読み込みます
     
     戻り値:
-    pandas.DataFrame: work_id列が追加されたデータフレーム
+    tuple: (templates, template_names)
+        templates (list): 前処理済みテンプレート画像のリスト
+        template_names (list): テンプレート名のリスト
     """
-    # image_nameのユニークな値を取得してソート
-    unique_images = sorted(df['image_name'].unique())
+    templates = []
+    template_names = []
     
-    # work_idの辞書を作成（2枚ずつ同じIDを割り当て）
-    work_id_dict = {}
-    for i in range(0, len(unique_images), 2):
-        if i + 1 < len(unique_images):  # 2枚目が存在する場合
-            work_id_dict[unique_images[i]] = i // 2
-            work_id_dict[unique_images[i + 1]] = i // 2
-        else:  # 最後の1枚の場合
-            work_id_dict[unique_images[i]] = i // 2
+    try:
+        # テンプレートフォルダ内の画像ファイルを取得
+        template_files = [f for f in os.listdir(template_path) 
+                         if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        print("=== テンプレート画像の読み込み ===")
+        for template_file in template_files:
+            template_full_path = os.path.join(template_path, template_file)
+            img = load_and_preprocess_image(template_full_path, is_template=True)
+            
+            if img is not None:
+                templates.append(img)
+                template_name = os.path.splitext(template_file)[0]
+                template_names.append(template_name)
+                print(f"テンプレート {template_name}: サイズ {img.shape}")
+        
+        print(f"\n読み込んだテンプレート数: {len(templates)}")
+        return templates, template_names
     
-    # work_id列を追加
-    df['work_id'] = df['image_name'].map(work_id_dict)
-    
-    return df
+    except Exception as e:
+        print(f"テンプレート読み込みエラー: {e}")
+        return [], []
 
-def print_dataframe_info(df):
+def calculate_image_similarity(image, template):
     """
-    データフレームの基本情報を表示します
+    2つの画像間の類似度を計算します
     
     引数:
-    df (pandas.DataFrame): 表示対象のデータフレーム
+    image (numpy.ndarray): 入力画像
+    template (numpy.ndarray): テンプレート画像
+    
+    戻り値:
+    float: 類似度スコア
     """
-    print("\n=== データフレーム情報 ===")
-    print(f"行数: {len(df)}")
-    print(f"カラム: {df.columns.tolist()}")
-    print("\nデータ型:")
-    print(df.dtypes)
-    print("\n欠損値の数:")
-    print(df.isnull().sum())
+    try:
+        # 画像サイズの取得
+        img_height, img_width = image.shape
+        templ_height, templ_width = template.shape
+        
+        # テンプレートが入力画像より大きい場合、テンプレートをリサイズ
+        if templ_height > img_height or templ_width > img_width:
+            template = cv2.resize(template, 
+                                (min(img_width, templ_width), 
+                                 min(img_height, templ_height)), 
+                                interpolation=cv2.INTER_AREA)
+        
+        # 画像全体の類似度を計算
+        result = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+        similarity_score = result[0][0]
+        
+        return similarity_score
+    
+    except Exception as e:
+        print(f"類似度計算エラー: {e}")
+        return 0.0
 
-# 前処理の実行
-print("=== 前処理の開始 ===")
+def process_single_image(image_path, templates, template_names, threshold):
+    """
+    1枚の画像に対して全てのテンプレートでマッチングを実行します
+    
+    引数:
+    image_path (str): 画像のパス
+    templates (list): テンプレート画像のリスト
+    template_names (list): テンプレート名のリスト
+    threshold (float): 類似度の閾値
+    
+    戻り値:
+    dict: マッチング結果と各テンプレートのスコア
+    """
+    try:
+        img = load_and_preprocess_image(image_path)
+        if img is None:
+            return None
+        
+        template_scores = {}
+        max_similarity = 0.0
+        
+        # 各テンプレートとの類似度を計算
+        for template, template_name in zip(templates, template_names):
+            similarity = calculate_image_similarity(img, template)
+            template_scores[f"{template_name}_match_score"] = similarity
+            max_similarity = max(max_similarity, similarity)
+        
+        return {
+            'is_matched': max_similarity > threshold,
+            'template_scores': template_scores,
+            'max_similarity': max_similarity
+        }
+    
+    except Exception as e:
+        print(f"画像処理エラー: {e}")
+        return None
 
-# work_id列の追加
-df = add_work_id(df)
+def process_images_with_threshold(df_filtered, templates, template_names, threshold):
+   """
+   全画像に対してテンプレートマッチングを実行します
+   
+   引数:
+   df_filtered (pandas.DataFrame): 処理対象のデータフレーム
+   templates (list): テンプレート画像のリスト
+   template_names (list): テンプレート名のリスト
+   threshold (float): 類似度の閾値
+   
+   戻り値:
+   pandas.DataFrame: マッチング結果を含むデータフレーム
+   """
+   results = []
+   for _, row in tqdm(df_filtered.iterrows(), total=len(df_filtered), desc="画像処理中"):
+       try:
+           # 元のデータフレームの行をコピー
+           result_row = row.copy()
+           
+           # マッチング実行
+           matching_result = process_single_image(
+               row['defect_image_orig'], 
+               templates, 
+               template_names, 
+               threshold
+           )
+           
+           if matching_result is not None:
+               # 予測結果とスコアを追加
+               result_row['predicted_label'] = 1 if matching_result['is_matched'] else 0
+               result_row['max_similarity'] = matching_result['max_similarity']
+               
+               # 各テンプレートのスコアを追加
+               for score_name, score in matching_result['template_scores'].items():
+                   result_row[score_name] = score
+               
+               results.append(result_row)
+           
+       except Exception as e:
+           print(f"行の処理でエラー: {e}")
+           continue
+   
+   return pd.DataFrame(results)
 
-# データフレームの情報表示
-print_dataframe_info(df)
-
-# 作業用データフレームの保存（必要に応じて）
-# df.to_csv('preprocessed_data.csv', index=False)
+# テンプレートの読み込み
+templates, template_names = load_templates()
+'''
