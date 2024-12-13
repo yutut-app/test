@@ -1,154 +1,189 @@
-# 5. Canny+DoGによる欠陥候補検出 (Part 1)
+# 5. Canny+DoGによる欠陥検出
 
-本セクションでは、ワークの加工領域内における鋳巣（欠陥）を検出する処理について説明する。検出は以下の2つの手法を組み合わせて実施する：
+def apply_canny_detection(image, mask):
+    """
+    Cannyエッジ検出を用いて大きな鋳巣を検出します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        mask (numpy.ndarray): マスク画像
+        
+    戻り値:
+        numpy.ndarray: エッジ検出結果
+    """
+    # マスク領域内の画像を取得
+    masked_image = cv2.bitwise_and(image, image, mask=mask)
+    
+    # ガウシアンブラーでノイズ除去
+    blurred_image = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
+    
+    # Cannyエッジ検出
+    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+    
+    # テクスチャ検出
+    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
+    laplacian_edges = np.uint8(np.absolute(laplacian) > texture_threshold) * 255
+    
+    # エッジとテクスチャの統合
+    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+    
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, 
+                                     (canny_merge_distance, canny_merge_distance))
+    merged_result = cv2.morphologyEx(combined_edges, cv2.MORPH_CLOSE, kernel)
+    
+    return merged_result
 
-1. Cannyエッジ検出による大きな欠陥の検出
-2. DoG（Difference of Gaussian）フィルタによる小さな欠陥の検出
+def apply_dog_filter(image, ksize, sigma1, sigma2):
+    """
+    DoGフィルタを適用します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        ksize (int): カーネルサイズ
+        sigma1 (float): 1つ目のガウシアンのシグマ
+        sigma2 (float): 2つ目のガウシアンのシグマ
+        
+    戻り値:
+        numpy.ndarray: DoGフィルタ適用結果
+    """
+    gaussian_1 = cv2.GaussianBlur(image, (ksize, ksize), sigma1)
+    gaussian_2 = cv2.GaussianBlur(image, (ksize, ksize), sigma2)
+    return gaussian_1 - gaussian_2
 
-## パラメータ調整のポイント
+def apply_dynamic_threshold(image):
+    """
+    動的閾値処理を適用します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        
+    戻り値:
+        numpy.ndarray: 二値化結果
+    """
+    return cv2.adaptiveThreshold(image, 255, dynamic_method, cv2.THRESH_BINARY_INV, 
+                               dynamic_ksize, dynamic_c)
 
-1. 大きな欠陥の検出
-   - canny_min_threshold, canny_max_thresholdで検出感度を調整
-   - texture_thresholdでテクスチャの検出感度を調整
-   - canny_merge_distanceで検出結果の統合度合いを調整
+def calculate_contrast_mask(image):
+    """
+    コントラストに基づくマスクを生成します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        
+    戻り値:
+        numpy.ndarray: コントラストマスク
+    """
+    # 局所的な平均との差を計算
+    local_mean = cv2.blur(image, (dynamic_ksize, dynamic_ksize))
+    intensity_diff = cv2.absdiff(image, local_mean)
+    
+    # コントラスト比を計算
+    local_std = np.std(image)
+    contrast_ratio = intensity_diff / (local_std + 1e-6)
+    
+    return (contrast_ratio > min_contrast_ratio).astype(np.uint8) * 255
 
-2. 小さな欠陥の検出
-   - bright_threshold, dark_thresholdで明暗の判定基準を調整
-   - dog_ksizeとsigma_pairsで検出スケールを調整
-   - min_contrast_ratioでコントラストの判定基準を調整
+def apply_dog_detection(image, mask):
+    """
+    DoGフィルタを用いて小さな鋳巣を検出します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        mask (numpy.ndarray): マスク画像
+        
+    戻り値:
+        numpy.ndarray: 検出結果
+    """
+    # 明暗領域の検出
+    _, bright_mask = cv2.threshold(image, bright_threshold, 255, cv2.THRESH_BINARY)
+    _, dark_mask = cv2.threshold(image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
+    
+    # マルチスケールDoGの適用
+    dog_results = []
+    sigma_pairs = [(1.5, 3.5), (2.0, 4.0), (1.0, 2.5)]
+    
+    for sigma1, sigma2 in sigma_pairs:
+        dog_result = apply_dog_filter(image, dog_ksize, sigma1, sigma2)
+        normalized = cv2.normalize(dog_result, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        dog_results.append(normalized)
+    
+    combined_dog = np.maximum.reduce(dog_results)
+    
+    # 各種マスクの生成
+    binary_dog = apply_dynamic_threshold(image)
+    contrast_mask = calculate_contrast_mask(image)
+    gradient_magnitude = calculate_gradient_magnitude(image)
+    
+    # マスクの統合
+    bright_region = cv2.bitwise_and(bright_mask, gradient_magnitude)
+    dark_region = cv2.bitwise_and(dark_mask, gradient_magnitude)
+    combined_mask = cv2.bitwise_or(bright_region, dark_region)
+    
+    # 結果の統合
+    result = cv2.bitwise_and(combined_mask, combined_dog)
+    result = cv2.bitwise_and(result, contrast_mask)
+    result = cv2.bitwise_and(result, binary_dog)
+    result = cv2.bitwise_and(result, mask)
+    
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, 
+                                     (dog_merge_distance, dog_merge_distance))
+    merged_result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, kernel)
+    
+    # 明るい領域の追加
+    final_result = cv2.bitwise_or(merged_result, cv2.bitwise_and(bright_mask, mask))
+    
+    return final_result
 
-3. 結果の統合
-   - dog_merge_distanceで検出結果の統合度合いを調整
-   - モルフォロジー演算のパラメータで最終的な検出結果を調整
+def calculate_gradient_magnitude(image):
+    """
+    画像の勾配強度を計算します
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        
+    戻り値:
+        numpy.ndarray: 勾配強度画像
+    """
+    gradient_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
+    gradient_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
+    magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+    return cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-## Cannyエッジ検出による大きな欠陥検出
+def detect_defects(image, mask):
+    """
+    CannyとDoGを組み合わせて欠陥検出を行います
+    
+    引数:
+        image (numpy.ndarray): 入力画像
+        mask (numpy.ndarray): マスク画像
+        
+    戻り値:
+        tuple: (統合結果, Canny結果, DoG結果)
+    """
+    large_defects = apply_canny_detection(image, mask)
+    small_defects = apply_dog_detection(image, mask)
+    combined_result = cv2.bitwise_or(large_defects, small_defects)
+    
+    return combined_result, large_defects, small_defects
 
-### apply_canny_detection()
-大きな鋳巣を検出するための関数である。以下の処理ステップで実装されている：
+def process_images(processed_images):
+    """
+    全画像に対して欠陥検出を実行します
+    
+    引数:
+        processed_images (list): 処理済み画像のリスト
+        
+    戻り値:
+        list: (画像, 検出結果, Canny結果, DoG結果, ファイル名)のリスト
+    """
+    defect_results = []
+    for shape_image, mask, filename in processed_images:
+        combined, large, small = detect_defects(shape_image, mask)
+        defect_results.append((shape_image, combined, large, small, filename))
+    return defect_results
 
-1. マスク処理
-   - マスク領域内の画像のみを抽出
-   - 不要な領域を除外
-
-2. 前処理
-   - ガウシアンブラーによるノイズ除去
-   - パラメータ：canny_kernel_size, canny_sigma
-
-3. エッジ検出
-   - Cannyエッジ検出の適用
-   - パラメータ：canny_min_threshold, canny_max_threshold
-
-4. テクスチャ検出
-   - ラプラシアンフィルタによる局所的な変化の検出
-   - パラメータ：texture_threshold
-
-5. 結果の統合
-   - エッジとテクスチャの結果を統合
-   - 近接領域の統合（モルフォロジー演算）
-   - パラメータ：canny_merge_distance
-
-## DoGフィルタによる小さな欠陥検出
-
-### apply_dog_filter()
-DoGフィルタを適用する基本関数である：
-
-1. 処理内容
-   - 2つのガウシアンフィルタの差分を計算
-   - 異なるσ値で平滑化された画像の差分を取得
-
-2. パラメータ
-   - dog_ksize：カーネルサイズ
-   - dog_sigma1：1つ目のガウシアンのσ値
-   - dog_sigma2：2つ目のガウシアンのσ値
-
-### apply_dynamic_threshold()
-動的閾値処理を適用する関数である：
-
-1. 処理内容
-   - 適応的閾値処理の適用
-   - 局所領域ごとに最適な閾値を計算
-
-2. パラメータ
-   - dynamic_ksize：局所領域のサイズ
-   - dynamic_c：閾値調整用定数
-   - dynamic_method：適応的閾値処理の方法
-
-### calculate_contrast_mask()
-コントラストに基づくマスクを生成する関数である：
-
-1. 処理手順
-   - 局所的な平均値との差分を計算
-   - コントラスト比の計算
-   - 閾値処理によるマスク生成
-
-2. パラメータ
-   - min_contrast_ratio：最小コントラスト比
-   - dynamic_ksize：局所領域のサイズ
-
-### apply_dog_detection()
-小さな鋳巣を検出するための主要な関数である：
-
-1. 明暗領域の検出
-   - bright_threshold：明るい領域の閾値
-   - dark_threshold：暗い領域の閾値
-   - 明暗それぞれの領域でマスクを生成
-
-2. マルチスケールDoG処理
-   - 複数のσ値の組み合わせでDoGフィルタを適用
-   - 異なるスケールでの検出結果を統合
-   - パラメータ：
-     - dog_ksize：フィルタのカーネルサイズ
-     - sigma_pairs：[(1.5, 3.5), (2.0, 4.0), (1.0, 2.5)]
-
-3. 補助的なマスク生成
-   - 動的閾値処理による二値化
-   - コントラストマスクの生成
-   - 勾配強度の計算
-
-4. 結果の統合処理
-   - 各種マスクの論理演算による統合
-   - 近接領域の統合（モルフォロジー演算）
-   - パラメータ：dog_merge_distance
-
-### calculate_gradient_magnitude()
-画像の勾配強度を計算する補助関数である：
-
-1. 処理内容
-   - Sobelフィルタによる勾配計算（x方向、y方向）
-   - 勾配の大きさを計算
-   - 0-255の範囲に正規化
-
-## 統合処理
-
-### detect_defects()
-CannyとDoGの検出結果を統合する関数である：
-
-1. 処理手順
-   - 大きな欠陥の検出（Canny）
-   - 小さな欠陥の検出（DoG）
-   - 両結果の論理和による統合
-
-### process_images()
-画像群に対して一括で欠陥検出を実行する関数である：
-
-1. 実行内容
-   - 各画像に対して欠陥検出を実行
-   - 検出結果をリストとして保持
-   - メモリ使用量を考慮した分割処理
-
-## 可視化
-
-### visualize_defect_detection()
-検出結果を可視化する関数である：
-
-1. 表示内容
-   - 元の撮影画像
-   - Cannyによる大きな欠陥の検出結果
-   - DoGによる小さな欠陥の検出結果
-   - 両者を統合した最終結果
-
-2. 表示形式
-   - 2×2のサブプロット構成
-   - グレースケールでの表示
-   - ファイル名をタイトルとして表示
-
+# 欠陥検出の実行
+defect_ng_images = process_images(processed_ng_images)
+#defect_ok_images = process_images(processed_ok_images)
