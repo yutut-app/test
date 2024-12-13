@@ -1,84 +1,106 @@
 # 3. データの読み込み
 
-本セクションでは、画像処理のための入力データを読み込む処理について説明する。
+def load_shape_images(directory):
+   """
+   指定ディレクトリからShape画像を読み込みます
+   
+   引数:
+       directory (str): 画像が格納されているディレクトリのパス
+   
+   戻り値:
+       list: (Shape画像パス, Shape画像ファイル名)のタプルのリスト
+   """
+   shape_images = []
+   
+   # 指定ディレクトリ内の全ファイルを走査
+   for root, dirs, files in os.walk(directory):
+       for file in files:
+           if "Shape" in file and file.endswith(".jpg"):
+               shape_images.append((os.path.join(root, file), file))
+   
+   return shape_images
 
-## ディレクトリ構成
+def load_template_images():
+   """
+   左右判定用とマスク用のテンプレート画像を読み込みます
+   
+   戻り値:
+       tuple: (左右判定テンプレート画像, マスクテンプレート画像)のタプル
+       各要素は{left: image, right: image}の辞書
+   """
+   # 左右判定用テンプレート
+   judge_templates = {
+       'left': cv2.imread(left_judge_template_path, cv2.IMREAD_GRAYSCALE),
+       'right': cv2.imread(right_judge_template_path, cv2.IMREAD_GRAYSCALE)
+   }
+   
+   # マスク用テンプレート
+   mask_templates = {
+       'left': cv2.imread(left_mask_template_path, cv2.IMREAD_GRAYSCALE),
+       'right': cv2.imread(right_mask_template_path, cv2.IMREAD_GRAYSCALE)
+   }
+   
+   return judge_templates, mask_templates
 
-処理対象となる画像データは以下のような構造で格納されている：
+# NG画像とOK画像、およびテンプレート画像を読み込む
+ng_images = load_shape_images(os.path.join(input_data_dir, "NG", ng_labels))
+#ok_images = load_shape_images(os.path.join(input_data_dir, "OK", ok_labels))
+judge_templates, mask_templates = load_template_images()
 
-```
-data/
-├── input/
-│   ├── NG/
-│   │   └── label1/  # 鋳巣の画像
-│   │       ├── ***Shape***.jpg
-│   │       └── ...      
-│   ├── OK/
-│   │   ├── No1/  # 正常品（50ワーク分）
-│   │   │   ├── ***Shape***.jpg
-│   │   │   └── ...
-│   │   ├── No2/
-│   │   └── ...  # No20まで
-│   ├── left_right_judge_template/
-│   │   ├── left_template.jpg
-│   │   └── right_template.jpg
-│   └── mask_template/
-       ├── left_template.jpg
-       └── right_template.jpg
-```
 
-## 関数の説明
 
-### load_shape_images()
 
-指定されたディレクトリから検査対象となるワークの画像（Shape画像）を読み込む関数である。以下の特徴を持つ：
 
-1. ディレクトリの再帰的走査
-   - os.walkを使用してサブディレクトリも含めて探索
-   - "Shape"を含むjpg形式のファイルのみを抽出
 
-2. 戻り値の形式
-   - (画像の完全パス, ファイル名)のタプルをリストとして返却
-   - パスは後続の画像読み込みに使用
-   - ファイル名はデバッグや結果の可視化に使用
+def visualize_loaded_images(image_pairs, templates, num_samples=1):
+    """
+    読み込んだShape画像とテンプレート画像を可視化します
+    
+    引数:
+        image_pairs (list): Shape画像のリスト
+        templates (tuple): (左右判定テンプレート, マスクテンプレート)のタプル
+        num_samples (int): 表示するサンプル数
+    """
+    num_samples = min(num_samples, len(image_pairs))
+    judge_temps, mask_temps = templates
+    
+    # Shape画像の表示
+    for i in range(num_samples):
+        shape_path, filename = image_pairs[i]
+        shape_img = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+        
+        plt.figure(figsize=(6, 6))
+        plt.imshow(shape_img, cmap='gray')
+        plt.title(f'Shape Image: {filename}')
+        plt.axis('off')
+        plt.show()
+    
+    # テンプレート画像の表示
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+    
+    # 左右判定テンプレート
+    axes[0, 0].imshow(judge_temps['left'], cmap='gray')
+    axes[0, 0].set_title('Left Judge Template')
+    axes[0, 0].axis('off')
+    
+    axes[0, 1].imshow(judge_temps['right'], cmap='gray')
+    axes[0, 1].set_title('Right Judge Template')
+    axes[0, 1].axis('off')
+    
+    # マスクテンプレート
+    axes[1, 0].imshow(mask_temps['left'], cmap='gray')
+    axes[1, 0].set_title('Left Mask Template')
+    axes[1, 0].axis('off')
+    
+    axes[1, 1].imshow(mask_temps['right'], cmap='gray')
+    axes[1, 1].set_title('Right Mask Template')
+    axes[1, 1].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
 
-### load_template_images()
-
-ワークの左右判定用とマスク生成用のテンプレート画像を読み込む関数である。以下の処理を行う：
-
-1. 左右判定用テンプレート
-   - 左側用と右側用の2種類のテンプレートを読み込む
-   - グレースケールで読み込み（cv2.IMREAD_GRAYSCALE）
-
-2. マスク用テンプレート
-   - 左側用と右側用の2種類のテンプレートを読み込む
-   - グレースケールで読み込み
-
-3. 戻り値の形式
-   - judge_templates: 左右判定用テンプレート
-   - mask_templates: マスク用テンプレート
-   - 各テンプレートは{'left': image, 'right': image}の辞書形式
-
-### visualize_loaded_images()
-
-読み込んだ画像を可視化する関数である。デバッグや画像の確認に使用する。
-
-1. 表示内容
-   - Shape画像のサンプル
-   - 左右判定用テンプレート（左右）
-   - マスク用テンプレート（左右）
-
-2. 表示形式
-   - Shape画像: 個別のプロット
-   - テンプレート画像: 2x2のサブプロット
-
-## 重要な注意点
-
-1. メモリ使用量の考慮
-   - OK画像は50ワークごとにNo1~No20のディレクトリに分割されている
-   - メモリ不足を防ぐため、一度に全ディレクトリを処理せず、必要なディレクトリのみを指定して処理する
-   - ok_labelsパラメータで処理対象のディレクトリを指定（例: 'No1'）
-
-2. 画像の前処理
-   - すべての画像はグレースケールとして読み込まれる
-   - これにより処理の一貫性を保ち、メモリ使用量も抑制
+# 読み込んだ画像を可視化
+print("Visualizing NG Label 1 images and templates:")
+visualize_loaded_images(ng_images, (judge_templates, mask_templates), num_samples=1)
+#print("\nVisualizing OK images and templates:")
+#visualize_loaded_images(ok_images, (judge_templates, mask_templates), num_samples=1)
