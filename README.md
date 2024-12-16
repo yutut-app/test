@@ -14,30 +14,43 @@ def resize_for_display(image, max_size=800):
         return image.resize(new_size, Image.Resampling.LANCZOS)
     return image
 
-def process_canvas_result(canvas_result, binary_original, original_size, display_size):
+def calculate_display_size(width, height, max_size=800):
+    """表示サイズを計算する"""
+    if width > max_size or height > max_size:
+        ratio = min(max_size/width, max_size/height)
+        new_width = int(width * ratio)
+        new_height = int(height * ratio)
+        return new_width, new_height
+    return width, height
+
+def process_canvas_result(canvas_result, binary_original, original_size):
     """キャンバスの描画結果を処理して二値化画像を返す"""
     if canvas_result.image_data is None:
         return None
     
+    # キャンバスのサイズを取得
+    canvas_height, canvas_width = canvas_result.image_data.shape[:2]
+    
+    # 二値化画像をキャンバスのサイズにリサイズ
+    binary_resized = cv2.resize(binary_original, (canvas_width, canvas_height))
+    
     # キャンバスの描画結果をnumpy配列として取得
     canvas_array = canvas_result.image_data
-    # グレースケールに変換 (RGBAの場合は最初の3チャンネルのみ使用)
+    
+    # アルファチャンネルを使用してマスクを作成
+    alpha_mask = canvas_array[..., 3] > 0
+    
+    # キャンバスの描画部分を二値化
     gray_canvas = np.dot(canvas_array[..., :3], [0.299, 0.587, 0.114])
-    # 二値化（閾値は中間値の128）
     binary_canvas = (gray_canvas > 128).astype(np.uint8) * 255
     
-    # 現在の表示サイズの二値化画像を作成
-    binary_display = cv2.resize(binary_original, display_size[::-1])
+    # 結果の画像を作成
+    result = binary_resized.copy()
+    result[alpha_mask] = binary_canvas[alpha_mask]
     
-    # キャンバスの描画結果を元の二値化画像に重ね合わせる
-    # 白(255)のピクセルは白として上書き
-    # 黒(0)のピクセルは黒として上書き
-    mask = (canvas_array[..., 3] > 0)  # アルファチャンネルが0より大きい部分を抽出
-    binary_display[mask] = binary_canvas[mask]
-    
-    # 結果を元のサイズにリサイズ
-    result_image = cv2.resize(binary_display, original_size[::-1], interpolation=cv2.INTER_NEAREST)
-    return Image.fromarray(result_image)
+    # 元のサイズにリサイズ
+    result_resized = cv2.resize(result, (original_size[0], original_size[1]), interpolation=cv2.INTER_NEAREST)
+    return Image.fromarray(result_resized)
 
 def main():
     st.title("画像二値化・補正アプリ")
@@ -55,11 +68,19 @@ def main():
         try:
             # 元の画像を読み込み
             image_original = Image.open(uploaded_file)
-            image_display = resize_for_display(image_original.copy())
+            
+            # 表示サイズを計算
+            display_width, display_height = calculate_display_size(
+                image_original.size[0], 
+                image_original.size[1]
+            )
+            st.session_state.display_size = (display_width, display_height)
+            
+            # 表示用にリサイズ
+            image_display = image_original.resize(st.session_state.display_size)
             
             # サイズ情報を保存
             st.session_state.original_size = image_original.size
-            st.session_state.display_size = image_display.size
             
             # 画像をnumpy配列に変換
             img_array_original = np.array(image_original)
@@ -133,11 +154,11 @@ def main():
                 fill_color=fill_color,
                 stroke_width=stroke_width,
                 stroke_color=stroke_color_hex,
-                background_image=Image.fromarray(binary_display).convert('RGB'),
+                background_image=Image.fromarray(binary_display),
                 drawing_mode=drawing_mode,
                 key=f"canvas_{threshold}",
-                width=binary_display.shape[1],
-                height=binary_display.shape[0],
+                width=display_width,
+                height=display_height,
                 display_toolbar=True
             )
             
@@ -148,8 +169,7 @@ def main():
                     result_binary = process_canvas_result(
                         canvas_result,
                         st.session_state.binary_original,
-                        (st.session_state.original_size[0], st.session_state.original_size[1]),
-                        (st.session_state.display_size[0], st.session_state.display_size[1])
+                        st.session_state.original_size
                     )
                     
                     if result_binary is not None:
