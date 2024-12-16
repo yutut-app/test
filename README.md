@@ -47,8 +47,14 @@ def process_canvas_result(canvas_result, binary_original, original_size):
         # 元のサイズにリサイズ
         result_resized = cv2.resize(result, (original_size[0], original_size[1]), 
                                   interpolation=cv2.INTER_NEAREST)
-        return Image.fromarray(result_resized)
-    
+        
+        # グレースケール画像として保存するための処理
+        if len(result_resized.shape) == 2:
+            return Image.fromarray(result_resized, mode='L')
+        else:
+            # 3チャンネルの場合はグレースケールに変換
+            return Image.fromarray(result_resized[:, :, 0], mode='L')
+            
     except Exception as e:
         st.error(f"画像処理エラー: {str(e)}")
         return None
@@ -137,21 +143,18 @@ def main():
                 stroke_color_hex = "#FFFFFF"
                 fill_color = "rgba(255, 255, 255, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
             
-            # キャンバスコンテナの作成（幅を制御）
-            canvas_container = st.container()
-            with canvas_container:
-                # キャンバスの作成
-                canvas_result = st_canvas(
-                    fill_color=fill_color,
-                    stroke_width=stroke_width,
-                    stroke_color=stroke_color_hex,
-                    background_image=Image.fromarray(binary_display),
-                    drawing_mode=drawing_mode,
-                    key=f"canvas_{threshold}",
-                    width=display_width,
-                    height=display_height,
-                    display_toolbar=True
-                )
+            # キャンバスの作成
+            canvas_result = st_canvas(
+                fill_color=fill_color,
+                stroke_width=stroke_width,
+                stroke_color=stroke_color_hex,
+                background_image=Image.fromarray(binary_display, mode='L'),
+                drawing_mode=drawing_mode,
+                key=f"canvas_{threshold}",
+                width=display_width,
+                height=display_height,
+                display_toolbar=True
+            )
             
             # 描画結果の保存
             if st.button("補正した画像を保存"):
