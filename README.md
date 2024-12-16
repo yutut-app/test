@@ -1,83 +1,26 @@
 コードとmarkdownを更新します。
 
 ```python
-def detect_circles(image):
+def process_images(shape_images, judge_templates, mask_templates):
     """
-    画像から円を検出します
+    全画像に対して加工領域の検出を行います
     
     引数:
-        image (numpy.ndarray): 入力グレースケール画像
+        shape_images (list): Shape画像のリスト
+        judge_templates (dict): 左右判定用テンプレート画像
+        mask_templates (dict): マスク用テンプレート画像
         
     戻り値:
-        numpy.ndarray or None: 検出された円の情報[x, y, r]のリスト。検出失敗時はNone
+        list: (Shape画像, マスク画像, ファイル名)のタプルのリスト
     """
-    circles = cv2.HoughCircles(image, 
-                              cv2.HOUGH_GRADIENT, 
-                              dp=circle_dp,
-                              minDist=circle_min_dist,
-                              param1=circle_param1,
-                              param2=circle_param2,
-                              minRadius=circle_min_radius,
-                              maxRadius=circle_max_radius)
+    processed_images = []
+    for shape_path, filename in shape_images:
+        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+        # 画像の向きは揃っているので、右側のテンプレートを使用
+        mask = create_processing_area_mask(shape_image, mask_templates['right'])
+        processed_images.append((shape_image, mask, filename))
     
-    if circles is not None:
-        # 半径の大きい順に上位3つを選択
-        circles = np.uint16(np.around(circles[0]))
-        sorted_circles = circles[circles[:, 2].argsort()][::-1][:3]
-        return sorted_circles
-    return None
-
-def get_optimal_scale_and_transform(template_circles, target_circles):
-    """
-    テンプレートと対象画像の円の位置から変換行列を計算します
-    
-    引数:
-        template_circles (numpy.ndarray): テンプレート画像の円の情報
-        target_circles (numpy.ndarray): 対象画像の円の情報
-        
-    戻り値:
-        numpy.ndarray or None: 変換行列。失敗時はNone
-    """
-    if len(template_circles) < 3 or len(target_circles) < 3:
-        return None
-    
-    # 3つの円の中心座標を使用して変換行列を計算
-    template_pts = template_circles[:3, :2].astype(np.float32)
-    target_pts = target_circles[:3, :2].astype(np.float32)
-    
-    M = cv2.getAffineTransform(template_pts, target_pts)
-    return M
-
-def create_processing_area_mask(image, mask_template):
-    """
-    加工領域のマスクを作成します
-    
-    引数:
-        image (numpy.ndarray): 入力画像
-        mask_template (numpy.ndarray): マスク用テンプレート画像
-        
-    戻り値:
-        numpy.ndarray: 加工領域のマスク画像
-    """
-    # 円を検出
-    template_circles = detect_circles(mask_template)
-    target_circles = detect_circles(image)
-    
-    if template_circles is None or target_circles is None:
-        return np.ones_like(image) * 255  # 検出失敗時は全領域を対象とする
-    
-    # 変換行列を計算
-    M = get_optimal_scale_and_transform(template_circles, target_circles)
-    if M is None:
-        return np.ones_like(image) * 255
-    
-    # テンプレートを変換して位置合わせ
-    aligned_mask = cv2.warpAffine(mask_template, M, (image.shape[1], image.shape[0]))
-    
-    # マスクの生成（テンプレートの白い部分を検出範囲とする）
-    mask = (aligned_mask > 128).astype(np.uint8) * 255
-    
-    return mask
+    return processed_images
 ```
 
 # 4. 加工領域の特定
