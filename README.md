@@ -14,61 +14,56 @@ def resize_for_display(image, max_size=800):
         return image.resize(new_size, Image.Resampling.LANCZOS)
     return image
 
+def process_canvas_result(canvas_result):
+    """キャンバスの結果を処理して二値画像に変換する"""
+    if canvas_result.image_data is not None:
+        # RGBA形式の画像データを取得
+        img_data = np.array(canvas_result.image_data)
+        # アルファチャンネルを基準に二値化
+        # 白い部分（255）は維持し、それ以外は黒（0）にする
+        mask = img_data[:, :, -1] > 0
+        binary = np.zeros(img_data.shape[:2], dtype=np.uint8)
+        binary[mask] = 255
+        return binary
+    return None
+
 def main():
     st.title("画像二値化・補正アプリ")
     
-    # セッションステートの初期化
     if 'original_size' not in st.session_state:
         st.session_state.original_size = None
     if 'display_size' not in st.session_state:
         st.session_state.display_size = None
     
-    # ファイルアップロード
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
     
     if uploaded_file is not None:
-        # 元の画像を読み込み（処理用）
         image_original = Image.open(uploaded_file)
-        # 表示用にリサイズした画像
         image_display = resize_for_display(image_original.copy())
         
-        # サイズ情報を保存
         st.session_state.original_size = image_original.size
         st.session_state.display_size = image_display.size
         
-        # 画像をnumpy配列に変換
+        # RGBAの場合はRGBに変換
+        if image_original.mode == 'RGBA':
+            image_original = image_original.convert('RGB')
+            image_display = image_display.convert('RGB')
+        
         img_array_original = np.array(image_original)
         img_array_display = np.array(image_display)
         
-        # RGBAの場合はRGBに変換
-        if len(img_array_original.shape) == 3 and img_array_original.shape[-1] == 4:
-            image_original = image_original.convert('RGB')
-            image_display = image_display.convert('RGB')
-            img_array_original = np.array(image_original)
-            img_array_display = np.array(image_display)
-        
-        # サイドバーに二値化のパラメータを設定
         st.sidebar.header("二値化パラメータ")
         threshold = st.sidebar.slider("閾値", 0, 255, 128)
         
         try:
             # 二値化処理（元サイズ）
-            if len(img_array_original.shape) == 3:
-                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_original = img_array_original
-            
+            gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
             _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
             
             # 二値化処理（表示用）
-            if len(img_array_display.shape) == 3:
-                gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_display = img_array_display
-            
+            gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
             _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
             
-            # 画像を表示
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("元の画像")
@@ -80,7 +75,6 @@ def main():
                 st.image(binary_display, use_column_width=True)
                 st.write(f"表示サイズ: {st.session_state.display_size[0]}x{st.session_state.display_size[1]}")
             
-            # 描画設定
             st.subheader("手動補正")
             drawing_mode = st.radio(
                 "描画モード",
@@ -95,15 +89,13 @@ def main():
             stroke_width = st.slider("ブラシサイズ", 1, 50, 10)
             stroke_color = st.radio("描画色", ("黒", "白"))
             
-            # 描画色の設定
             if stroke_color == "黒":
                 stroke_color_hex = "#000000"
-                fill_color = "rgba(0, 0, 0, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
+                fill_color = "rgba(0, 0, 0, 1.0)" if drawing_mode == "rect" else "rgba(0, 0, 0, 0.0)"
             else:
                 stroke_color_hex = "#FFFFFF"
                 fill_color = "rgba(255, 255, 255, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
             
-            # キャンバスの作成（表示サイズ用）
             canvas_result = st_canvas(
                 fill_color=fill_color,
                 stroke_width=stroke_width,
@@ -116,34 +108,30 @@ def main():
                 display_toolbar=True
             )
             
-            # 描画結果の保存
             if canvas_result.image_data is not None and st.button("補正した画像を保存"):
-                # 描画結果を元のサイズにリサイズ
-                result_array = canvas_result.image_data
-                result_image = Image.fromarray(result_array)
-                result_image_resized = result_image.resize(st.session_state.original_size, Image.Resampling.LANCZOS)
-                
-                # グレースケールに変換して二値化
-                result_array_resized = np.array(result_image_resized)
-                result_gray = cv2.cvtColor(result_array_resized, cv2.COLOR_RGBA2GRAY)
-                _, result_binary = cv2.threshold(result_gray, 127, 255, cv2.THRESH_BINARY)
-                
-                # 保存用のバッファを作成
-                buf = BytesIO()
-                result_image_final = Image.fromarray(result_binary)
-                result_image_final.save(buf, format="PNG")
-                
-                # ダウンロードボタンを表示
-                st.download_button(
-                    label="ダウンロード",
-                    data=buf.getvalue(),
-                    file_name="corrected_image.png",
-                    mime="image/png"
-                )
+                # キャンバス結果を二値画像に変換
+                binary_result = process_canvas_result(canvas_result)
+                if binary_result is not None:
+                    # 元のサイズにリサイズ
+                    binary_result_pil = Image.fromarray(binary_result)
+                    result_resized = binary_result_pil.resize(
+                        st.session_state.original_size, 
+                        Image.Resampling.LANCZOS
+                    )
+                    
+                    # 保存用のバッファを作成
+                    buf = BytesIO()
+                    result_resized.save(buf, format="PNG")
+                    
+                    st.download_button(
+                        label="ダウンロード",
+                        data=buf.getvalue(),
+                        file_name="corrected_image.png",
+                        mime="image/png"
+                    )
                 
         except Exception as e:
             st.error(f"画像処理中にエラーが発生しました: {str(e)}")
             st.write("画像の形式を確認してください。")
 
 if __name__ == "__main__":
-    main()
