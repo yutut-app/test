@@ -52,12 +52,17 @@ def process_canvas_result(canvas_result, binary_original, original_size):
 def main():
     st.title("画像二値化・補正アプリ")
     
+    # セッションステートの初期化
     if 'binary_original' not in st.session_state:
         st.session_state.binary_original = None
     if 'original_size' not in st.session_state:
         st.session_state.original_size = None
     if 'display_size' not in st.session_state:
         st.session_state.display_size = None
+    if 'last_threshold' not in st.session_state:
+        st.session_state.last_threshold = 128
+    if 'gray_original' not in st.session_state:
+        st.session_state.gray_original = None
     
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
     
@@ -93,20 +98,25 @@ def main():
                 img_array_original = np.array(image_original)
                 img_array_display = np.array(image_display)
             
+            # グレースケール変換（元サイズ）
+            if len(img_array_original.shape) == 3:
+                if st.session_state.gray_original is None:
+                    st.session_state.gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
+            else:
+                if st.session_state.gray_original is None:
+                    st.session_state.gray_original = img_array_original
+            
             # 二値化のパラメータ設定
             st.sidebar.header("二値化パラメータ")
             threshold = st.sidebar.slider("閾値", 0, 255, 128)
             
-            # 二値化処理（元サイズ）
-            if len(img_array_original.shape) == 3:
-                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_original = img_array_original
+            # 閾値が変更された場合、新しい二値化画像を生成
+            if threshold != st.session_state.last_threshold:
+                _, binary_original = cv2.threshold(st.session_state.gray_original, threshold, 255, cv2.THRESH_BINARY)
+                st.session_state.binary_original = binary_original
+                st.session_state.last_threshold = threshold
             
-            _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
-            st.session_state.binary_original = binary_original
-            
-            # 二値化処理（表示用）
+            # 表示用の二値化処理
             if len(img_array_display.shape) == 3:
                 gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
             else:
@@ -156,7 +166,7 @@ def main():
                 stroke_color=stroke_color_hex,
                 background_image=Image.fromarray(binary_display),
                 drawing_mode=drawing_mode,
-                key=f"canvas_{threshold}",
+                key=f"canvas_{threshold}",  # 閾値が変わるたびにキャンバスをリセット
                 width=display_width,
                 height=display_height,
                 display_toolbar=True
