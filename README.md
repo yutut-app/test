@@ -116,6 +116,10 @@ def process_images(shape_images, judge_templates, mask_templates):
         processed_images.append((shape_image, mask, filename))
     
     return processed_images
+
+# 画像の処理実行
+processed_ng_images = process_images(ng_images, judge_templates, mask_templates)
+#processed_ok_images = process_images(ok_images, judge_templates, mask_templates)
 ```
 
 主な変更点：
