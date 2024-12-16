@@ -6,52 +6,52 @@ from io import BytesIO
 from streamlit_drawable_canvas import st_canvas
 
 def calculate_display_size(width, height, max_size=800):
-    """アスペクト比を維持しながら表示サイズを計算する"""
-    aspect_ratio = width / height
+    """アスペクト比を維持したまま表示サイズを計算する"""
     if width > height:
         if width > max_size:
-            new_width = max_size
-            new_height = int(new_width / aspect_ratio)
-        else:
-            new_width = width
-            new_height = height
+            ratio = max_size / width
+            return max_size, int(height * ratio)
+        return width, height
     else:
         if height > max_size:
-            new_height = max_size
-            new_width = int(new_height * aspect_ratio)
-        else:
-            new_width = width
-            new_height = height
-    return new_width, new_height
+            ratio = max_size / height
+            return int(width * ratio), max_size
+        return width, height
 
 def process_canvas_result(canvas_result, binary_original, original_size):
     """キャンバスの描画結果を処理して二値化画像を返す"""
     if canvas_result.image_data is None:
         return None
     
-    # キャンバスのサイズを取得
-    canvas_height, canvas_width = canvas_result.image_data.shape[:2]
+    try:
+        # キャンバスの描画結果をnumpy配列として取得
+        canvas_array = canvas_result.image_data
+        
+        # キャンバスのサイズを取得
+        canvas_height, canvas_width = canvas_array.shape[:2]
+        
+        # 二値化画像をキャンバスのサイズにリサイズ
+        binary_resized = cv2.resize(binary_original, (canvas_width, canvas_height))
+        
+        # アルファチャンネルを使用してマスクを作成
+        alpha_mask = canvas_array[..., 3] > 0
+        
+        # キャンバスの描画部分を二値化
+        gray_canvas = np.dot(canvas_array[..., :3], [0.299, 0.587, 0.114])
+        binary_canvas = (gray_canvas > 128).astype(np.uint8) * 255
+        
+        # 結果の画像を作成
+        result = binary_resized.copy()
+        result[alpha_mask] = binary_canvas[alpha_mask]
+        
+        # 元のサイズにリサイズ
+        result_resized = cv2.resize(result, (original_size[0], original_size[1]), 
+                                  interpolation=cv2.INTER_NEAREST)
+        return Image.fromarray(result_resized)
     
-    # 二値化画像をキャンバスのサイズにリサイズ
-    binary_resized = cv2.resize(binary_original, (canvas_width, canvas_height))
-    
-    # キャンバスの描画結果をnumpy配列として取得
-    canvas_array = canvas_result.image_data
-    
-    # アルファチャンネルを使用してマスクを作成
-    alpha_mask = canvas_array[..., 3] > 0
-    
-    # キャンバスの描画部分を二値化
-    gray_canvas = np.dot(canvas_array[..., :3], [0.299, 0.587, 0.114])
-    binary_canvas = (gray_canvas > 128).astype(np.uint8) * 255
-    
-    # 結果の画像を作成
-    result = binary_resized.copy()
-    result[alpha_mask] = binary_canvas[alpha_mask]
-    
-    # 元のサイズにリサイズ
-    result_resized = cv2.resize(result, (original_size[0], original_size[1]), interpolation=cv2.INTER_NEAREST)
-    return Image.fromarray(result_resized)
+    except Exception as e:
+        st.error(f"画像処理エラー: {str(e)}")
+        return None
 
 def main():
     st.title("画像二値化・補正アプリ")
@@ -60,8 +60,6 @@ def main():
         st.session_state.binary_original = None
     if 'original_size' not in st.session_state:
         st.session_state.original_size = None
-    if 'display_size' not in st.session_state:
-        st.session_state.display_size = None
     
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
     
@@ -70,57 +68,39 @@ def main():
             # 元の画像を読み込み
             image_original = Image.open(uploaded_file)
             
+            # 画像がRGBAの場合はRGBに変換
+            if image_original.mode == 'RGBA':
+                image_original = image_original.convert('RGB')
+            
             # 表示サイズを計算
             display_width, display_height = calculate_display_size(
                 image_original.size[0], 
                 image_original.size[1]
             )
-            st.session_state.display_size = (display_width, display_height)
             
             # 表示用にリサイズ（アスペクト比を維持）
-            image_display = image_original.resize(
-                st.session_state.display_size,
-                Image.Resampling.LANCZOS
-            )
+            image_display = image_original.resize((display_width, display_height), 
+                                                Image.Resampling.LANCZOS)
             
             # サイズ情報を保存
             st.session_state.original_size = image_original.size
             
-            # 画像をnumpy配列に変換
+            # numpy配列に変換
             img_array_original = np.array(image_original)
             img_array_display = np.array(image_display)
-            
-            # RGBAの場合はRGBに変換
-            if len(img_array_original.shape) == 3 and img_array_original.shape[-1] == 4:
-                image_original = image_original.convert('RGB')
-                image_display = image_display.convert('RGB')
-                img_array_original = np.array(image_original)
-                img_array_display = np.array(image_display)
             
             # 二値化のパラメータ設定
             st.sidebar.header("二値化パラメータ")
             threshold = st.sidebar.slider("閾値", 0, 255, 128)
             
             # 二値化処理（元サイズ）
-            if len(img_array_original.shape) == 3:
-                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_original = img_array_original
-            
+            gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
             _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
             st.session_state.binary_original = binary_original
             
             # 二値化処理（表示用）
-            if len(img_array_display.shape) == 3:
-                gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_display = img_array_display
-            
+            gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
             _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
-            
-            # コンテナのサイズを設定
-            container_width = st.get_container_width()
-            col_width = int(container_width / 2)  # 2列で表示するため半分に
             
             # 画像を表示
             col1, col2 = st.columns(2)
@@ -132,7 +112,7 @@ def main():
             with col2:
                 st.subheader("二値化画像")
                 st.image(binary_display, use_column_width=True)
-                st.write(f"表示サイズ: {st.session_state.display_size[0]}x{st.session_state.display_size[1]}")
+                st.write(f"表示サイズ: {display_width}x{display_height}")
             
             # 描画設定
             st.subheader("手動補正")
@@ -157,18 +137,21 @@ def main():
                 stroke_color_hex = "#FFFFFF"
                 fill_color = "rgba(255, 255, 255, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
             
-            # キャンバスの作成（アスペクト比を維持）
-            canvas_result = st_canvas(
-                fill_color=fill_color,
-                stroke_width=stroke_width,
-                stroke_color=stroke_color_hex,
-                background_image=Image.fromarray(binary_display),
-                drawing_mode=drawing_mode,
-                key=f"canvas_{threshold}",
-                width=display_width,
-                height=display_height,
-                display_toolbar=True
-            )
+            # キャンバスコンテナの作成（幅を制御）
+            canvas_container = st.container()
+            with canvas_container:
+                # キャンバスの作成
+                canvas_result = st_canvas(
+                    fill_color=fill_color,
+                    stroke_width=stroke_width,
+                    stroke_color=stroke_color_hex,
+                    background_image=Image.fromarray(binary_display),
+                    drawing_mode=drawing_mode,
+                    key=f"canvas_{threshold}",
+                    width=display_width,
+                    height=display_height,
+                    display_toolbar=True
+                )
             
             # 描画結果の保存
             if st.button("補正した画像を保存"):
