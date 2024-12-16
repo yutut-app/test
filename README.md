@@ -19,31 +19,31 @@ def process_canvas_result(canvas_result, binary_original, original_size):
     if canvas_result.image_data is None:
         return None
     
-    # キャンバスの描画結果を取得
-    canvas_array = canvas_result.image_data
-    
-    # キャンバスの結果をグレースケールに変換
-    # (R * 0.299 + G * 0.587 + B * 0.114)の重み付け
-    canvas_gray = np.dot(canvas_array[..., :3], [0.299, 0.587, 0.114])
-    
-    # キャンバスの結果を二値化（128を閾値として使用）
-    canvas_binary = (canvas_gray > 128).astype(np.uint8)
-    
-    # キャンバスの結果を元のサイズにリサイズ
-    canvas_image = Image.fromarray(canvas_binary)
-    if canvas_image.size != original_size:
-        canvas_image = canvas_image.resize(original_size, Image.Resampling.LANCZOS)
-    canvas_resized = np.array(canvas_image)
-    
-    # 元の二値化画像のコピーを作成
-    result = binary_original.copy()
-    
-    # キャンバスの白い部分（補正部分）を反映
-    result[canvas_resized == 1] = 255
-    # キャンバスの黒い部分（補正部分）を反映
-    result[canvas_resized == 0] = 0
-    
-    return Image.fromarray(result)
+    try:
+        # キャンバスの描画結果を取得
+        canvas_array = canvas_result.image_data
+        
+        # キャンバス画像をリサイズ
+        canvas_image = Image.fromarray(canvas_array).resize(original_size, Image.Resampling.LANCZOS)
+        canvas_array = np.array(canvas_image)
+        
+        # 元の二値化画像のコピーを作成
+        binary_result = binary_original.copy()
+        
+        # キャンバスの黒い部分（RGB値が0に近い部分）を抽出
+        black_mask = np.mean(canvas_array[..., :3], axis=2) < 128
+        # キャンバスの白い部分（RGB値が255に近い部分）を抽出
+        white_mask = np.mean(canvas_array[..., :3], axis=2) > 128
+        
+        # マスクを適用
+        binary_result[white_mask] = 255  # 白で描画した部分を白に
+        binary_result[black_mask] = 0    # 黒で描画した部分を黒に
+        
+        return Image.fromarray(binary_result)
+        
+    except Exception as e:
+        st.error(f"画像処理エラー: {str(e)}")
+        return None
 
 def main():
     st.title("画像二値化・補正アプリ")
@@ -53,6 +53,8 @@ def main():
         st.session_state.original_size = None
     if 'display_size' not in st.session_state:
         st.session_state.display_size = None
+    if 'binary_original' not in st.session_state:
+        st.session_state.binary_original = None
     
     # ファイルアップロード
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
@@ -90,8 +92,6 @@ def main():
                 gray_original = img_array_original
             
             _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
-            
-            # セッションステートに二値化画像を保存
             st.session_state.binary_original = binary_original
             
             # 二値化処理（表示用）
@@ -161,6 +161,10 @@ def main():
                     )
                     
                     if result_binary is not None:
+                        # プレビューを表示
+                        st.subheader("保存する画像のプレビュー")
+                        st.image(result_binary, use_column_width=True)
+                        
                         # バッファに保存
                         buf = BytesIO()
                         result_binary.save(buf, format="PNG")
