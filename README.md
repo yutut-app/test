@@ -1,10 +1,17 @@
-お世話になっております。
-ご相談がございます。
+# ディレクトリとファイルパス
+input_data_dir = r"../data/input"
+output_data_dir = r"../data/output"
+left_right_judge_template_dir = os.path.join(input_data_dir, "left_right_judge_template")
+mask_template_dir = os.path.join(input_data_dir, "mask_template")
 
-1. テンプレート画像について
-条件の良い撮影画像をテンプレートとしてご提供いただけるとのことでしたが、パラメータの最適化作業の都合上、可能でしたらH面分だけでも本日中にいただけますと幸いです。面ごとのパラメータ調整が必要なため、次回報告までの実装・報告が難しくなってしまう可能性がございます。
+# 左右判断用テンプレートファイルパス
+right_judge_template_path = os.path.join(left_right_judge_template_dir, "right_template.jpg")
+left_judge_template_path = os.path.join(left_right_judge_template_dir, "left_template.jpg")
 
-2. コード理解の支援について
-これまでのロジックのリファクタリングを実施し、Markdownにロジックの説明を記載いたしました。次回MTGにて納品させていただきますので、コード理解にお役立ていただければと存じます。
+# マスク用テンプレートファイルパス
+right_mask_template_path = os.path.join(mask_template_dir, "right_template.jpg")
+left_mask_template_path = os.path.join(mask_template_dir, "left_template.jpg")
 
-ご検討のほど、よろしくお願い申し上げます。
+# ラベル定義
+ng_labels = 'label1'  # label1: 鋳巣, （未実装：label2: 凹み, label3: 亀裂)
+ok_labels = 'No1'  # 'No1'~'No20'
