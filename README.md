@@ -1,6 +1,14 @@
+streamlit>=1.28.0
+numpy>=1.24.0
+Pillow>=10.0.0
+opencv-python>=4.8.0
+streamlit-drawable-canvas>=0.9.2
+
+
 import streamlit as st
+from streamlit_drawable_canvas import st_canvas
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 import cv2
 from io import BytesIO
 
@@ -24,11 +32,11 @@ def main():
         st.sidebar.header("二値化パラメータ")
         threshold = st.sidebar.slider("閾値", 0, 255, 128)
         
-        # 二値化処理
         try:
-            if len(img_array.shape) == 3:  # カラー画像の場合
+            # 二値化処理
+            if len(img_array.shape) == 3:
                 gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            else:  # すでにグレースケールの場合
+            else:
                 gray = img_array
             
             _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
@@ -43,33 +51,49 @@ def main():
                 st.subheader("二値化画像")
                 st.image(binary, use_column_width=True)
             
-            # 描画モード
+            # 描画設定
             st.subheader("手動補正")
             drawing_mode = st.radio(
                 "描画モード",
-                ("黒", "白")
+                ("黒", "白", "消しゴム")
             )
             
+            stroke_width = st.slider("ブラシサイズ", 1, 50, 10)
+            
+            # 描画色の設定
+            if drawing_mode == "黒":
+                stroke_color = "black"
+            elif drawing_mode == "白":
+                stroke_color = "white"
+            else:  # 消しゴム
+                stroke_color = "white"
+            
             # キャンバスの準備
-            canvas_result = st.image(binary)
+            binary_image = Image.fromarray(binary)
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 255, 255, 0.0)",  # 塗りつぶしなし
+                stroke_width=stroke_width,
+                stroke_color=stroke_color,
+                background_image=binary_image,
+                drawing_mode="freedraw" if drawing_mode != "消しゴム" else "transform",
+                key="canvas",
+                width=binary_image.width,
+                height=binary_image.height,
+            )
             
-            # マウスイベントの処理
-            if st.button("補正モードを開始"):
-                binary_image = Image.fromarray(binary)
-                draw = ImageDraw.Draw(binary_image)
+            # 描画結果の保存
+            if canvas_result.image_data is not None and st.button("補正した画像を保存"):
+                # 描画結果をグレースケールに変換
+                result_array = canvas_result.image_data
+                if len(result_array.shape) == 3:
+                    result_gray = cv2.cvtColor(result_array, cv2.COLOR_RGB2GRAY)
+                else:
+                    result_gray = result_array
                 
-                st.write("画像上でクリック＆ドラッグして補正してください")
-                
-                color = 0 if drawing_mode == "黒" else 255
-                
-                # 補正後の画像を表示
-                st.image(binary_image, use_column_width=True)
-            
-            # 画像の保存
-            if st.button("補正した画像を保存"):
+                # 画像を保存
                 buf = BytesIO()
-                binary_image = Image.fromarray(binary)
-                binary_image.save(buf, format="PNG")
+                result_image = Image.fromarray(result_gray)
+                result_image.save(buf, format="PNG")
                 st.download_button(
                     label="ダウンロード",
                     data=buf.getvalue(),
