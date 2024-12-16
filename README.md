@@ -53,6 +53,8 @@ def main():
     st.title("画像二値化・補正アプリ")
     
     # セッションステートの初期化
+    if 'image_original' not in st.session_state:
+        st.session_state.image_original = None
     if 'binary_original' not in st.session_state:
         st.session_state.binary_original = None
     if 'original_size' not in st.session_state:
@@ -60,63 +62,62 @@ def main():
     if 'display_size' not in st.session_state:
         st.session_state.display_size = None
     if 'last_threshold' not in st.session_state:
-        st.session_state.last_threshold = 128
-    if 'gray_original' not in st.session_state:
-        st.session_state.gray_original = None
+        st.session_state.last_threshold = None
     
+    # ステップ1: 画像のアップロード
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
     
     if uploaded_file is not None:
         try:
-            # 元の画像を読み込み
-            image_original = Image.open(uploaded_file)
+            # 画像が新しくアップロードされた場合
+            if st.session_state.image_original is None:
+                image_original = Image.open(uploaded_file)
+                st.session_state.image_original = image_original
+                
+                # 表示サイズを計算
+                display_width, display_height = calculate_display_size(
+                    image_original.size[0], 
+                    image_original.size[1]
+                )
+                st.session_state.display_size = (display_width, display_height)
+                st.session_state.original_size = image_original.size
             
-            # 表示サイズを計算
-            display_width, display_height = calculate_display_size(
-                image_original.size[0], 
-                image_original.size[1]
-            )
-            st.session_state.display_size = (display_width, display_height)
+            # ステップ2: 二値化パラメータの設定
+            st.sidebar.header("二値化パラメータ")
+            threshold = st.sidebar.slider("閾値", 0, 255, 128)
             
-            # 表示用にリサイズ（アスペクト比を維持）
-            image_display = image_original.resize(
-                st.session_state.display_size,
-                Image.Resampling.LANCZOS
-            )
+            # 閾値が変更された場合、キャンバスをリセット
+            if st.session_state.last_threshold != threshold:
+                st.session_state.last_threshold = threshold
+                if 'canvas_key' in st.session_state:
+                    st.session_state.pop('canvas_key')
             
-            # サイズ情報を保存
-            st.session_state.original_size = image_original.size
-            
-            # 画像をnumpy配列に変換
+            # 元画像の処理
+            image_original = st.session_state.image_original
             img_array_original = np.array(image_original)
-            img_array_display = np.array(image_display)
             
             # RGBAの場合はRGBに変換
             if len(img_array_original.shape) == 3 and img_array_original.shape[-1] == 4:
                 image_original = image_original.convert('RGB')
-                image_display = image_display.convert('RGB')
                 img_array_original = np.array(image_original)
-                img_array_display = np.array(image_display)
             
-            # グレースケール変換（元サイズ）
+            # 表示用画像の準備
+            image_display = image_original.resize(
+                st.session_state.display_size,
+                Image.Resampling.LANCZOS
+            )
+            img_array_display = np.array(image_display)
+            
+            # ステップ3: 二値化処理
             if len(img_array_original.shape) == 3:
-                if st.session_state.gray_original is None:
-                    st.session_state.gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
+                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
             else:
-                if st.session_state.gray_original is None:
-                    st.session_state.gray_original = img_array_original
+                gray_original = img_array_original
             
-            # 二値化のパラメータ設定
-            st.sidebar.header("二値化パラメータ")
-            threshold = st.sidebar.slider("閾値", 0, 255, 128)
+            _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
+            st.session_state.binary_original = binary_original
             
-            # 閾値が変更された場合、新しい二値化画像を生成
-            if threshold != st.session_state.last_threshold:
-                _, binary_original = cv2.threshold(st.session_state.gray_original, threshold, 255, cv2.THRESH_BINARY)
-                st.session_state.binary_original = binary_original
-                st.session_state.last_threshold = threshold
-            
-            # 表示用の二値化処理
+            # 表示用二値化処理
             if len(img_array_display.shape) == 3:
                 gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
             else:
@@ -124,7 +125,7 @@ def main():
             
             _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
             
-            # 画像を表示
+            # 画像表示
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("元の画像")
@@ -136,7 +137,7 @@ def main():
                 st.image(binary_display, use_column_width=True)
                 st.write(f"表示サイズ: {st.session_state.display_size[0]}x{st.session_state.display_size[1]}")
             
-            # 描画設定
+            # ステップ4: 手動補正
             st.subheader("手動補正")
             drawing_mode = st.radio(
                 "描画モード",
@@ -159,20 +160,21 @@ def main():
                 stroke_color_hex = "#FFFFFF"
                 fill_color = "rgba(255, 255, 255, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
             
-            # キャンバスの作成（アスペクト比を維持）
+            # キャンバスの作成
+            canvas_key = f"canvas_{threshold}_{st.session_state.get('canvas_key', 0)}"
             canvas_result = st_canvas(
                 fill_color=fill_color,
                 stroke_width=stroke_width,
                 stroke_color=stroke_color_hex,
                 background_image=Image.fromarray(binary_display),
                 drawing_mode=drawing_mode,
-                key=f"canvas_{threshold}",  # 閾値が変わるたびにキャンバスをリセット
-                width=display_width,
-                height=display_height,
+                key=canvas_key,
+                width=st.session_state.display_size[0],
+                height=st.session_state.display_size[1],
                 display_toolbar=True
             )
             
-            # 描画結果の保存
+            # ステップ5: 画像の保存
             if st.button("補正した画像を保存"):
                 if canvas_result.image_data is not None:
                     try:
