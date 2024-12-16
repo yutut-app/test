@@ -1,129 +1,86 @@
-```python
-def visualize_processed_images(processed_images, templates, shifts, num_samples=1):
-    """
-    処理結果を可視化します
-    
-    引数:
-        processed_images (list): 処理済み画像のリスト
-        templates (dict): マスク用テンプレート画像
-        shifts (list): 各画像のシフト量[(dx, dy),...]
-        num_samples (int): 表示するサンプル数 
-    """
-    num_samples = min(num_samples, len(processed_images))
-    
-    for i in range(num_samples):
-        shape_path, mask, filename = processed_images[i]
-        
-        # Normal画像のパスを生成
-        normal_path = shape_path.replace("Shape1", "Normal")
-        
-        # 画像読み込み
-        normal_image = cv2.imread(normal_path, cv2.IMREAD_GRAYSCALE)
-        
-        # 二値化
-        _, binary_normal = cv2.threshold(normal_image, binary_threshold, 255, cv2.THRESH_BINARY)
-        
-        # 向きを判定してテンプレートを選択
-        orientation = determine_image_orientation(normal_image, judge_templates)
-        template = templates[orientation]
-        
-        # シフト量を取得
-        dx, dy = shifts[i]
-        
-        # シフト後のテンプレート画像を生成
-        rows, cols = template.shape
-        M = np.float32([[1, 0, dx], [0, 1, dy]])
-        shifted_template = cv2.warpAffine(template, M, (cols, rows))
-        
-        # 可視化
-        fig, axes = plt.subplots(2, 2, figsize=(12, 12))
-        
-        # 二値化した画像(Normal)
-        axes[0, 0].imshow(binary_normal, cmap='gray')
-        axes[0, 0].set_title('Binary Normal Image')
-        axes[0, 0].axis('off')
-        
-        # 移動前のテンプレート
-        axes[0, 1].imshow(template, cmap='gray')
-        axes[0, 1].set_title('Original Template')
-        axes[0, 1].axis('off')
-        
-        # 移動後のテンプレート
-        axes[1, 0].imshow(shifted_template, cmap='gray')
-        axes[1, 0].set_title(f'Shifted Template\n(dx={dx:.2f}, dy={dy:.2f})')
-        axes[1, 0].axis('off')
-        
-        # 最終マスク
-        axes[1, 1].imshow(mask, cmap='gray')
-        axes[1, 1].set_title('Final Mask')
-        axes[1, 1].axis('off')
-        
-        plt.suptitle(f'Processing Results: {filename}')
-        plt.tight_layout()
-        plt.show()
+# 2. パラメータの設定（追加分）
 
-# 画像処理関数の修正（シフト量を保持するように）
-def process_images(shape_images, judge_templates, mask_templates):
-    """
-    全画像に対して加工領域の検出を行います
-    
-    引数:
-        shape_images (list): Shape画像のリスト
-        judge_templates (dict): 左右判定用テンプレート画像
-        mask_templates (dict): マスク用テンプレート画像
-        
-    戻り値:
-        tuple: (処理済み画像のリスト, シフト量のリスト)
-    """
-    processed_images = []
-    shifts = []
-    
-    for shape_path, filename in shape_images:
-        normal_path = shape_path.replace("Shape1", "Normal")
-        
-        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
-        normal_image = cv2.imread(normal_path, cv2.IMREAD_GRAYSCALE)
-        
-        if shape_image is not None and normal_image is not None:
-            # 二値化
-            _, binary_image = cv2.threshold(normal_image, binary_threshold, 255, cv2.THRESH_BINARY)
-            
-            # 向きを判定
-            orientation = determine_image_orientation(normal_image, judge_templates)
-            template = mask_templates[orientation]
-            
-            # 位相限定相関によるズレ計算
-            img_float = np.float32(binary_image)
-            template_float = np.float32(template)
-            shift, _ = cv2.phaseCorrelate(img_float, template_float)
-            dx, dy = shift
-            
-            # マスク生成
-            rows, cols = template.shape
-            M = np.float32([[1, 0, dx], [0, 1, dy]])
-            mask = cv2.warpAffine(template, M, (cols, rows))
-            
-            processed_images.append((shape_path, mask, filename))
-            shifts.append((dx, dy))
-        else:
-            print(f"画像の読み込みに失敗: {filename}")
-    
-    return processed_images, shifts
+### 二値化パラメータ
+`binary_threshold`：
+- 画像の二値化閾値（0-255）
+- 加工領域とそれ以外を分離する基準値
+- 大きいほど白い領域（1）が減少
+- 調整範囲：120~160
+- デフォルト値：128
 
-# 処理の実行
-processed_ng_images, shifts = process_images(ng_images, judge_templates, mask_templates)
+# 4. 加工領域の特定
 
-# 可視化の実行
-print("Visualizing processed NG images:")
-visualize_processed_images(processed_ng_images, mask_templates, shifts, num_samples=1)
-```
+本セクションでは、ワークの加工領域をマスク画像として特定する処理について説明する。処理は以下の手順で実行される：
 
-主な変更点：
-1. シフト量の保持と表示を追加
-2. 表示項目を指定の4つに変更
-3. 画像配置を2×2に変更
-4. 各画像のタイトルを明確化
-5. シフト量を小数点2桁まで表示
-6. 処理過程の可視化を追加
+1. 撮影方向の判定
+2. マスクテンプレートの選択と位置合わせ
+3. マスク画像の生成
 
-これにより、処理の各段階と最終結果が明確に確認できるようになります。
+## 関数の詳細説明
+
+### determine_image_orientation()
+画像の撮影方向（左右）を判定する関数：
+
+1. 判定手法
+   - テンプレートマッチング（cv2.TM_CCOEFF_NORMED）を使用
+   - 左右それぞれのテンプレートとのマッチング度を計算
+   - より高いマッチング度を示した方を撮影方向として判定
+
+2. 入力データ
+   - 入力画像：Normal画像（グレースケール）
+   - 判定テンプレート：左右それぞれのテンプレート画像
+
+3. 出力
+   - 'left'：左側からの撮影画像
+   - 'right'：右側からの撮影画像
+
+### create_processing_area_mask()
+加工領域のマスクを生成する関数：
+
+1. 前処理
+   - 画像の二値化（binary_threshold使用）
+   - 撮影方向の判定
+   - 適切なマスクテンプレートの選択
+
+2. 位置合わせ処理
+   - 画像とテンプレートをfloat32型に変換
+   - 位相限定相関によるズレ計算
+   - アフィン変換行列の生成
+   - テンプレートの移動
+
+3. エラー処理
+   - 処理失敗時は全領域を対象とするマスクを返却
+
+### process_images()
+画像群に対して一括で加工領域の検出を行う関数：
+
+1. 入力データの処理
+   - Shape1画像とNormal画像のパス生成
+   - 画像の読み込みと存在確認
+   - グレースケール変換
+
+2. マスク生成処理
+   - 画像の二値化
+   - 撮影方向の判定
+   - 位相限定相関によるズレ計算
+   - マスク画像の生成
+
+3. 出力データ
+   - processed_images：処理結果のリスト
+   - shifts：各画像のシフト量
+
+### visualize_processed_images()
+処理結果を可視化する関数：
+
+1. 表示内容（2×2レイアウト）
+   - 二値化したNormal画像
+   - 移動前のテンプレート画像
+   - 移動後のテンプレート画像（シフト量を表示）
+   - 最終的なマスク画像
+
+2. 表示パラメータ
+   - figsize=(12, 12)で十分な表示サイズを確保
+   - グレースケールカラーマップを使用
+   - 軸表示を省略してクリーンな表示
+
+これらの処理により、加工領域を正確に特定し、後続の欠陥検出処理のための準備が完了する。
