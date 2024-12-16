@@ -14,76 +14,47 @@ def resize_for_display(image, max_size=800):
         return image.resize(new_size, Image.Resampling.LANCZOS)
     return image
 
-def get_binary_image(img_array, threshold):
-    """画像を二値化する"""
-    if len(img_array.shape) == 3:
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = img_array
-    _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-    return binary
-
-def process_canvas_result(canvas_result, binary_original, original_size):
+def process_canvas_result(canvas_result, binary_original, original_size, display_size):
     """キャンバスの描画結果を処理して二値化画像を返す"""
     if canvas_result.image_data is None:
-        return Image.fromarray(binary_original)
-    
-    try:
-        # キャンバスの描画結果を取得してnumpy配列に変換
-        canvas_array = np.array(canvas_result.image_data, dtype=np.uint8)
-        
-        # キャンバス画像をリサイズ
-        canvas_pil = Image.fromarray(canvas_array).resize(original_size, Image.Resampling.LANCZOS)
-        canvas_resized = np.array(canvas_pil, dtype=np.uint8)
-        
-        # グレースケールに変換
-        if len(canvas_resized.shape) == 3:
-            if canvas_resized.shape[2] == 4:  # RGBA
-                canvas_gray = cv2.cvtColor(canvas_resized, cv2.COLOR_RGBA2GRAY)
-            else:  # RGB
-                canvas_gray = cv2.cvtColor(canvas_resized, cv2.COLOR_RGB2GRAY)
-        else:
-            canvas_gray = canvas_resized
-        
-        # 補正マスクの作成
-        _, canvas_mask = cv2.threshold(canvas_gray, 127, 255, cv2.THRESH_BINARY)
-        
-        # 描画された領域を特定
-        drawn_mask = canvas_gray != 127  # 描画されていない部分はRGB(127,127,127)
-        
-        # 結果画像の準備
-        result = binary_original.copy()
-        
-        # 描画された部分のみ更新
-        result[drawn_mask] = canvas_mask[drawn_mask]
-        
-        return Image.fromarray(result.astype(np.uint8))
-    
-    except Exception as e:
-        st.error(f"画像処理エラー: {str(e)}")
         return None
+    
+    # キャンバスの描画結果をnumpy配列として取得
+    canvas_array = canvas_result.image_data
+    # グレースケールに変換 (RGBAの場合は最初の3チャンネルのみ使用)
+    gray_canvas = np.dot(canvas_array[..., :3], [0.299, 0.587, 0.114])
+    # 二値化（閾値は中間値の128）
+    binary_canvas = (gray_canvas > 128).astype(np.uint8) * 255
+    
+    # 現在の表示サイズの二値化画像を作成
+    binary_display = cv2.resize(binary_original, display_size[::-1])
+    
+    # キャンバスの描画結果を元の二値化画像に重ね合わせる
+    # 白(255)のピクセルは白として上書き
+    # 黒(0)のピクセルは黒として上書き
+    mask = (canvas_array[..., 3] > 0)  # アルファチャンネルが0より大きい部分を抽出
+    binary_display[mask] = binary_canvas[mask]
+    
+    # 結果を元のサイズにリサイズ
+    result_image = cv2.resize(binary_display, original_size[::-1], interpolation=cv2.INTER_NEAREST)
+    return Image.fromarray(result_image)
 
 def main():
     st.title("画像二値化・補正アプリ")
     
-    # セッションステートの初期化
+    if 'binary_original' not in st.session_state:
+        st.session_state.binary_original = None
     if 'original_size' not in st.session_state:
         st.session_state.original_size = None
     if 'display_size' not in st.session_state:
         st.session_state.display_size = None
-    if 'binary_original' not in st.session_state:
-        st.session_state.binary_original = None
-    if 'threshold' not in st.session_state:
-        st.session_state.threshold = 128
     
-    # ファイルアップロード
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
     
     if uploaded_file is not None:
         try:
-            # 元の画像を読み込み（処理用）
+            # 元の画像を読み込み
             image_original = Image.open(uploaded_file)
-            # 表示用にリサイズした画像
             image_display = resize_for_display(image_original.copy())
             
             # サイズ情報を保存
@@ -101,17 +72,26 @@ def main():
                 img_array_original = np.array(image_original)
                 img_array_display = np.array(image_display)
             
-            # サイドバーに二値化のパラメータを設定
+            # 二値化のパラメータ設定
             st.sidebar.header("二値化パラメータ")
-            threshold = st.sidebar.slider("閾値", 0, 255, st.session_state.threshold)
-            st.session_state.threshold = threshold
+            threshold = st.sidebar.slider("閾値", 0, 255, 128)
             
             # 二値化処理（元サイズ）
-            binary_original = get_binary_image(img_array_original, threshold)
+            if len(img_array_original.shape) == 3:
+                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
+            else:
+                gray_original = img_array_original
+            
+            _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
             st.session_state.binary_original = binary_original
             
             # 二値化処理（表示用）
-            binary_display = get_binary_image(img_array_display, threshold)
+            if len(img_array_display.shape) == 3:
+                gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
+            else:
+                gray_display = img_array_display
+            
+            _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
             
             # 画像を表示
             col1, col2 = st.columns(2)
@@ -148,7 +128,7 @@ def main():
                 stroke_color_hex = "#FFFFFF"
                 fill_color = "rgba(255, 255, 255, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
             
-            # キャンバスの作成（表示サイズ用）
+            # キャンバスの作成
             canvas_result = st_canvas(
                 fill_color=fill_color,
                 stroke_width=stroke_width,
@@ -163,19 +143,16 @@ def main():
             
             # 描画結果の保存
             if st.button("補正した画像を保存"):
-                # 描画結果を処理
-                result_binary = process_canvas_result(
-                    canvas_result,
-                    st.session_state.binary_original,
-                    (st.session_state.original_size[0], st.session_state.original_size[1])
-                )
-                
-                if result_binary is not None:
-                    try:
-                        # プレビューを表示
-                        st.subheader("保存する画像のプレビュー")
-                        st.image(result_binary, use_column_width=True)
-                        
+                if canvas_result.image_data is not None:
+                    # 描画結果を処理
+                    result_binary = process_canvas_result(
+                        canvas_result,
+                        st.session_state.binary_original,
+                        (st.session_state.original_size[0], st.session_state.original_size[1]),
+                        (st.session_state.display_size[0], st.session_state.display_size[1])
+                    )
+                    
+                    if result_binary is not None:
                         # バッファに保存
                         buf = BytesIO()
                         result_binary.save(buf, format="PNG")
@@ -187,10 +164,10 @@ def main():
                             file_name="corrected_image.png",
                             mime="image/png"
                         )
-                    except Exception as e:
-                        st.error(f"画像の保存中にエラーが発生しました: {str(e)}")
+                    else:
+                        st.error("画像の処理に失敗しました。")
                 else:
-                    st.error("画像の処理に失敗しました。")
+                    st.warning("描画データがありません。")
                 
         except Exception as e:
             st.error(f"画像処理中にエラーが発生しました: {str(e)}")
