@@ -5,23 +5,19 @@ import cv2
 from io import BytesIO
 from streamlit_drawable_canvas import st_canvas
 
-def calculate_display_size(width, height, max_size=800):
+def calculate_display_size(width, height, max_width=700, max_height=500):
     """アスペクト比を維持しながら表示サイズを計算する"""
     aspect_ratio = width / height
-    if width > height:
-        if width > max_size:
-            new_width = max_size
-            new_height = int(new_width / aspect_ratio)
-        else:
-            new_width = width
-            new_height = height
-    else:
-        if height > max_size:
-            new_height = max_size
-            new_width = int(new_height * aspect_ratio)
-        else:
-            new_width = width
-            new_height = height
+    
+    # 最大幅に基づいてリサイズ
+    new_width = min(width, max_width)
+    new_height = int(new_width / aspect_ratio)
+    
+    # 高さが最大値を超える場合は高さに基づいてリサイズ
+    if new_height > max_height:
+        new_height = max_height
+        new_width = int(new_height * aspect_ratio)
+    
     return new_width, new_height
 
 def process_canvas_result(canvas_result, binary_original, original_size):
@@ -118,10 +114,6 @@ def main():
             
             _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
             
-            # コンテナのサイズを設定
-            container_width = st.get_container_width()
-            col_width = int(container_width / 2)  # 2列で表示するため半分に
-            
             # 画像を表示
             col1, col2 = st.columns(2)
             with col1:
@@ -173,27 +165,30 @@ def main():
             # 描画結果の保存
             if st.button("補正した画像を保存"):
                 if canvas_result.image_data is not None:
-                    # 描画結果を処理
-                    result_binary = process_canvas_result(
-                        canvas_result,
-                        st.session_state.binary_original,
-                        st.session_state.original_size
-                    )
-                    
-                    if result_binary is not None:
-                        # バッファに保存
-                        buf = BytesIO()
-                        result_binary.save(buf, format="PNG")
-                        
-                        # ダウンロードボタンを表示
-                        st.download_button(
-                            label="ダウンロード",
-                            data=buf.getvalue(),
-                            file_name="corrected_image.png",
-                            mime="image/png"
+                    try:
+                        # 描画結果を処理
+                        result_binary = process_canvas_result(
+                            canvas_result,
+                            st.session_state.binary_original,
+                            st.session_state.original_size
                         )
-                    else:
-                        st.error("画像の処理に失敗しました。")
+                        
+                        if result_binary is not None:
+                            # バッファに保存
+                            buf = BytesIO()
+                            result_binary.save(buf, format="PNG")
+                            
+                            # ダウンロードボタンを表示
+                            st.download_button(
+                                label="ダウンロード",
+                                data=buf.getvalue(),
+                                file_name="corrected_image.png",
+                                mime="image/png"
+                            )
+                        else:
+                            st.error("画像の処理に失敗しました。")
+                    except Exception as e:
+                        st.error(f"画像の保存中にエラーが発生しました: {str(e)}")
                 else:
                     st.warning("描画データがありません。")
                 
