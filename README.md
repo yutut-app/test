@@ -14,10 +14,19 @@ def resize_for_display(image, max_size=800):
         return image.resize(new_size, Image.Resampling.LANCZOS)
     return image
 
+def get_binary_image(img_array, threshold):
+    """画像を二値化する"""
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+    return binary
+
 def process_canvas_result(canvas_result, binary_original, original_size):
     """キャンバスの描画結果を処理して二値化画像を返す"""
     if canvas_result.image_data is None:
-        return None
+        return Image.fromarray(binary_original)
     
     try:
         # キャンバスの描画結果を取得してnumpy配列に変換
@@ -28,17 +37,25 @@ def process_canvas_result(canvas_result, binary_original, original_size):
         canvas_resized = np.array(canvas_pil, dtype=np.uint8)
         
         # グレースケールに変換
-        canvas_gray = cv2.cvtColor(canvas_resized, cv2.COLOR_RGBA2GRAY)
+        if len(canvas_resized.shape) == 3:
+            if canvas_resized.shape[2] == 4:  # RGBA
+                canvas_gray = cv2.cvtColor(canvas_resized, cv2.COLOR_RGBA2GRAY)
+            else:  # RGB
+                canvas_gray = cv2.cvtColor(canvas_resized, cv2.COLOR_RGB2GRAY)
+        else:
+            canvas_gray = canvas_resized
         
-        # 補正マスクの作成（閾値127で二値化）
+        # 補正マスクの作成
         _, canvas_mask = cv2.threshold(canvas_gray, 127, 255, cv2.THRESH_BINARY)
         
-        # 元の二値化画像をコピー
-        result = np.copy(binary_original)
+        # 描画された領域を特定
+        drawn_mask = canvas_gray != 127  # 描画されていない部分はRGB(127,127,127)
         
-        # マスクを適用
-        result[canvas_mask == 255] = 255  # 白で描画した部分
-        result[canvas_mask == 0] = 0      # 黒で描画した部分
+        # 結果画像の準備
+        result = binary_original.copy()
+        
+        # 描画された部分のみ更新
+        result[drawn_mask] = canvas_mask[drawn_mask]
         
         return Image.fromarray(result.astype(np.uint8))
     
@@ -56,6 +73,8 @@ def main():
         st.session_state.display_size = None
     if 'binary_original' not in st.session_state:
         st.session_state.binary_original = None
+    if 'threshold' not in st.session_state:
+        st.session_state.threshold = 128
     
     # ファイルアップロード
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
@@ -84,24 +103,15 @@ def main():
             
             # サイドバーに二値化のパラメータを設定
             st.sidebar.header("二値化パラメータ")
-            threshold = st.sidebar.slider("閾値", 0, 255, 128)
+            threshold = st.sidebar.slider("閾値", 0, 255, st.session_state.threshold)
+            st.session_state.threshold = threshold
             
             # 二値化処理（元サイズ）
-            if len(img_array_original.shape) == 3:
-                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_original = img_array_original
-            
-            _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
+            binary_original = get_binary_image(img_array_original, threshold)
             st.session_state.binary_original = binary_original
             
             # 二値化処理（表示用）
-            if len(img_array_display.shape) == 3:
-                gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_display = img_array_display
-            
-            _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
+            binary_display = get_binary_image(img_array_display, threshold)
             
             # 画像を表示
             col1, col2 = st.columns(2)
@@ -153,38 +163,34 @@ def main():
             
             # 描画結果の保存
             if st.button("補正した画像を保存"):
-                if canvas_result.image_data is not None:
-                    # 描画結果を処理
-                    result_binary = process_canvas_result(
-                        canvas_result,
-                        st.session_state.binary_original,
-                        (st.session_state.original_size[0], st.session_state.original_size[1])
-                    )
-                    
-                    if result_binary is not None:
-                        try:
-                            # バッファに保存
-                            buf = BytesIO()
-                            result_binary.save(buf, format="PNG")
-                            
-                            # ダウンロードボタンを表示
-                            st.download_button(
-                                label="ダウンロード",
-                                data=buf.getvalue(),
-                                file_name="corrected_image.png",
-                                mime="image/png"
-                            )
-                            
-                            # プレビューを表示
-                            st.subheader("保存する画像のプレビュー")
-                            st.image(result_binary, use_column_width=True)
-                            
-                        except Exception as e:
-                            st.error(f"画像の保存中にエラーが発生しました: {str(e)}")
-                    else:
-                        st.error("画像の処理に失敗しました。")
+                # 描画結果を処理
+                result_binary = process_canvas_result(
+                    canvas_result,
+                    st.session_state.binary_original,
+                    (st.session_state.original_size[0], st.session_state.original_size[1])
+                )
+                
+                if result_binary is not None:
+                    try:
+                        # プレビューを表示
+                        st.subheader("保存する画像のプレビュー")
+                        st.image(result_binary, use_column_width=True)
+                        
+                        # バッファに保存
+                        buf = BytesIO()
+                        result_binary.save(buf, format="PNG")
+                        
+                        # ダウンロードボタンを表示
+                        st.download_button(
+                            label="ダウンロード",
+                            data=buf.getvalue(),
+                            file_name="corrected_image.png",
+                            mime="image/png"
+                        )
+                    except Exception as e:
+                        st.error(f"画像の保存中にエラーが発生しました: {str(e)}")
                 else:
-                    st.warning("描画データがありません。")
+                    st.error("画像の処理に失敗しました。")
                 
         except Exception as e:
             st.error(f"画像処理中にエラーが発生しました: {str(e)}")
