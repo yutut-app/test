@@ -1,93 +1,68 @@
-# 4. 加工領域の特定
-ご指示の内容に基づき、#4加工領域の特定の処理を修正します。まず、パラメータ設定の修正から行います。
-
 ```python
-# 2. パラメータの設定
-
-# ディレクトリとファイルパス
-input_data_dir = r"../../data/input"
-output_data_dir = r"../../data/output"
-left_right_judge_template_dir = os.path.join(input_data_dir, "left_right_judge_template")
-mask_template_dir = os.path.join(input_data_dir, "mask_template")
-
-# 撮影画像がワークの左側の画像か右側の画像か判断用テンプレートファイルパス
-right_judge_template_path = os.path.join(left_right_judge_template_dir, "right_template.jpg")
-left_judge_template_path = os.path.join(left_right_judge_template_dir, "left_template.jpg")
-
-# マスク用テンプレートファイルパス
-right_mask_template_path = os.path.join(mask_template_dir, "right_template.jpg")
-left_mask_template_path = os.path.join(mask_template_dir, "left_template.jpg")
-
-# テンプレートマッチングパラメータ
-template_match_threshold = 0.8  # マッチング判定の閾値（0-1、大きいほど厳密）
-
-# 二値化パラメータ
-binary_threshold = 128  # 二値化の閾値（0-255）
-```
-
-次に、加工領域の特定の処理を修正します：
-
-```python
-def determine_image_orientation(image, judge_templates):
+def visualize_processed_images(processed_images, num_samples=1):
     """
-    画像がワークの左側の撮影画像か右側の撮影画像かをテンプレートより判定します
+    処理結果を可視化します
     
     引数:
-        image (numpy.ndarray): 入力画像
-        judge_templates (dict): 左右判定用テンプレート画像
-        
-    戻り値:
-        str: 'left' または 'right'
+        processed_images (list): 処理済み画像のリスト
+        num_samples (int): 表示するサンプル数
     """
-    # テンプレートマッチング実行
-    left_result = cv2.matchTemplate(image, judge_templates['left'], cv2.TM_CCOEFF_NORMED)
-    right_result = cv2.matchTemplate(image, judge_templates['right'], cv2.TM_CCOEFF_NORMED)
+    num_samples = min(num_samples, len(processed_images))
     
-    # マッチング度の最大値を比較
-    left_val = np.max(left_result)
-    right_val = np.max(right_result)
-    
-    return 'right' if right_val > left_val else 'left'
-
-def create_processing_area_mask(normal_image, mask_templates, judge_templates):
-    """
-    加工領域のマスクを作成します
-    
-    引数:
-        normal_image (numpy.ndarray): Normal画像
-        mask_templates (dict): マスク用テンプレート画像
-        judge_templates (dict): 左右判定用テンプレート画像
+    for i in range(num_samples):
+        shape_image, normal_image, mask, filename = processed_images[i]
         
-    戻り値:
-        numpy.ndarray: 加工領域のマスク画像
-    """
-    try:
-        # 画像の二値化
-        _, binary_image = cv2.threshold(normal_image, binary_threshold, 255, cv2.THRESH_BINARY)
+        # 二値化画像の生成
+        _, binary_normal = cv2.threshold(normal_image, binary_threshold, 255, cv2.THRESH_BINARY)
         
-        # 画像の向きを判定
+        # テンプレートの準備
         orientation = determine_image_orientation(normal_image, judge_templates)
         template = mask_templates[orientation]
         
-        # float32型に変換
-        img_float = np.float32(binary_image)
+        # ズレ補正前後のテンプレート
+        img_float = np.float32(binary_normal)
         template_float = np.float32(template)
-        
-        # 位相限定相関によるズレ計算
         shift, _ = cv2.phaseCorrelate(img_float, template_float)
         dx, dy = shift
-        
-        # ズレ補正行列の作成と適用
         rows, cols = template.shape
         M = np.float32([[1, 0, dx], [0, 1, dy]])
         aligned_template = cv2.warpAffine(template, M, (cols, rows))
         
-        return aligned_template
+        # 結果の表示
+        fig, axes = plt.subplots(2, 2, figsize=(15, 15))
         
-    except Exception as e:
-        print(f"マスク作成エラー: {e}")
-        return np.ones_like(normal_image) * 255
+        # 二値化したNormal画像
+        axes[0, 0].imshow(binary_normal, cmap='gray')
+        axes[0, 0].set_title('Binary Normal Image')
+        axes[0, 0].axis('off')
+        
+        # 移動前のテンプレート
+        axes[0, 1].imshow(template, cmap='gray')
+        axes[0, 1].set_title('Original Template')
+        axes[0, 1].axis('off')
+        
+        # 移動後のテンプレート
+        axes[1, 0].imshow(aligned_template, cmap='gray')
+        axes[1, 0].set_title('Aligned Template')
+        axes[1, 0].axis('off')
+        
+        # 最終的なマスク
+        axes[1, 1].imshow(mask, cmap='gray')
+        axes[1, 1].set_title('Final Mask')
+        axes[1, 1].axis('off')
+        
+        plt.suptitle(f'Processing Results: {filename}')
+        plt.tight_layout()
+        plt.show()
 
+# 処理結果の可視化
+print("Visualizing processed images:")
+visualize_processed_images(processed_images, num_samples=1)
+```
+
+また、この可視化関数に対応するように`process_images()`関数を以下のように修正します：
+
+```python
 def process_images(shape_images, judge_templates, mask_templates):
     """
     全画像に対して加工領域の検出を行います
@@ -98,7 +73,7 @@ def process_images(shape_images, judge_templates, mask_templates):
         mask_templates (dict): マスク用テンプレート画像
         
     戻り値:
-        list: (Shape画像, マスク画像, ファイル名)のタプルのリスト
+        list: (Shape画像, Normal画像, マスク画像, ファイル名)のタプルのリスト
     """
     processed_images = []
     for shape_path, filename in shape_images:
@@ -112,7 +87,7 @@ def process_images(shape_images, judge_templates, mask_templates):
         if shape_image is not None and normal_image is not None:
             # マスク生成
             mask = create_processing_area_mask(normal_image, mask_templates, judge_templates)
-            processed_images.append((shape_image, mask, filename))
+            processed_images.append((shape_image, normal_image, mask, filename))
         else:
             print(f"画像の読み込みに失敗: {filename}")
     
@@ -120,11 +95,9 @@ def process_images(shape_images, judge_templates, mask_templates):
 ```
 
 主な変更点：
-1. 円検出関連の処理を削除
-2. アフィン変換を位相限定相関による位置合わせに変更
-3. スケール調整関連のパラメータを削除
-4. テンプレート反転処理を削除
-5. 位置合わせ処理をシンプル化
-6. Normal画像とShape1画像の対応付けを追加
+1. Normal画像を結果のタプルに追加
+2. 処理過程の各段階（二値化、テンプレート移動前後）を可視化
+3. 2×2のサブプロットで処理過程を明確に表示
+4. 各画像に適切なタイトルを付与
 
-可視化関数は既存のものをそのまま使用できます。この修正により、より簡潔で効率的な加工領域の特定が可能になります。
+この改良により、処理の各段階を視覚的に確認することが可能になり、結果の検証や問題の特定が容易になります。
