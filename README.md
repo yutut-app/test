@@ -96,13 +96,18 @@ def main():
             stroke_color = st.radio("描画色", ("黒", "白"))
             
             # 描画色の設定
-            color = "#000000" if stroke_color == "黒" else "#FFFFFF"
+            if stroke_color == "黒":
+                stroke_color_hex = "#000000"
+                fill_color = "rgba(0, 0, 0, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
+            else:
+                stroke_color_hex = "#FFFFFF"
+                fill_color = "rgba(255, 255, 255, 1.0)" if drawing_mode == "rect" else "rgba(255, 255, 255, 0.0)"
             
             # キャンバスの作成（表示サイズ用）
             canvas_result = st_canvas(
-                fill_color="rgba(255, 255, 255, 0.0)",
+                fill_color=fill_color,
                 stroke_width=stroke_width,
-                stroke_color=color,
+                stroke_color=stroke_color_hex,
                 background_image=Image.fromarray(binary_display).convert('RGB'),
                 drawing_mode=drawing_mode,
                 key=f"canvas_{threshold}",
