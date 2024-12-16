@@ -20,6 +20,16 @@ def calculate_display_size(width, height, max_width=700, max_height=500):
     
     return new_width, new_height
 
+def create_binary_image(image, threshold):
+    """画像を二値化する"""
+    img_array = np.array(image)
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+    return binary
+
 def process_canvas_result(canvas_result, binary_original, original_size):
     """キャンバスの描画結果を処理して二値化画像を返す"""
     if canvas_result.image_data is None:
@@ -55,14 +65,14 @@ def main():
     # セッションステートの初期化
     if 'image_original' not in st.session_state:
         st.session_state.image_original = None
-    if 'binary_original' not in st.session_state:
-        st.session_state.binary_original = None
     if 'original_size' not in st.session_state:
         st.session_state.original_size = None
     if 'display_size' not in st.session_state:
         st.session_state.display_size = None
     if 'last_threshold' not in st.session_state:
         st.session_state.last_threshold = None
+    if 'current_binary_original' not in st.session_state:
+        st.session_state.current_binary_original = None
     
     # ステップ1: 画像のアップロード
     uploaded_file = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
@@ -72,6 +82,11 @@ def main():
             # 画像が新しくアップロードされた場合
             if st.session_state.image_original is None:
                 image_original = Image.open(uploaded_file)
+                
+                # RGBAの場合はRGBに変換
+                if image_original.mode == 'RGBA':
+                    image_original = image_original.convert('RGB')
+                
                 st.session_state.image_original = image_original
                 
                 # 表示サイズを計算
@@ -86,44 +101,32 @@ def main():
             st.sidebar.header("二値化パラメータ")
             threshold = st.sidebar.slider("閾値", 0, 255, 128)
             
-            # 閾値が変更された場合、キャンバスをリセット
+            # 閾値が変更された場合の処理
             if st.session_state.last_threshold != threshold:
                 st.session_state.last_threshold = threshold
+                # 新しい閾値で二値化画像を生成
+                binary_original = create_binary_image(st.session_state.image_original, threshold)
+                st.session_state.current_binary_original = binary_original
+                # キャンバスをリセット
                 if 'canvas_key' in st.session_state:
                     st.session_state.pop('canvas_key')
             
-            # 元画像の処理
-            image_original = st.session_state.image_original
-            img_array_original = np.array(image_original)
-            
-            # RGBAの場合はRGBに変換
-            if len(img_array_original.shape) == 3 and img_array_original.shape[-1] == 4:
-                image_original = image_original.convert('RGB')
-                img_array_original = np.array(image_original)
+            # 現在の二値化画像がない場合は生成
+            if st.session_state.current_binary_original is None:
+                binary_original = create_binary_image(st.session_state.image_original, threshold)
+                st.session_state.current_binary_original = binary_original
             
             # 表示用画像の準備
-            image_display = image_original.resize(
+            image_display = st.session_state.image_original.resize(
                 st.session_state.display_size,
                 Image.Resampling.LANCZOS
             )
-            img_array_display = np.array(image_display)
             
-            # ステップ3: 二値化処理
-            if len(img_array_original.shape) == 3:
-                gray_original = cv2.cvtColor(img_array_original, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_original = img_array_original
-            
-            _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
-            st.session_state.binary_original = binary_original
-            
-            # 表示用二値化処理
-            if len(img_array_display.shape) == 3:
-                gray_display = cv2.cvtColor(img_array_display, cv2.COLOR_RGB2GRAY)
-            else:
-                gray_display = img_array_display
-            
-            _, binary_display = cv2.threshold(gray_display, threshold, 255, cv2.THRESH_BINARY)
+            # 表示用二値化画像の準備
+            binary_display = cv2.resize(
+                st.session_state.current_binary_original,
+                (st.session_state.display_size[0], st.session_state.display_size[1])
+            )
             
             # 画像表示
             col1, col2 = st.columns(2)
@@ -137,7 +140,7 @@ def main():
                 st.image(binary_display, use_column_width=True)
                 st.write(f"表示サイズ: {st.session_state.display_size[0]}x{st.session_state.display_size[1]}")
             
-            # ステップ4: 手動補正
+            # ステップ3: 手動補正
             st.subheader("手動補正")
             drawing_mode = st.radio(
                 "描画モード",
@@ -174,14 +177,14 @@ def main():
                 display_toolbar=True
             )
             
-            # ステップ5: 画像の保存
+            # ステップ4: 画像の保存
             if st.button("補正した画像を保存"):
                 if canvas_result.image_data is not None:
                     try:
                         # 描画結果を処理
                         result_binary = process_canvas_result(
                             canvas_result,
-                            st.session_state.binary_original,
+                            st.session_state.current_binary_original,  # 現在の閾値で生成された二値化画像を使用
                             st.session_state.original_size
                         )
                         
