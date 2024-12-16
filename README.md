@@ -1,63 +1,72 @@
-# 4. 加工領域の特定
+以下に、修正した関数とそれに対応するmarkdownを記載します。
 
-修正したコードを提案します：
+# 3. データの読み込み
+
+## 関数の修正
 
 ```python
-def detect_largest_circles(image, num_circles=3, is_template=False):
+def load_shape_images(directory):
     """
-    画像から大きい順に指定された数の円を検出します
+    指定ディレクトリからShape1画像とNormal画像を読み込みます
     
     引数:
-        image (numpy.ndarray): 入力画像
-        num_circles (int): 検出する円の数
-        is_template (bool): テンプレート画像かどうか
-        
-    戻り値:
-        numpy.ndarray or None: 検出された円の情報[x, y, r]のリスト。検出失敗時はNone
-    """
-    # テンプレートでない場合は2値化前処理を実施
-    if not is_template:
-        # 適応的閾値処理による2値化
-        binary = cv2.adaptiveThreshold(
-            image,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            101,  # ブロックサイズ（奇数）
-            2     # 定数
-        )
-        
-        # ノイズ除去
-        binary = cv2.medianBlur(binary, 5)
-    else:
-        binary = image
-
-    # 円検出
-    circles = cv2.HoughCircles(binary, 
-                              cv2.HOUGH_GRADIENT, 
-                              dp=circle_dp,
-                              minDist=circle_min_dist,
-                              param1=circle_param1,
-                              param2=circle_param2,
-                              minRadius=circle_min_radius,
-                              maxRadius=circle_max_radius)
+        directory (str): 画像が格納されているディレクトリのパス
     
-    if circles is not None:
-        # 半径で降順ソート
-        circles = circles[0]
-        sorted_circles = circles[circles[:, 2].argsort()][::-1]
-        return sorted_circles[:num_circles]
-    return None
-
-# create_processing_area_mask()内での使用
-template_circles = detect_largest_circles(template, is_template=True)
-target_circles = detect_largest_circles(image, is_template=False)
+    戻り値:
+        list: (画像パス, 画像ファイル名)のタプルのリスト
+    """
+    shape_images = []
+    # 一時的に画像を格納する辞書
+    image_dict = {}
+    
+    # 指定ディレクトリ内の全ファイルを走査
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            # Shape1とNormal画像を検出
+            if ("Shape1" in file or "Normal" in file) and file.endswith(".jpg"):
+                # ファイル名からShape1/Normalの部分を除いた共通部分を取得
+                base_name = file.replace("Shape1", "").replace("Normal", "")
+                
+                if base_name not in image_dict:
+                    image_dict[base_name] = []
+                image_dict[base_name].append((os.path.join(root, file), file))
+    
+    # 同一ワークの画像をまとめてリストに追加
+    for base_name, images in image_dict.items():
+        shape_images.extend(images)
+    
+    return shape_images
 ```
 
-主な変更点：
-1. 円検出を`detect_largest_circles()`として独立させ、大きい順にソート
-2. スケール変換を削除（テンプレートと画像のサイズが同じため）
-3. 変換行列の計算を上位2つの円の中心座標のみを使用するように簡略化
-4. マスク生成を単純な重ね合わせとして実装
+## markdown説明
 
-この修正により、処理がより単純化され、目的の4つのステップに沿った実装となっています。可視化用の関数は既存のものを使用できます。
+### load_shape_images()の改修内容
+
+本関数は、指定されたディレクトリから画像を読み込む機能を担う。以下の変更を実装：
+
+1. 対象画像の拡張
+   - `Shape1`画像：キーエンス処理後の画像
+   - `Normal`画像：キーエンス処理前の撮影画像
+   - どちらも同一ワークの異なる処理段階を示す
+
+2. 画像のペア管理
+   - ファイル名の共通部分を用いて同一ワークの画像を特定
+   - 例：
+     ```
+     ABC_Shape1_XYZ.jpg
+     ABC_Normal_XYZ.jpg
+     ```
+     この場合、`ABC_XYZ.jpg`が共通部分
+
+3. データ構造
+   - 中間処理：辞書形式で同一ワークの画像を一時的に管理
+   - 最終出力：従来通りのリスト形式を維持
+     - [(画像パス1, ファイル名1), (画像パス2, ファイル名2), ...]
+
+4. 処理フロー
+   - ディレクトリの再帰的走査
+   - Shape1/Normal画像の識別
+   - 同一ワーク画像のグループ化
+   - 結果のリスト化
+
+この改修により、キーエンス処理前後の画像を対応付けて管理することが可能となる。後続の処理でこれらの画像を比較分析する際に活用できる。
