@@ -20,27 +20,28 @@ def process_canvas_result(canvas_result, binary_original, original_size):
         return None
     
     try:
-        # キャンバスの描画結果を取得
-        canvas_array = canvas_result.image_data
+        # キャンバスの描画結果を取得してnumpy配列に変換
+        canvas_array = np.array(canvas_result.image_data, dtype=np.uint8)
         
         # キャンバス画像をリサイズ
-        canvas_image = Image.fromarray(canvas_array).resize(original_size, Image.Resampling.LANCZOS)
-        canvas_array = np.array(canvas_image)
+        canvas_pil = Image.fromarray(canvas_array).resize(original_size, Image.Resampling.LANCZOS)
+        canvas_resized = np.array(canvas_pil, dtype=np.uint8)
         
-        # 元の二値化画像のコピーを作成
-        binary_result = binary_original.copy()
+        # グレースケールに変換
+        canvas_gray = cv2.cvtColor(canvas_resized, cv2.COLOR_RGBA2GRAY)
         
-        # キャンバスの黒い部分（RGB値が0に近い部分）を抽出
-        black_mask = np.mean(canvas_array[..., :3], axis=2) < 128
-        # キャンバスの白い部分（RGB値が255に近い部分）を抽出
-        white_mask = np.mean(canvas_array[..., :3], axis=2) > 128
+        # 補正マスクの作成（閾値127で二値化）
+        _, canvas_mask = cv2.threshold(canvas_gray, 127, 255, cv2.THRESH_BINARY)
+        
+        # 元の二値化画像をコピー
+        result = np.copy(binary_original)
         
         # マスクを適用
-        binary_result[white_mask] = 255  # 白で描画した部分を白に
-        binary_result[black_mask] = 0    # 黒で描画した部分を黒に
+        result[canvas_mask == 255] = 255  # 白で描画した部分
+        result[canvas_mask == 0] = 0      # 黒で描画した部分
         
-        return Image.fromarray(binary_result)
-        
+        return Image.fromarray(result.astype(np.uint8))
+    
     except Exception as e:
         st.error(f"画像処理エラー: {str(e)}")
         return None
@@ -161,21 +162,25 @@ def main():
                     )
                     
                     if result_binary is not None:
-                        # プレビューを表示
-                        st.subheader("保存する画像のプレビュー")
-                        st.image(result_binary, use_column_width=True)
-                        
-                        # バッファに保存
-                        buf = BytesIO()
-                        result_binary.save(buf, format="PNG")
-                        
-                        # ダウンロードボタンを表示
-                        st.download_button(
-                            label="ダウンロード",
-                            data=buf.getvalue(),
-                            file_name="corrected_image.png",
-                            mime="image/png"
-                        )
+                        try:
+                            # バッファに保存
+                            buf = BytesIO()
+                            result_binary.save(buf, format="PNG")
+                            
+                            # ダウンロードボタンを表示
+                            st.download_button(
+                                label="ダウンロード",
+                                data=buf.getvalue(),
+                                file_name="corrected_image.png",
+                                mime="image/png"
+                            )
+                            
+                            # プレビューを表示
+                            st.subheader("保存する画像のプレビュー")
+                            st.image(result_binary, use_column_width=True)
+                            
+                        except Exception as e:
+                            st.error(f"画像の保存中にエラーが発生しました: {str(e)}")
                     else:
                         st.error("画像の処理に失敗しました。")
                 else:
