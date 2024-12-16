@@ -14,29 +14,36 @@ def resize_for_display(image, max_size=800):
         return image.resize(new_size, Image.Resampling.LANCZOS)
     return image
 
-def process_canvas_result(canvas_result, original_size):
+def process_canvas_result(canvas_result, binary_original, original_size):
     """キャンバスの描画結果を処理して二値化画像を返す"""
     if canvas_result.image_data is None:
         return None
     
-    # RGBA配列を取得
-    result_array = canvas_result.image_data
+    # キャンバスの描画結果を取得
+    canvas_array = canvas_result.image_data
     
-    # RGBAをグレースケールに変換
+    # キャンバスの結果をグレースケールに変換
     # (R * 0.299 + G * 0.587 + B * 0.114)の重み付け
-    gray = np.dot(result_array[..., :3], [0.299, 0.587, 0.114])
+    canvas_gray = np.dot(canvas_array[..., :3], [0.299, 0.587, 0.114])
     
-    # 二値化（128を閾値として使用）
-    binary = (gray > 128).astype(np.uint8) * 255
+    # キャンバスの結果を二値化（128を閾値として使用）
+    canvas_binary = (canvas_gray > 128).astype(np.uint8)
     
-    # PIL Imageに変換
-    binary_image = Image.fromarray(binary)
+    # キャンバスの結果を元のサイズにリサイズ
+    canvas_image = Image.fromarray(canvas_binary)
+    if canvas_image.size != original_size:
+        canvas_image = canvas_image.resize(original_size, Image.Resampling.LANCZOS)
+    canvas_resized = np.array(canvas_image)
     
-    # 元のサイズにリサイズ
-    if binary_image.size != original_size:
-        binary_image = binary_image.resize(original_size, Image.Resampling.LANCZOS)
+    # 元の二値化画像のコピーを作成
+    result = binary_original.copy()
     
-    return binary_image
+    # キャンバスの白い部分（補正部分）を反映
+    result[canvas_resized == 1] = 255
+    # キャンバスの黒い部分（補正部分）を反映
+    result[canvas_resized == 0] = 0
+    
+    return Image.fromarray(result)
 
 def main():
     st.title("画像二値化・補正アプリ")
@@ -83,6 +90,9 @@ def main():
                 gray_original = img_array_original
             
             _, binary_original = cv2.threshold(gray_original, threshold, 255, cv2.THRESH_BINARY)
+            
+            # セッションステートに二値化画像を保存
+            st.session_state.binary_original = binary_original
             
             # 二値化処理（表示用）
             if len(img_array_display.shape) == 3:
@@ -145,7 +155,8 @@ def main():
                 if canvas_result.image_data is not None:
                     # 描画結果を処理
                     result_binary = process_canvas_result(
-                        canvas_result, 
+                        canvas_result,
+                        st.session_state.binary_original,
                         (st.session_state.original_size[0], st.session_state.original_size[1])
                     )
                     
