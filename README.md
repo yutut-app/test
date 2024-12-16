@@ -2,15 +2,15 @@ streamlit>=1.28.0
 numpy>=1.24.0
 Pillow>=10.0.0
 opencv-python>=4.8.0
-streamlit-drawable-canvas>=0.9.2
+streamlit-drawable-canvas>=0.9.3
 
 
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
 import numpy as np
 from PIL import Image
 import cv2
 from io import BytesIO
+from streamlit_drawable_canvas import st_canvas
 
 def main():
     st.title("画像二値化・補正アプリ")
@@ -24,7 +24,7 @@ def main():
         img_array = np.array(image)
         
         # RGBAの場合はRGBに変換
-        if img_array.shape[-1] == 4:
+        if len(img_array.shape) == 3 and img_array.shape[-1] == 4:
             image = image.convert('RGB')
             img_array = np.array(image)
         
@@ -55,51 +55,52 @@ def main():
             st.subheader("手動補正")
             drawing_mode = st.radio(
                 "描画モード",
-                ("黒", "白", "消しゴム")
+                ("フリーハンド", "四角", "直線")
             )
             
             stroke_width = st.slider("ブラシサイズ", 1, 50, 10)
+            stroke_color = st.radio("描画色", ("黒", "白"))
             
             # 描画色の設定
-            if drawing_mode == "黒":
-                stroke_color = "black"
-            elif drawing_mode == "白":
-                stroke_color = "white"
-            else:  # 消しゴム
-                stroke_color = "white"
+            if stroke_color == "黒":
+                color = "#000000"
+            else:
+                color = "#FFFFFF"
             
             # キャンバスの準備
-            binary_image = Image.fromarray(binary)
             canvas_result = st_canvas(
-                fill_color="rgba(255, 255, 255, 0.0)",  # 塗りつぶしなし
+                fill_color="rgba(255, 255, 255, 0.0)",
                 stroke_width=stroke_width,
-                stroke_color=stroke_color,
-                background_image=binary_image,
-                drawing_mode="freedraw" if drawing_mode != "消しゴム" else "transform",
+                stroke_color=color,
+                background_image=Image.fromarray(binary),
+                drawing_mode=drawing_mode.lower(),
                 key="canvas",
-                width=binary_image.width,
-                height=binary_image.height,
+                width=binary.shape[1],
+                height=binary.shape[0],
             )
             
             # 描画結果の保存
-            if canvas_result.image_data is not None and st.button("補正した画像を保存"):
-                # 描画結果をグレースケールに変換
-                result_array = canvas_result.image_data
-                if len(result_array.shape) == 3:
-                    result_gray = cv2.cvtColor(result_array, cv2.COLOR_RGB2GRAY)
-                else:
-                    result_gray = result_array
+            if canvas_result.image_data is not None:
+                # 描画結果を二値化画像として保存
+                result_array = np.array(canvas_result.image_data)
                 
-                # 画像を保存
-                buf = BytesIO()
-                result_image = Image.fromarray(result_gray)
-                result_image.save(buf, format="PNG")
-                st.download_button(
-                    label="ダウンロード",
-                    data=buf.getvalue(),
-                    file_name="corrected_image.png",
-                    mime="image/png"
-                )
+                if st.button("補正した画像を保存"):
+                    # グレースケールに変換して二値化
+                    result_gray = cv2.cvtColor(result_array, cv2.COLOR_RGBA2GRAY)
+                    _, result_binary = cv2.threshold(result_gray, 127, 255, cv2.THRESH_BINARY)
+                    
+                    # 保存用のバッファを作成
+                    buf = BytesIO()
+                    result_image = Image.fromarray(result_binary)
+                    result_image.save(buf, format="PNG")
+                    
+                    # ダウンロードボタンを表示
+                    st.download_button(
+                        label="ダウンロード",
+                        data=buf.getvalue(),
+                        file_name="corrected_image.png",
+                        mime="image/png"
+                    )
                 
         except Exception as e:
             st.error(f"画像処理中にエラーが発生しました: {str(e)}")
