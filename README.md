@@ -1,29 +1,44 @@
-def process_images(processed_images, shifts):
+def visualize_defect_detection(defect_results, num_samples=1):
     """
-    全画像に対して欠陥検出を実行します
+    欠陥検出結果を可視化します
     
     引数:
-        processed_images (list): 処理済み画像のリスト
-        shifts (list): シフト量のリスト
-        
-    戻り値:
-        list: (画像, 検出結果, Canny結果, DoG結果, ファイル名)のリスト
+        defect_results (list): 欠陥検出結果のリスト
+        num_samples (int): 表示するサンプル数
     """
-    defect_results = []
-    for (shape_path, mask, filename) in processed_images:
-        # Shape画像の読み込み
-        shape_path = shape_path  # パスはすでにShape画像のパス
-        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+    num_samples = min(num_samples, len(defect_results))
+    
+    for i in range(num_samples):
+        shape_image, combined, large, small, filename = defect_results[i]
         
-        if shape_image is not None:
-            # 欠陥検出を実行（Shape画像に対して）
-            combined, large, small = detect_defects(shape_image, mask)
-            defect_results.append((shape_image, combined, large, small, filename))
-        else:
-            print(f"Shape画像の読み込みに失敗: {shape_path}")
-            
-    return defect_results
+        fig, axes = plt.subplots(2, 2, figsize=(15, 15))
+        
+        # 元画像
+        axes[0, 0].imshow(shape_image, cmap='gray')
+        axes[0, 0].set_title('Original Shape Image')
+        axes[0, 0].axis('off')
+        
+        # Cannyエッジ検出結果
+        axes[0, 1].imshow(large, cmap='gray')
+        axes[0, 1].set_title('Large Defects (Canny)')
+        axes[0, 1].axis('off')
+        
+        # DoG検出結果
+        axes[1, 0].imshow(small, cmap='gray')
+        axes[1, 0].set_title('Small Defects (DoG)')
+        axes[1, 0].axis('off')
+        
+        # 統合結果
+        axes[1, 1].imshow(combined, cmap='gray')
+        axes[1, 1].set_title('Combined Result')
+        axes[1, 1].axis('off')
+        
+        plt.suptitle(f'Defect Detection Results: {filename}')
+        plt.tight_layout()
+        plt.show()
 
-# 欠陥検出の実行
-defect_ng_images = process_images(processed_ng_images, shifts)
-#defect_ok_images = process_images(processed_ok_images, shifts)
+# 検出結果の可視化
+print("Visualizing defect detection results for NG images:")
+visualize_defect_detection(defect_ng_images, num_samples=1)
+#print("\nVisualizing defect detection results for OK images:")
+#visualize_defect_detection(defect_ok_images, num_samples=1)
