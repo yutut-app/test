@@ -1,86 +1,164 @@
-# 2. パラメータの設定（追加分）
+以前のロジックと現在のロジックを比較し、完全な形で5. Canny+DoGによる欠陥候補検出を記載します：
 
-### 二値化パラメータ
-`binary_threshold`：
-- 画像の二値化閾値（0-255）
-- 加工領域とそれ以外を分離する基準値
-- 大きいほど白い領域（1）が減少
-- 調整範囲：120~160
-- デフォルト値：128
+```python
+# 5. Canny+DoGによる欠陥候補検出
 
-# 4. 加工領域の特定
+def detect_edges_and_texture(image, mask):
+    """
+    Cannyエッジ検出とテクスチャ検出（大きな鋳巣用）
+    """
+    # マスク領域内の画像を取得
+    masked_image = cv2.bitwise_and(image, image, mask=mask)
+    
+    # ガウシアンブラーでノイズ除去
+    blurred_image = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
+    
+    # Cannyエッジ検出
+    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
+    
+    # テクスチャ検出
+    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
+    abs_laplacian = np.absolute(laplacian)
+    laplacian_edges = np.uint8(abs_laplacian > texture_threshold) * 255
+    
+    # エッジとテクスチャの統合
+    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+    
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (canny_merge_distance, canny_merge_distance))
+    merged_result = cv2.morphologyEx(combined_edges, cv2.MORPH_CLOSE, kernel)
+    
+    return merged_result
 
-本セクションでは、ワークの加工領域をマスク画像として特定する処理について説明する。処理は以下の手順で実行される：
+def difference_of_gaussian(img, ksize, sigma1, sigma2):
+    """
+    DoGフィルタの適用
+    """
+    # ガウシアンフィルタ適用
+    gaussian_1 = cv2.GaussianBlur(img, (ksize, ksize), sigma1)
+    gaussian_2 = cv2.GaussianBlur(img, (ksize, ksize), sigma2)
+    
+    # 2種のガウシアンフィルタ適用画像の差分
+    dog = gaussian_1 - gaussian_2
+    
+    return dog
 
-1. 撮影方向の判定
-2. マスクテンプレートの選択と位置合わせ
-3. マスク画像の生成
+def dynamic_threshold(img, ksize, method=cv2.ADAPTIVE_THRESH_GAUSSIAN_C, c=2):
+    """
+    適応的閾値処理
+    """
+    binary = cv2.adaptiveThreshold(img, 255, method, cv2.THRESH_BINARY_INV, ksize, c)
+    return binary
 
-## 関数の詳細説明
+def detect_defects_dog_dynamic(image, mask):
+    """
+    DoGフィルタと動的閾値処理による検出（小さな鋳巣用）
+    """
+    # 明暗領域の検出
+    _, bright_mask = cv2.threshold(image, bright_threshold, 255, cv2.THRESH_BINARY)
+    _, dark_mask = cv2.threshold(image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
+    
+    # マルチスケールDoGの適用
+    dog_results = []
+    sigma_pairs = [
+        (1.5, 3.5),
+        (2.0, 4.0),
+        (1.0, 2.5)
+    ]
+    
+    for sigma1, sigma2 in sigma_pairs:
+        dog_result = difference_of_gaussian(image, dog_ksize, sigma1, sigma2)
+        dog_result = cv2.normalize(dog_result, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        dog_results.append(dog_result)
+    
+    combined_dog = np.maximum.reduce(dog_results)
+    
+    # 動的閾値処理
+    binary_dog = dynamic_threshold(image, dynamic_ksize, dynamic_method, dynamic_c)
+    
+    # 輝度の変化率を計算
+    local_mean = cv2.blur(image, (dynamic_ksize, dynamic_ksize))
+    intensity_diff = cv2.absdiff(image, local_mean)
+    
+    # 明るい領域と暗い領域の周辺の変化を強調
+    gradient_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
+    gradient_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
+    gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+    gradient_magnitude = cv2.normalize(gradient_magnitude, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    
+    # コントラスト比の計算
+    local_std = np.std(image)
+    contrast_ratio = intensity_diff / (local_std + 1e-6)
+    contrast_mask = (contrast_ratio > min_contrast_ratio).astype(np.uint8) * 255
+    
+    # 輝度マスクと勾配マスクを組み合わせる
+    combined_bright = cv2.bitwise_and(bright_mask, gradient_magnitude)
+    combined_dark = cv2.bitwise_and(dark_mask, gradient_magnitude)
+    combined_mask = cv2.bitwise_or(combined_bright, combined_dark)
+    
+    # DoGの結果と組み合わせる
+    combined_result = cv2.bitwise_and(combined_mask, combined_dog)
+    combined_result = cv2.bitwise_and(combined_result, contrast_mask)
+    combined_result = cv2.bitwise_and(combined_result, binary_dog)
+    
+    # マスク適用
+    masked_result = cv2.bitwise_and(combined_result, combined_result, mask=mask)
+    
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dog_merge_distance, dog_merge_distance))
+    merged_result = cv2.morphologyEx(masked_result, cv2.MORPH_CLOSE, kernel)
+    
+    # 最終的なマスクの作成（明るい部分を追加）
+    final_mask = cv2.bitwise_or(merged_result, cv2.bitwise_and(bright_mask, mask))
+    
+    return final_mask
 
-### determine_image_orientation()
-画像の撮影方向（左右）を判定する関数：
+def detect_defects(image, mask):
+    """
+    CannyとDoGの結果を組み合わせて欠陥検出を行います
+    """
+    # 大きな鋳巣の検出（Canny）
+    large_defects = detect_edges_and_texture(image, mask)
+    
+    # 小さな鋳巣の検出（DoG）
+    small_defects = detect_defects_dog_dynamic(image, mask)
+    
+    # 結果の統合
+    combined_result = cv2.bitwise_or(large_defects, small_defects)
+    
+    return combined_result, large_defects, small_defects
 
-1. 判定手法
-   - テンプレートマッチング（cv2.TM_CCOEFF_NORMED）を使用
-   - 左右それぞれのテンプレートとのマッチング度を計算
-   - より高いマッチング度を示した方を撮影方向として判定
+def process_images(processed_images):
+    """
+    全画像に対して欠陥検出を実行します
+    """
+    defect_results = []
+    for shape_path, mask, filename in processed_images:
+        # Shape1画像の読み込み
+        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+        if shape_image is not None:
+            # マスクの白い部分（255）のみを処理対象とする
+            mask_binary = (mask == 255).astype(np.uint8) * 255
+            
+            # 欠陥検出の実行
+            combined, large, small = detect_defects(shape_image, mask_binary)
+            defect_results.append((shape_image, combined, large, small, filename))
+        else:
+            print(f"画像の読み込みに失敗: {shape_path}")
+    
+    return defect_results
 
-2. 入力データ
-   - 入力画像：Normal画像（グレースケール）
-   - 判定テンプレート：左右それぞれのテンプレート画像
+# 欠陥検出の実行
+defect_ng_images = process_images(processed_ng_images)
+#defect_ok_images = process_images(processed_ok_images)
+```
 
-3. 出力
-   - 'left'：左側からの撮影画像
-   - 'right'：右側からの撮影画像
+主な修正点：
+1. 関数名は新しい命名規則に合わせつつ、内部ロジックは元のまま保持
+2. process_images関数でShape1画像の読み込みとマスクの二値化を追加
+3. 全ての処理順序を元のコードと同じに維持
+4. DoGとCanny検出の詳細なパラメータと処理ステップを維持
+5. 各フィルタの適用順序を保持
+6. マスク処理の順序と方法を元のまま維持
 
-### create_processing_area_mask()
-加工領域のマスクを生成する関数：
-
-1. 前処理
-   - 画像の二値化（binary_threshold使用）
-   - 撮影方向の判定
-   - 適切なマスクテンプレートの選択
-
-2. 位置合わせ処理
-   - 画像とテンプレートをfloat32型に変換
-   - 位相限定相関によるズレ計算
-   - アフィン変換行列の生成
-   - テンプレートの移動
-
-3. エラー処理
-   - 処理失敗時は全領域を対象とするマスクを返却
-
-### process_images()
-画像群に対して一括で加工領域の検出を行う関数：
-
-1. 入力データの処理
-   - Shape1画像とNormal画像のパス生成
-   - 画像の読み込みと存在確認
-   - グレースケール変換
-
-2. マスク生成処理
-   - 画像の二値化
-   - 撮影方向の判定
-   - 位相限定相関によるズレ計算
-   - マスク画像の生成
-
-3. 出力データ
-   - processed_images：処理結果のリスト
-   - shifts：各画像のシフト量
-
-### visualize_processed_images()
-処理結果を可視化する関数：
-
-1. 表示内容（2×2レイアウト）
-   - 二値化したNormal画像
-   - 移動前のテンプレート画像
-   - 移動後のテンプレート画像（シフト量を表示）
-   - 最終的なマスク画像
-
-2. 表示パラメータ
-   - figsize=(12, 12)で十分な表示サイズを確保
-   - グレースケールカラーマップを使用
-   - 軸表示を省略してクリーンな表示
-
-これらの処理により、加工領域を正確に特定し、後続の欠陥検出処理のための準備が完了する。
+この修正により、元の検出ロジックを維持しながら、新しいインターフェースに対応できるようになります。
