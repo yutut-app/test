@@ -1,115 +1,169 @@
-# 6. エッジ補完
-
 ```python
-def create_mask_edge_margin(mask):
+# 8. 欠陥候補の画像の保存とCSV出力
+
+def extract_roi(image, defect, margin=1):
     """
-    マスクのエッジ部分に余裕幅を持たせます
+    画像から欠陥領域を切り出します
     
     引数:
-        mask (numpy.ndarray): マスク画像
+        image (numpy.ndarray): 入力画像
+        defect (dict): 欠陥情報
+        margin (int): 余白のピクセル数
         
     戻り値:
-        numpy.ndarray: エッジに余裕幅を持たせたマスク
+        numpy.ndarray: 切り出された領域画像
     """
-    # エッジを検出
-    mask_edges = cv2.Canny(mask, mask_edge_min_threshold, mask_edge_max_threshold)
+    # 切り出し範囲の計算
+    x1 = max(defect['x'] - margin, 0)
+    y1 = max(defect['y'] - margin, 0)
+    x2 = min(defect['x'] + defect['width'] + margin, image.shape[1])
+    y2 = min(defect['y'] + defect['height'] + margin, image.shape[0])
     
-    # 余裕幅のためのカーネルを作成
-    kernel = np.ones((mask_edge_margin * 2 + 1, mask_edge_margin * 2 + 1), np.uint8)
-    
-    # エッジを膨張させて余裕幅を作成
-    dilated_edges = cv2.dilate(mask_edges, kernel, iterations=1)
-    
-    return dilated_edges
+    # 領域の切り出し
+    return image[y1:y2, x1:x2]
 
-def complete_edges(edge_image, mask):
+def save_defect_roi(image, defect, output_dir, defect_number):
     """
-    エッジの途切れを補完し、連続的なエッジを作成します
+    欠陥領域を保存します
     
     引数:
-        edge_image (numpy.ndarray): エッジ画像
-        mask (numpy.ndarray): マスク画像
+        image (numpy.ndarray): 入力画像
+        defect (dict): 欠陥情報
+        output_dir (str): 出力ディレクトリ
+        defect_number (int): 欠陥番号
         
     戻り値:
-        numpy.ndarray: 補完されたエッジ画像
+        str: 保存されたファイル名
     """
-    # マスクエッジの余裕幅を作成
-    mask_edges_with_margin = create_mask_edge_margin(mask)
+    # 領域の切り出し
+    roi = extract_roi(image, defect)
     
-    # スケルトン化でエッジを細線化
-    skeleton = skeletonize(edge_image > 0)
+    # 画像の拡大
+    if enlargement_factor > 1:
+        roi = cv2.resize(roi, (0, 0), 
+                        fx=enlargement_factor, 
+                        fy=enlargement_factor)
     
-    # モルフォロジー演算用のカーネルを作成
-    kernel = np.ones(edge_kernel_size, np.uint8)
+    # ファイルの保存
+    filename = f"defect_{defect_number}.png"
+    output_path = os.path.join(output_dir, filename)
+    cv2.imwrite(output_path, roi)
     
-    # オープン処理でノイズを削除
-    opened_skeleton = cv2.morphologyEx(
-        skeleton.astype(np.uint8), 
-        cv2.MORPH_OPEN, 
-        kernel, 
-        iterations=edge_open_iterations
-    )
-    
-    # クローズ処理でエッジを接続
-    connected_skeleton = cv2.morphologyEx(
-        opened_skeleton, 
-        cv2.MORPH_CLOSE, 
-        kernel, 
-        iterations=edge_close_iterations
-    )
-    
-    # 元のエッジと補完したエッジを統合
-    completed_edges = np.maximum(edge_image, connected_skeleton * 255)
-    
-    # マスクエッジ部分は元のエッジを使用
-    completed_edges = np.where(mask_edges_with_margin > 0, edge_image, completed_edges)
-    
-    return completed_edges.astype(np.uint8)
+    return filename
 
-def process_images(defect_results):
+def create_defect_info(defect, image_name, defect_number, image_type, image_label):
     """
-    全Shape1画像の欠陥検出結果に対してエッジ補完を実行します
+    欠陥情報辞書を作成します
     
     引数:
-        defect_results (list): 欠陥検出結果のリスト
-            [(Shape1画像, 検出結果, Canny結果, DoG結果, ファイル名), ...]
+        defect (dict): 検出された欠陥の情報
+        image_name (str): 元画像の名前
+        defect_number (int): 欠陥番号
+        image_type (str): 画像タイプ（'ng'または'ok'）
+        image_label (int): 画像ラベル
         
     戻り値:
-        list: エッジ補完後の結果リスト
-            [(Shape1画像, 補完済み検出結果, 補完済みCanny結果, 補完済みDoG結果, ファイル名), ...]
+        dict: 欠陥情報辞書
     """
-    completed_results = []
+    base_name = image_name.replace(".jpg", "")
+    defect_filename = f"defect_{defect_number}.png"
     
-    for shape_image, combined_result, large_defects, small_defects, filename in defect_results:
-        # 各検出結果に対してエッジ補完を実行
-        completed_combined = complete_edges(combined_result, shape_image)
-        completed_large = complete_edges(large_defects, shape_image)
-        completed_small = complete_edges(small_defects, shape_image)
-        
-        completed_results.append(
-            (shape_image, completed_combined, completed_large, completed_small, filename)
-        )
-    
-    return completed_results
+    info = {
+        'image_name': image_name,
+        'defect_image_name': defect_filename,
+        'defect_image_edge_path': os.path.join(image_type, base_name, "edge", defect_filename),
+        'defect_image_original_path': os.path.join(image_type, base_name, "original", defect_filename),
+        'Image_label': image_label,
+        'defect_label': 0
+    }
+    info.update(defect)
+    return info
 
-# エッジ補完の実行
-completed_ng_results = process_images(defect_ng_images)
-#completed_ok_results = process_images(defect_ok_images)
+def save_defects(filtered_results, base_output_dir, image_label):
+    """
+    欠陥検出結果を保存します
+    
+    引数:
+        filtered_results (list): フィルタリング結果のリスト
+        base_output_dir (str): 基本出力ディレクトリ
+        image_label (int): 画像ラベル
+        
+    戻り値:
+        list: 全欠陥情報のリスト
+    """
+    all_defects_info = []
+    image_type = "ng" if image_label == 1 else "ok"
+    
+    for shape_image, combined_image, large_defects, small_defects, filename in filtered_results:
+        # 出力ディレクトリの作成
+        base_dir = os.path.join(base_output_dir, image_type, filename.replace(".jpg", ""))
+        edge_dir = os.path.join(base_dir, "edge")
+        original_dir = os.path.join(base_dir, "original")
+        os.makedirs(edge_dir, exist_ok=True)
+        os.makedirs(original_dir, exist_ok=True)
+        
+        # 全ての欠陥を処理
+        defect_number = 1
+        for defects in [large_defects, small_defects]:
+            for defect in defects:
+                # エッジ画像の保存
+                edge_filename = save_defect_roi(combined_image, defect, edge_dir, defect_number)
+                
+                # オリジナル画像の保存
+                original_filename = save_defect_roi(shape_image, defect, original_dir, defect_number)
+                
+                # 欠陥情報の作成
+                defect_info = create_defect_info(defect, filename, defect_number, 
+                                               image_type, image_label)
+                all_defects_info.append(defect_info)
+                
+                defect_number += 1
+    
+    return all_defects_info
+
+def save_to_csv(defects_data, output_dir):
+    """
+    欠陥情報をCSVファイルに保存します
+    
+    引数:
+        defects_data (list): 欠陥情報のリスト
+        output_dir (str): 出力ディレクトリ
+    """
+    # 出力ディレクトリの作成
+    os.makedirs(output_dir, exist_ok=True)
+    csv_path = os.path.join(output_dir, "defects_data.csv")
+    
+    # DataFrameの作成と保存
+    df = pd.DataFrame(defects_data)
+    
+    if os.path.exists(csv_path):
+        # 既存ファイルへの追記
+        df.to_csv(csv_path, mode='a', header=False, index=False)
+        print(f"Appended defects data to: {csv_path}")
+    else:
+        # 新規ファイルの作成
+        df.to_csv(csv_path, index=False)
+        print(f"Created new defects data file: {csv_path}")
+
+# メインの処理実行
+output_dir = os.path.join(output_data_dir, "defect_images")
+os.makedirs(output_dir, exist_ok=True)
+
+# 欠陥候補の保存
+all_defects_data = []
+all_defects_data.extend(save_defects(filtered_ng_results, output_dir, 1))
+#all_defects_data.extend(save_defects(filtered_ok_results, output_dir, 0))
+
+# CSVファイルへの保存
+csv_output_dir = os.path.join(output_data_dir, "defect_data")
+save_to_csv(all_defects_data, csv_output_dir)
 ```
 
-変更点と確認事項：
-1. `create_mask_edge_margin`関数
-   - 引数からmarginを削除（パラメータ設定で定義）
-   - 処理ロジックは維持
+このコードでは：
+1. 各機能を独立した関数に分割
+2. 明確な責任分担
+3. 重複コードの削減
+4. 詳細なドキュメント化
+5. エラー処理の改善
 
-2. `complete_edges`関数
-   - 全てのロジックを同じ順序で維持
-   - スケルトン化、オープン処理、クローズ処理の順序を維持
-   - エッジの統合方法を維持
-
-3. `process_images`関数（旧`process_images_for_edge_completion`）
-   - 入力データ構造に合わせて修正
-   - 基本的な処理ロジックは維持
-   - より明確な関数名と説明に更新
-
-これにより、エッジ補完の処理ロジックを維持しながら、新しいデータ構造に対応できるようになっています。
+を行っています。
