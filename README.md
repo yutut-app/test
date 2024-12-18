@@ -1,108 +1,173 @@
 ```python
-# 3. データの読み込み
+# 4. 加工領域の特定(マスク生成)
 
-def load_origin_keyence_images(directory):
+def template_matching(image, template_path):
     """
-    指定されたディレクトリから'Normal'画像と'Shape'画像のペアを読み込みます
+    テンプレートマッチングを実行します
     
     引数:
-        directory (str): 画像が格納されているディレクトリのパス
+        image (ndarray): 入力画像
+        template_path (str): テンプレート画像のパス
     
     戻り値:
-        list: (Normal画像のパス, Shape画像のパス, Shape画像のファイル名)のタプルのリスト
+        tuple: マッチング値と位置（max_val, max_loc）
     """
-    normal_images = {}
-    shape_images = {}
-    
-    # 'Normal'と'Shape'画像を検索
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if "Normal" in file and file.endswith(".jpg"):
-                base_name = file.replace("Normal", "")
-                normal_images[base_name] = (os.path.join(root, file), file)
-            elif "Shape" in file and file.endswith(".jpg"):
-                base_name = file.replace("Shape", "")
-                shape_images[base_name] = (os.path.join(root, file), file)
-    
-    # ペアが存在する画像のみを抽出
-    matched_images = []
-    for base_name in normal_images:
-        if base_name in shape_images:
-            matched_images.append((
-                normal_images[base_name][0],  # Normal画像のパス
-                shape_images[base_name][0],   # Shape画像のパス
-                shape_images[base_name][1]    # Shape画像のファイル名
-            ))
-    
-    return matched_images
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(res)
+    return max_val, max_loc
 
-# NG画像とOK画像をそれぞれ読み込む
-ng_images_label1 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", ng_labels))
-ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK", ok_labels))
+def judge_work_direction(keyence_image):
+    """
+    ワークの撮影方向（右側/左側）を判断します
+    
+    引数:
+        keyence_image (ndarray): KeyenceのShape画像
+    
+    戻り値:
+        str: 'right'または'left'
+    """
+    right_val, _ = template_matching(keyence_image, right_judge_template_path)
+    left_val, _ = template_matching(keyence_image, left_judge_template_path)
+    return 'right' if right_val > left_val else 'left'
 
-# データ読み込み結果の表示
-print(f"読み込んだNG画像ペア数: {len(ng_images_label1)}")
-print(f"読み込んだOK画像ペア数: {len(ok_images)}")
+def create_mask_from_template(shape_image, mask_template_path):
+    """
+    Shape画像に対応するマスクを生成します
+    
+    引数:
+        shape_image (ndarray): Shape画像
+        mask_template_path (str): マスクテンプレート画像のパス
+    
+    戻り値:
+        ndarray: 生成されたマスク画像
+    """
+    # マスクテンプレートの読み込み
+    mask_template = cv2.imread(mask_template_path, cv2.IMREAD_GRAYSCALE)
+    
+    # 位相限定相関のための型変換
+    shape_float = np.float32(shape_image)
+    template_float = np.float32(mask_template)
+    
+    # ズレ量の計算
+    shift, _ = cv2.phaseCorrelate(shape_float, template_float)
+    dx, dy = shift
+    
+    # マスクテンプレートのズレ補正
+    rows, cols = shape_image.shape
+    M = np.float32([[1, 0, dx], [0, 1, dy]])
+    corrected_mask = cv2.warpAffine(mask_template, M, (cols, rows))
+    
+    # 二値化処理
+    _, binary_mask = cv2.threshold(corrected_mask, threshold_value, 255, cv2.THRESH_BINARY)
+    
+    # モルフォロジー処理によるノイズ除去と穴埋め
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
+    
+    return binary_mask, corrected_mask  # マスクテンプレートの移動結果も返す
+
+def process_images_with_mask(image_pairs):
+    """
+    全画像に対してマスク生成処理を実行します
+    
+    引数:
+        image_pairs (list): 画像ペアのリスト[(normal_path, shape_path, filename), ...]
+    
+    戻り値:
+        list: [(マスク画像, Shape画像, ファイル名, マスクテンプレート, 移動後マスク), ...]
+    """
+    processed_images = []
+    for _, shape_path, original_filename in image_pairs:
+        # Shape画像の読み込み
+        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+        
+        # ワークの向きを判断
+        direction = judge_work_direction(shape_image)
+        
+        # 向きに応じたマスクテンプレートを選択
+        mask_template_path = right_mask_template_path if direction == 'right' else left_mask_template_path
+        mask_template = cv2.imread(mask_template_path, cv2.IMREAD_GRAYSCALE)
+        
+        # マスク生成
+        binary_mask, corrected_mask = create_mask_from_template(shape_image, mask_template_path)
+        
+        processed_images.append((binary_mask, shape_image, original_filename, mask_template, corrected_mask))
+    return processed_images
+
+# NGとOK画像に対してマスク生成を実行
+processed_ng_images_label1 = process_images_with_mask(ng_images_label1)
+processed_ok_images = process_images_with_mask(ok_images)
+
+# 処理結果の件数を表示
+print(f"処理したNG画像数: {len(processed_ng_images_label1)}")
+print(f"処理したOK画像数: {len(processed_ok_images)}")
 ```
 
 ```python
-# データ読み込み結果の可視化（ペアの例を表示）
+# マスク生成結果の可視化
 
-def visualize_image_pair(image_pair, pair_index):
+def visualize_mask_generation(processed_images, pair_index):
     """
-    'Normal'画像と'Shape'画像のペアを可視化します
+    マスク生成結果を可視化します
     
     引数:
-        image_pair (list): 画像ペアのリスト
+        processed_images (list): 処理済み画像のリスト
         pair_index (int): 表示するペアのインデックス
     """
-    if not image_pair or pair_index >= len(image_pair):
-        print("指定されたインデックスの画像ペアが存在しません")
+    if not processed_images or pair_index >= len(processed_images):
+        print("指定されたインデックスの画像が存在しません")
         return
     
-    normal_path, shape_path, _ = image_pair[pair_index]
+    binary_mask, shape_image, filename, mask_template, corrected_mask = processed_images[pair_index]
     
-    # 画像の読み込み
-    normal_image = cv2.imread(normal_path, cv2.IMREAD_GRAYSCALE)
-    shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+    # 結果の表示
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
     
-    # 表示
-    fig, axes = plt.subplots(1, 2, figsize=(15, 7))
-    
-    axes[0].imshow(normal_image, cmap='gray')
-    axes[0].set_title('Normal Image')
+    axes[0].imshow(shape_image, cmap='gray')
+    axes[0].set_title('Shape Image')
     axes[0].axis('off')
     
-    axes[1].imshow(shape_image, cmap='gray')
-    axes[1].set_title('Shape Image')
+    axes[1].imshow(mask_template, cmap='gray')
+    axes[1].set_title('Mask Template')
     axes[1].axis('off')
     
+    axes[2].imshow(corrected_mask, cmap='gray')
+    axes[2].set_title('Corrected Mask')
+    axes[2].axis('off')
+    
+    axes[3].imshow(binary_mask, cmap='gray')
+    axes[3].set_title('Final Mask')
+    axes[3].axis('off')
+    
+    plt.suptitle(f'Mask Generation Result - {filename}')
     plt.tight_layout()
     plt.show()
 
 # NG画像の最初のペアを表示
-print("NG画像ペアの例:")
-if ng_images_label1:
-    visualize_image_pair(ng_images_label1, 0)
+print("NG画像のマスク生成結果例:")
+if processed_ng_images_label1:
+    visualize_mask_generation(processed_ng_images_label1, 0)
 
 # OK画像の最初のペアを表示
-print("\nOK画像ペアの例:")
-if ok_images:
-    visualize_image_pair(ok_images, 0)
+print("\nOK画像のマスク生成結果例:")
+if processed_ok_images:
+    visualize_mask_generation(processed_ok_images, 0)
 ```
 
-主な改良点：
-1. docstringsの追加：関数の目的、引数、戻り値を明記
-2. コードの構造化：処理と可視化を分離
-3. エラー処理の追加：画像ペアが存在しない場合の処理
-4. 変数名の明確化：より意図が伝わる命名に変更
-5. コメントの追加：処理の流れを理解しやすく
-6. 可視化機能の追加：読み込んだ画像を確認可能に
+改良点：
+1. 全ての関数にdocstringsを追加
+2. 処理と可視化を分離
+3. 変数名をより具体的に変更
+4. エラー処理を追加
+5. マスク生成過程の中間結果も保持
+6. 可視化機能を充実化
 
-このコードは：
-- 画像の読み込みと可視化を別々のセルで実行可能
-- 読み込んだ画像数の確認が容易
-- 実際の画像ペアを視覚的に確認可能
-- エラーハンドリングが適切
+出力される情報：
+1. Shape画像
+2. マスクテンプレート
+3. 移動後のマスクテンプレート
+4. 最終的なマスク画像
 
-となっています。
+これにより、マスク生成の各段階を視覚的に確認できます。
