@@ -1,131 +1,127 @@
 ```python
-# フィルタリング結果の可視化
+# 7. 欠陥候補のフィルタリング
 
-def draw_defects_on_image(base_image, defects, show_labels=True):
+def measure_region_properties(region, label, detection_method):
     """
-    欠陥候補を画像上に描画します
+    領域の特徴量を測定します
     
     引数:
-        base_image (ndarray): ベース画像
-        defects (list): 欠陥情報のリスト
-        show_labels (bool): ラベルを表示するかどうか
-        
+        region: regionpropsで得られた領域情報
+        label (int): 欠陥のラベル番号
+        detection_method (str): 検出方法('canny'または'dog')
+    
     戻り値:
-        ndarray: 欠陥を描画した画像
+        dict: 測定した特徴量情報
     """
-    # RGB画像を作成
-    result_image = np.zeros((*base_image.shape, 3), dtype=np.uint8)
-    # マスク領域をグレーで表示
-    result_image[base_image > 0] = [200, 200, 200]
+    y, x = region.bbox[0], region.bbox[1]
+    h, w = region.bbox[2] - y, region.bbox[3] - x
     
-    # 欠陥候補を描画
-    for defect in defects:
-        color = [255, 0, 0] if defect['detection_method'] == 'canny' else [0, 0, 255]
-        x, y = defect['x'], defect['y']
-        w, h = defect['width'], defect['height']
-        
-        # 矩形の描画
-        result_image[y:y+h, x:x+w] = color
-        
-        # ラベルの描画（オプション）
-        if show_labels:
-            # ラベルテキストを描画する位置を計算
-            label_x = x
-            label_y = max(0, y - 5)  # テキストが画像の上端を超えないように
-            
-            # OpenCVを使用してテキストを描画
-            cv2.putText(
-                result_image,
-                str(defect['label']),
-                (label_x, label_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,  # フォントスケール
-                (255, 255, 255),  # 白色
-                1  # 線の太さ
-            )
-    
-    return result_image
+    return {
+        'label': label,
+        'x': x, 'y': y, 'width': w, 'height': h,
+        'area': region.area,
+        'centroid_y': region.centroid[0],
+        'centroid_x': region.centroid[1],
+        'perimeter': region.perimeter,
+        'eccentricity': region.eccentricity,
+        'orientation': region.orientation,
+        'major_axis_length': region.major_axis_length,
+        'minor_axis_length': region.minor_axis_length,
+        'solidity': region.solidity,
+        'extent': region.extent,
+        'aspect_ratio': max(w, h) / min(w, h) if min(w, h) > 0 else 0,
+        'max_length': max(w, h),
+        'detection_method': detection_method
+    }
 
-def visualize_filtering_results(processed_images, filtered_images, pair_index):
+def filter_defects_by_size(binary_image, mask_edges, min_size, max_size, detection_method, start_label):
     """
-    フィルタリング前後の結果を可視化します
+    サイズに基づいて欠陥候補をフィルタリングします
     
     引数:
-        processed_images (list): フィルタリング前の画像リスト
-        filtered_images (list): フィルタリング後の画像リスト
-        pair_index (int): 表示するペアのインデックス
+        binary_image (ndarray): 二値化画像
+        mask_edges (ndarray): マスクのエッジ
+        min_size (int): 最小サイズ
+        max_size (int): 最大サイズ
+        detection_method (str): 検出方法
+        start_label (int): ラベルの開始番号
+    
+    戻り値:
+        list: フィルタリングされた欠陥情報のリスト
     """
-    if not processed_images or not filtered_images or pair_index >= len(processed_images):
-        print("指定されたインデックスの画像が存在しません")
-        return
+    # マスクエッジ部分を除外
+    filtered_image = binary_image.copy()
+    filtered_image[mask_edges > 0] = 0
     
-    # フィルタリング前後の画像とデータを取得
-    mask_before, _, large_before, small_before, filename = processed_images[pair_index]
-    mask_after, binary_large, binary_small, defects, _ = filtered_images[pair_index]
+    # ラベリング処理
+    labels = measure.label(filtered_image, connectivity=2)
+    defects = []
     
-    fig, axes = plt.subplots(2, 2, figsize=(20, 16))
-    fig.suptitle(f'Filtering Results - {filename}', fontsize=16)
+    # 各領域の処理
+    for region in measure.regionprops(labels):
+        if min_size <= region.area <= max_size:
+            label = start_label + len(defects) + 1
+            defect_info = measure_region_properties(region, label, detection_method)
+            defects.append(defect_info)
     
-    # フィルタリング前（左上）
-    colored_before = np.zeros((*large_before.shape, 3), dtype=np.uint8)
-    colored_before[mask_before > 0] = [200, 200, 200]  # マスク領域をグレーで表示
-    colored_before[large_before > 0] = [255, 0, 0]     # Canny結果を赤で表示
-    colored_before[small_before > 0] = [0, 0, 255]     # DoG結果を青で表示
-    axes[0, 0].imshow(colored_before)
-    axes[0, 0].set_title('Before Filtering\nGray: Processing Area\nRed: Canny (Large), Blue: DoG (Small)')
+    return defects
+
+def filter_and_measure_defects(combined_result, large_defects, small_defects, mask):
+    """
+    CannyとDoGの結果それぞれに対して適切なサイズ範囲でフィルタリングを行います
     
-    # フィルタリング後 - ラベルなし（右上）
-    result_no_labels = draw_defects_on_image(mask_after, defects, show_labels=False)
-    axes[0, 1].imshow(result_no_labels)
-    axes[0, 1].set_title('After Filtering (Without Labels)')
+    引数:
+        combined_result (ndarray): 統合された検出結果
+        large_defects (ndarray): Cannyによる検出結果
+        small_defects (ndarray): DoGによる検出結果
+        mask (ndarray): マスク画像
     
-    # フィルタリング後 - ラベルあり（左下）
-    result_with_labels = draw_defects_on_image(mask_after, defects, show_labels=True)
-    axes[1, 0].imshow(result_with_labels)
-    axes[1, 0].set_title('After Filtering (With Labels)')
+    戻り値:
+        tuple: フィルタリングされた欠陥情報のリストと二値化画像
+    """
+    # マスクエッジの作成
+    mask_edges = create_mask_edge_margin(mask, mask_edge_margin)
     
-    # 凡例（右下）
-    axes[1, 1].axis('off')
-    legend_text = (
-        "Filtering Criteria:\n\n"
-        f"Large Defects (Canny, Red):\n"
-        f"  Size: {min_large_defect_size}-{max_large_defect_size} pixels\n\n"
-        f"Small Defects (DoG, Blue):\n"
-        f"  Size: {min_small_defect_size}-{max_small_defect_size} pixels\n\n"
-        f"Total Defects Found: {len(defects)}"
+    # 大きな欠陥（Canny）の処理
+    binary_large = (large_defects > 0).astype(np.uint8)
+    large_defects_info = filter_defects_by_size(
+        binary_large, mask_edges,
+        min_large_defect_size, max_large_defect_size,
+        'canny', 0
     )
-    axes[1, 1].text(0.1, 0.5, legend_text, fontsize=12, verticalalignment='center')
     
-    for ax in axes.flat:
-        ax.axis('off')
+    # 小さな欠陥（DoG）の処理
+    binary_small = (small_defects > 0).astype(np.uint8)
+    small_defects_info = filter_defects_by_size(
+        binary_small, mask_edges,
+        min_small_defect_size, max_small_defect_size,
+        'dog', len(large_defects_info)
+    )
     
-    plt.tight_layout()
-    plt.show()
+    return large_defects_info + small_defects_info, binary_large, binary_small
 
-# NG画像のフィルタリング結果を表示
-print("NG画像のフィルタリング結果:")
-if processed_ng_images and filtered_ng_images:
-    visualize_filtering_results(processed_ng_images, filtered_ng_images, 0)
+def process_images_for_filtering(completed_images):
+    """
+    画像群に対してフィルタリング処理を実行します
+    
+    引数:
+        completed_images (list): エッジ処理済み画像のリスト
+    
+    戻り値:
+        list: フィルタリング結果のリスト
+    """
+    filtered_images = []
+    for mask, large_defects, small_defects, original_filename in completed_images:
+        # フィルタリング処理
+        defects, binary_large, binary_small = filter_and_measure_defects(
+            None, large_defects, small_defects, mask
+        )
+        filtered_images.append((mask, defects, binary_large, binary_small, original_filename))
+    return filtered_images
 
-# OK画像のフィルタリング結果を表示
-print("\nOK画像のフィルタリング結果:")
-if processed_ok_images and filtered_ok_images:
-    visualize_filtering_results(processed_ok_images, filtered_ok_images, 0)
+# NGとOK画像に対してフィルタリングを実行
+filtered_ng_images = process_images_for_filtering(completed_ng_images)
+filtered_ok_images = process_images_for_filtering(completed_ok_images)
 ```
 
-主な改良点：
-1. 欠陥描画機能を独立した関数に分離
-2. ラベル表示のオプション化
-3. フィルタリング基準を凡例として表示
-4. 4分割表示による比較の容易化：
-   - フィルタリング前
-   - フィルタリング後（ラベルなし）
-   - フィルタリング後（ラベルあり）
-   - フィルタリング基準の説明
-5. 視認性を考慮したカラーリングとレイアウト
-
-これにより：
-- フィルタリングの効果が明確に
-- ラベル付き・なし両方の確認が可能
-- フィルタリング基準の明示による理解の促進
-が実現できています。
+可視化のコードは次のメッセージで送ります。
