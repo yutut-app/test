@@ -3,7 +3,7 @@
 
 def visualize_edge_processing(processed_images, completed_images, pair_index):
     """
-    エッジ処理前後の結果を可視化します
+    エッジ処理前後の結果を可視化します（加工領域を透明な白で表示）
     
     引数:
         processed_images (list): 処理前の画像リスト
@@ -15,28 +15,32 @@ def visualize_edge_processing(processed_images, completed_images, pair_index):
         return
     
     # 処理前の画像を取得
-    mask, _, large_before, small_before, filename = processed_images[pair_index]
+    _, _, large_before, small_before, filename = processed_images[pair_index]
     # 処理後の画像を取得
-    _, large_after, small_after, _ = completed_images[pair_index]
+    mask, large_after, small_after, _ = completed_images[pair_index]
     
     fig, axes = plt.subplots(1, 2, figsize=(20, 8))
     fig.suptitle(f'Edge Processing Results - {filename}', fontsize=16)
     
     # 処理前の結果表示
     colored_before = np.zeros((*large_before.shape, 3), dtype=np.uint8)
-    colored_before[mask > 0] = [255, 255, 255]      # 加工領域を白で表示
+    # マスク領域を薄い灰色で表示
+    colored_before[mask > 0] = [230, 230, 230]  # 薄い灰色
+    # 欠陥候補を色付けして表示
     colored_before[large_before > 0] = [255, 0, 0]  # Canny結果を赤で表示
     colored_before[small_before > 0] = [0, 0, 255]  # DoG結果を青で表示
     axes[0].imshow(colored_before)
-    axes[0].set_title('Before Edge Processing\nWhite: Processing Area, Red: Canny (Large), Blue: DoG (Small)')
+    axes[0].set_title('Before Edge Processing\nRed: Canny (Large), Blue: DoG (Small)')
     
     # 処理後の結果表示
     colored_after = np.zeros((*large_after.shape, 3), dtype=np.uint8)
-    colored_after[mask > 0] = [255, 255, 255]     # 加工領域を白で表示
+    # マスク領域を薄い灰色で表示
+    colored_after[mask > 0] = [230, 230, 230]  # 薄い灰色
+    # 欠陥候補を色付けして表示
     colored_after[large_after > 0] = [255, 0, 0]  # Canny結果を赤で表示
     colored_after[small_after > 0] = [0, 0, 255]  # DoG結果を青で表示
     axes[1].imshow(colored_after)
-    axes[1].set_title('After Edge Processing\nWhite: Processing Area, Red: Canny (Large), Blue: DoG (Small)')
+    axes[1].set_title('After Edge Processing\nRed: Canny (Large), Blue: DoG (Small)')
     
     for ax in axes:
         ax.axis('off')
@@ -56,12 +60,13 @@ if processed_ok_images and completed_ok_images:
 ```
 
 変更点：
-1. maskを使用して加工領域を白色で表示するように追加
-2. 凡例に加工領域（白）の説明を追加
-3. 色の重ね順を調整（白→赤→青）
+1. マスク領域を薄い灰色（RGB: [230, 230, 230]）で表示するように追加
+2. 欠陥候補（赤と青）はマスク領域の上に重ねて表示
+3. docstringsにマスク領域の表示に関する説明を追加
 
 これにより：
-- 加工領域が明確に分かる
-- 欠陥候補の位置関係が分かりやすい
-- 処理前後での変化がより理解しやすい
-ようになりました。
+- 加工領域（マスク領域）が薄い灰色で表示され、欠陥候補がどの部分にあるのかが分かりやすく
+- エッジ処理前後での欠陥候補の変化がより明確に
+- 加工部のエッジ部分の欠陥候補が削除される様子が視覚的に確認可能
+
+になります。
