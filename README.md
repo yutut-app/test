@@ -1,5 +1,5 @@
 ```python
-# 4. 加工領域の特定(マスク生成)
+# 4. 加工領域の特定（マスク生成）
 
 def template_matching(image, template_path):
     """
@@ -17,89 +17,109 @@ def template_matching(image, template_path):
     _, max_val, _, max_loc = cv2.minMaxLoc(res)
     return max_val, max_loc
 
-def judge_work_direction(normal_image):
+def determine_work_side(keyence_image):
     """
-    ワークの撮影方向（右側/左側）を判断します
+    ワークが右側か左側かを判断します
+    
+    引数:
+        keyence_image (ndarray): キーエンス画像
+    
+    戻り値:
+        str: "right" または "left"
+    """
+    right_val, _ = template_matching(keyence_image, right_judge_template_path)
+    left_val, _ = template_matching(keyence_image, left_judge_template_path)
+    return "right" if right_val > left_val else "left"
+
+def get_template_region(keyence_image, template_path):
+    """
+    テンプレートマッチングで加工部分の位置を特定します
+    
+    引数:
+        keyence_image (ndarray): キーエンス画像
+        template_path (str): テンプレート画像のパス
+    
+    戻り値:
+        tuple: (x1, y1, x2, y2) 形式の領域座標
+    """
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    h, w = template.shape
+    
+    res = cv2.matchTemplate(keyence_image, template, cv2.TM_CCOEFF_NORMED)
+    _, _, _, max_loc = cv2.minMaxLoc(res)
+    
+    x, y = max_loc
+    return (x, y, x + w, y + h)
+
+def adjust_template_mask(normal_image, template_path):
+    """
+    位相限定相関によるテンプレートマスクの位置補正を行います
     
     引数:
         normal_image (ndarray): Normal画像
+        template_path (str): マスクテンプレート画像のパス
     
     戻り値:
-        str: 'right'または'left'
+        ndarray: 補正済みマスク画像
     """
-    right_val, _ = template_matching(normal_image, right_judge_template_path)
-    left_val, _ = template_matching(normal_image, left_judge_template_path)
-    return 'right' if right_val > left_val else 'left'
-
-def create_mask_from_template(shape_image, mask_template_path):
-    """
-    マスクテンプレートと位相限定相関によりマスクを作成します
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
     
-    引数:
-        shape_image (ndarray): Shape画像
-        mask_template_path (str): マスクテンプレート画像のパス
+    # 加工部分の位置を特定
+    x1, y1, x2, y2 = get_template_region(normal_image, template_path)
     
-    戻り値:
-        ndarray: 生成されたマスク画像
-    """
-    # マスクテンプレートの読み込み
-    mask_template = cv2.imread(mask_template_path, cv2.IMREAD_GRAYSCALE)
+    # 加工部分のみを切り出し
+    work_region = normal_image[y1:y2, x1:x2]
+    template_region = cv2.resize(template, (x2-x1, y2-y1))
     
-    # 位相限定相関のための型変換
-    shape_float = np.float32(shape_image)
-    template_float = np.float32(mask_template)
-    
-    # ズレ量の計算
-    shift, _ = cv2.phaseCorrelate(shape_float, template_float)
+    # 位相限定相関の計算
+    work_float = np.float32(work_region)
+    template_float = np.float32(template_region)
+    shift, _ = cv2.phaseCorrelate(work_float, template_float)
     dx, dy = shift
     
-    # マスクテンプレートのズレ補正
-    rows, cols = shape_image.shape
-    M = np.float32([[1, 0, dx], [0, 1, dy]])
-    corrected_mask = cv2.warpAffine(mask_template, M, (cols, rows))
+    # ズレ補正
+    rows, cols = normal_image.shape
+    M = np.float32([[1, 0, dx+x1], [0, 1, dy+y1]])
+    adjusted_template = cv2.warpAffine(template, M, (cols, rows))
     
     # 二値化とモルフォロジー処理
-    _, binary_mask = cv2.threshold(corrected_mask, threshold_value, 255, cv2.THRESH_BINARY)
+    _, adjusted_mask = cv2.threshold(adjusted_template, threshold_value, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
-    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
-    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
+    adjusted_mask = cv2.morphologyEx(adjusted_mask, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
+    adjusted_mask = cv2.morphologyEx(adjusted_mask, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
     
-    return binary_mask, mask_template, corrected_mask
+    return adjusted_mask, template, adjusted_template
 
-def process_images_with_mask(image_pairs):
+def create_masks(image_pairs):
     """
-    全画像に対してマスク生成処理を実行します
+    画像群に対してマスク生成を実行します
     
     引数:
-        image_pairs (list): 画像ペアのリスト
+        image_pairs (list): (Normal画像パス, Shape画像パス, ファイル名)のリスト
     
     戻り値:
-        list: 処理結果のリスト（マスク画像、Shape画像、ファイル名、マスクテンプレート、補正マスク）
+        list: (マスク, Shape画像, ファイル名, テンプレート, 調整前テンプレート)のリスト
     """
     processed_images = []
     for normal_path, shape_path, original_filename in image_pairs:
-        # 画像の読み込み
+        # 画像読み込み
         normal_image = cv2.imread(normal_path, cv2.IMREAD_GRAYSCALE)
         shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
         
-        # ワークの向きを判断
-        direction = judge_work_direction(normal_image)
+        # ワークの向きを判定
+        work_side = determine_work_side(normal_image)
+        template_path = right_mask_template_path if work_side == "right" else left_mask_template_path
         
-        # 向きに応じたマスクテンプレートを選択
-        mask_template_path = right_mask_template_path if direction == 'right' else left_mask_template_path
+        # マスク生成
+        mask, template, adjusted_template = adjust_template_mask(normal_image, template_path)
         
-        # マスク作成
-        binary_mask, mask_template, corrected_mask = create_mask_from_template(shape_image, mask_template_path)
-        
-        processed_images.append((binary_mask, shape_image, original_filename, mask_template, corrected_mask))
+        processed_images.append((mask, shape_image, original_filename, template, adjusted_template))
+    
     return processed_images
 
 # NGとOK画像に対してマスク生成を実行
-processed_ng_images_label1 = process_images_with_mask(ng_images_label1)
-processed_ok_images = process_images_with_mask(ok_images)
-
-print(f"処理したNG画像数: {len(processed_ng_images_label1)}")
-print(f"処理したOK画像数: {len(processed_ok_images)}")
+masked_ng_images = create_masks(ng_images_label1)
+masked_ok_images = create_masks(ok_images)
 ```
 
 ```python
@@ -116,29 +136,29 @@ def visualize_mask_generation(processed_images, pair_index):
     if not processed_images or pair_index >= len(processed_images):
         print("指定されたインデックスの画像が存在しません")
         return
+        
+    mask, shape_image, filename, template, adjusted_template = processed_images[pair_index]
     
-    binary_mask, shape_image, filename, mask_template, corrected_mask = processed_images[pair_index]
-    
-    fig, axes = plt.subplots(2, 2, figsize=(15, 15))
-    plt.suptitle(f'Mask Generation Result - {filename}', fontsize=16)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+    fig.suptitle(f'Mask Generation Results - {filename}', fontsize=16)
     
     # Shape画像
     axes[0, 0].imshow(shape_image, cmap='gray')
     axes[0, 0].set_title('Shape Image')
     axes[0, 0].axis('off')
     
-    # マスクテンプレート
-    axes[0, 1].imshow(mask_template, cmap='gray')
-    axes[0, 1].set_title('Mask Template')
+    # テンプレート
+    axes[0, 1].imshow(template, cmap='gray')
+    axes[0, 1].set_title('Template')
     axes[0, 1].axis('off')
     
-    # 補正後のマスク
-    axes[1, 0].imshow(corrected_mask, cmap='gray')
-    axes[1, 0].set_title('Corrected Mask')
+    # 移動したテンプレート
+    axes[1, 0].imshow(adjusted_template, cmap='gray')
+    axes[1, 0].set_title('Adjusted Template')
     axes[1, 0].axis('off')
     
     # 最終マスク
-    axes[1, 1].imshow(binary_mask, cmap='gray')
+    axes[1, 1].imshow(mask, cmap='gray')
     axes[1, 1].set_title('Final Mask')
     axes[1, 1].axis('off')
     
@@ -147,27 +167,20 @@ def visualize_mask_generation(processed_images, pair_index):
 
 # NG画像の最初のペアを表示
 print("NG画像のマスク生成結果:")
-if processed_ng_images_label1:
-    visualize_mask_generation(processed_ng_images_label1, 0)
+if masked_ng_images:
+    visualize_mask_generation(masked_ng_images, 0)
 
 # OK画像の最初のペアを表示
 print("\nOK画像のマスク生成結果:")
-if processed_ok_images:
-    visualize_mask_generation(processed_ok_images, 0)
+if masked_ok_images:
+    visualize_mask_generation(masked_ok_images, 0)
 ```
 
 主な改良点：
-1. 関数の分割と明確な責任の割り当て
-2. 詳細なdocstringsの追加
-3. 中間結果（マスクテンプレート、補正マスク）の保持
-4. 可視化機能の追加
-5. エラー処理の追加
-6. 変数名の明確化
-7. 処理と可視化の分離
-
-処理の流れ：
-1. Normal画像で左右判定
-2. Shape画像に対してマスク生成
-3. 位相限定相関でズレ補正
-4. 二値化とモルフォロジー処理
-5. 結果の可視化（2×2のグリッド）
+1. 各関数にdocstringsを追加
+2. 処理と可視化を分離
+3. マスク生成過程の中間結果を保持
+4. 変数名をより明確に
+5. エラーハンドリングを追加
+6. 可視化機能を追加
+7. normal画像を使用するように変更
