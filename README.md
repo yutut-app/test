@@ -1,68 +1,107 @@
-# ディレクトリとファイルパス
-input_data_dir = r"../../data/input"
-output_data_dir = r"../../data/output"
-left_right_judge_template_dir = os.path.join(input_data_dir, "left_right_judge_template")
-mask_template_dir = os.path.join(input_data_dir, "mask_template")
+# 3. データの読み込み
 
-# 左右判断用テンプレートファイルパス
-right_judge_template_path = os.path.join(left_right_judge_template_dir, "right_template.jpg")
-left_judge_template_path = os.path.join(left_right_judge_template_dir, "left_template.jpg")
+```python
+def load_origin_keyence_images(directory):
+    """
+    指定されたディレクトリから'Normal'画像と'Shape'画像のペアを読み込みます
 
-# マスク用テンプレートファイルパス
-right_mask_template_path = os.path.join(mask_template_dir, "right_template.png")
-left_mask_template_path = os.path.join(mask_template_dir, "left_template.png")
+    引数：
+        directory (str): 画像が格納されているディレクトリのパス
 
-# ラベル定義
-ng_labels = 'label1'  # label1: 鋳巣, （未実装：label2: 凹み, label3: 亀裂)
-ok_labels = 'No1'  # 'No1'~'No20'
+    戻り値：
+        list: (normal_image_path, shape_image_path, original_filename)のタプルのリスト
+        - normal_image_path: 'Normal'画像の完全パス
+        - shape_image_path: 'Shape'画像の完全パス
+        - original_filename: 元の'Shape'画像のファイル名
+    """
+    normal_images = {}
+    shape_images = {}
+    
+    # ディレクトリ内の全ファイルを走査
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if "Normal" in file and file.endswith(".jpg"):
+                base_name = file.replace("Normal", "")
+                normal_images[base_name] = (os.path.join(root, file), file)
+            elif "Shape" in file and file.endswith(".jpg"):
+                base_name = file.replace("Shape", "")
+                shape_images[base_name] = (os.path.join(root, file), file)
+    
+    # 'Normal'と'Shape'の画像ペアをマッチング
+    matched_images = []
+    for base_name in normal_images:
+        if base_name in shape_images:
+            matched_images.append((normal_images[base_name][0], 
+                                 shape_images[base_name][0], 
+                                 shape_images[base_name][1]))
+    return matched_images
 
-# 画像処理パラメータ
-# マスク生成用パラメータ
-threshold_value = 150  # 二値化の閾値（0-255）
-kernel_size = (5, 5)  # モルフォロジー演算用のカーネルサイズ
-iterations_open = 3  # オープニング処理の繰り返し回数（ノイズ除去用）
-iterations_close = 20  # クロージング処理の繰り返し回数（穴埋め用）
+# NG画像とOK画像をそれぞれ読み込む
+ng_images_label1 = load_origin_keyence_images(os.path.join(input_data_dir, "NG", ng_labels))
+ok_images = load_origin_keyence_images(os.path.join(input_data_dir, "OK"))
+```
 
-# Cannyエッジ検出パラメータ（大きな鋳巣用）
-canny_kernel_size = (3, 3)  # ガウシアンフィルタのカーネルサイズ
-canny_sigma = 2.0  # ガウシアンフィルタのシグマ値
-canny_min_threshold = 55  # Cannyの最小閾値
-canny_max_threshold = 250  # Cannyの最大閾値
-canny_merge_distance = 15  # Canny検出結果の統合距離
-texture_threshold = 30 # テクスチャ検出用閾値
+```python
+def visualize_image_pair(image_pairs, pair_index):
+    """
+    指定したペアのNormal画像とShape画像を表示します
 
-# DoGフィルタパラメータ（小さな鋳巣用）
-dog_ksize = 9  # DoGフィルタのカーネルサイズ
-dog_sigma1 = 1.5  # 1つ目のガウシアンフィルタのシグマ値
-dog_sigma2 = 3.5  # 2つ目のガウシアンフィルタのシグマ値
-dog_merge_distance = 15  # DoG検出結果の統合距離
+    引数：
+        image_pairs (list): (normal_path, shape_path, filename)のタプルのリスト
+        pair_index (int): 表示したいペアのインデックス
 
-# 輝度ベースの検出パラメータ
-bright_threshold = 180  # 明るい欠陥領域の閾値
-dark_threshold = 50  # 暗い欠陥領域の閾値
-min_intensity_diff = 25  # 最小輝度差
-min_contrast_ratio = 0.12  # 最小コントラスト比
+    戻り値：
+        None
+    """
+    if not image_pairs or pair_index >= len(image_pairs):
+        print("指定されたインデックスの画像ペアが存在しません。")
+        return
+    
+    # 指定されたペアの画像パスを取得
+    normal_path, shape_path, filename = image_pairs[pair_index]
+    
+    # 画像を読み込み
+    normal_img = cv2.imread(normal_path, cv2.IMREAD_GRAYSCALE)
+    shape_img = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
+    
+    # 表示用のfigureを作成
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    
+    # Normal画像の表示
+    axes[0].imshow(normal_img, cmap='gray')
+    axes[0].set_title('Normal Image')
+    axes[0].axis('off')
+    
+    # Shape画像の表示
+    axes[1].imshow(shape_img, cmap='gray')
+    axes[1].set_title('Shape Image')
+    axes[1].axis('off')
+    
+    plt.suptitle(f'Image Pair: {filename}')
+    plt.tight_layout()
+    plt.show()
 
-# 動的閾値処理パラメータ
-dynamic_ksize = 25  # 局所領域のサイズ
-dynamic_c = 6  # 閾値調整用定数
-dynamic_method = cv2.ADAPTIVE_THRESH_GAUSSIAN_C  # 適応的閾値処理の方法
+# NG画像の最初のペアを表示
+if ng_images_label1:
+    print("NGデータの最初の画像ペア:")
+    visualize_image_pair(ng_images_label1, 0)
 
-# エッジ補完パラメータ
-edge_kernel_size = (3, 3)  # エッジ補完のカーネルサイズ
-edge_open_iterations = 2   # ノイズ削除の繰り返し回数
-edge_close_iterations = 10  # エッジ補完の繰り返し回数
+# OK画像の最初のペアを表示
+if ok_images:
+    print("OKデータの最初の画像ペア:")
+    visualize_image_pair(ok_images, 0)
+```
 
-# マスクエッジ検出パラメータ
-mask_edge_min_threshold = 50  # マスクエッジ検出の最小閾値
-mask_edge_max_threshold = 150  # マスクエッジ検出の最大閾値
-mask_edge_margin = 10  # マスクエッジの余裕幅（ピクセル）
+このコードでは：
 
-# 欠陥サイズパラメータ
-min_large_defect_size = 60  # 大きな欠陥の最小サイズ（ピクセル）
-max_large_defect_size = 100  # 大きな欠陥の最大サイズ（ピクセル）
-min_small_defect_size = 5   # 小さな欠陥の最小サイズ（ピクセル）
-max_small_defect_size = 60  # 小さな欠陥の最大サイズ（ピクセル）
+1. 画像の読み込み処理と可視化処理を分離
+2. 各関数に詳細なドキュメント文字列を追加
+3. エラーケースの適切な処理を追加
+4. 可視化関数を再利用可能な形で実装
+5. 画像表示のパラメータを適切に設定
 
-# 欠陥候補の保存パラメータ
-enlargement_factor = 1  # 切り出し画像の拡大倍率(基本は1から変えない、拡大して保存したい場合に変更)
+特徴：
+- 必要最小限の画像のみを表示してipynbの容量を抑制
+- 画像ペアの関係性を明確に表示
+- グレースケールでの表示により、輝度の違いを把握しやすく
+- タイトルで画像の種類を明確に表示
