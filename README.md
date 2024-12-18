@@ -1,186 +1,89 @@
-```python
-# 4. 加工領域の特定（マスク生成）
+まず最初の部分を送ります。
 
-def template_matching(image, template_path):
+```python
+# 5. Canny+DoGによる欠陥候補検出
+
+def detect_bright_dark_regions(image):
     """
-    テンプレートマッチングを実行します
+    画像から明るい領域と暗い領域を検出します
     
     引数:
         image (ndarray): 入力画像
-        template_path (str): テンプレート画像のパス
     
     戻り値:
-        tuple: マッチングスコアと位置
+        tuple: 明るい領域のマスクと暗い領域のマスク
     """
-    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-    res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(res)
-    return max_val, max_loc
+    _, bright_mask = cv2.threshold(image, bright_threshold, 255, cv2.THRESH_BINARY)
+    _, dark_mask = cv2.threshold(image, dark_threshold, 255, cv2.THRESH_BINARY_INV)
+    return bright_mask, dark_mask
 
-def determine_work_side(keyence_image):
+def compute_gradient_magnitude(image):
     """
-    ワークが右側か左側かを判断します
+    画像の勾配強度を計算します
     
     引数:
-        keyence_image (ndarray): キーエンス画像
+        image (ndarray): 入力画像
     
     戻り値:
-        str: "right" または "left"
+        ndarray: 正規化された勾配強度マップ
     """
-    right_val, _ = template_matching(keyence_image, right_judge_template_path)
-    left_val, _ = template_matching(keyence_image, left_judge_template_path)
-    return "right" if right_val > left_val else "left"
+    gradient_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
+    gradient_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
+    gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+    return cv2.normalize(gradient_magnitude, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-def get_template_region(keyence_image, template_path):
+def detect_edges_and_texture(shape_image, mask):
     """
-    テンプレートマッチングで加工部分の位置を特定します
+    Cannyエッジ検出とテクスチャ検出により大きな鋳巣を検出します
     
     引数:
-        keyence_image (ndarray): キーエンス画像
-        template_path (str): テンプレート画像のパス
+        shape_image (ndarray): Shape画像
+        mask (ndarray): マスク画像
     
     戻り値:
-        tuple: (x1, y1, x2, y2) 形式の領域座標
+        ndarray: 検出結果のマスク
     """
-    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-    h, w = template.shape
+    # マスク領域内の画像を取得
+    masked_image = cv2.bitwise_and(shape_image, shape_image, mask=mask)
     
-    res = cv2.matchTemplate(keyence_image, template, cv2.TM_CCOEFF_NORMED)
-    _, _, _, max_loc = cv2.minMaxLoc(res)
+    # 明るい部分と暗い部分の検出
+    bright_mask, dark_mask = detect_bright_dark_regions(shape_image)
     
-    x, y = max_loc
-    return (x, y, x + w, y + h)
-
-def adjust_template_mask(normal_image, template_path):
-    """
-    位相限定相関によるテンプレートマスクの位置補正を行います
+    # Cannyエッジ検出
+    blurred_image = cv2.GaussianBlur(masked_image, canny_kernel_size, canny_sigma)
+    edges = cv2.Canny(blurred_image, canny_min_threshold, canny_max_threshold)
     
-    引数:
-        normal_image (ndarray): Normal画像
-        template_path (str): マスクテンプレート画像のパス
+    # テクスチャ検出
+    laplacian = cv2.Laplacian(blurred_image, cv2.CV_64F)
+    laplacian_edges = np.uint8(np.absolute(laplacian) > texture_threshold) * 255
     
-    戻り値:
-        ndarray: 補正済みマスク画像
-    """
-    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    # 勾配強度の計算
+    gradient_magnitude = compute_gradient_magnitude(masked_image)
     
-    # 加工部分の位置を特定
-    x1, y1, x2, y2 = get_template_region(normal_image, template_path)
+    # 各検出結果の統合
+    combined_bright = cv2.bitwise_and(bright_mask, gradient_magnitude)
+    combined_dark = cv2.bitwise_and(dark_mask, gradient_magnitude)
     
-    # 加工部分のみを切り出し
-    work_region = normal_image[y1:y2, x1:x2]
-    template_region = cv2.resize(template, (x2-x1, y2-y1))
+    combined_edges = cv2.bitwise_or(edges, laplacian_edges)
+    combined_edges = cv2.bitwise_or(combined_edges, combined_bright)
+    combined_edges = cv2.bitwise_or(combined_edges, combined_dark)
     
-    # 位相限定相関の計算
-    work_float = np.float32(work_region)
-    template_float = np.float32(template_region)
-    shift, _ = cv2.phaseCorrelate(work_float, template_float)
-    dx, dy = shift
+    # 近接領域の統合
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (canny_merge_distance, canny_merge_distance))
+    merged_result = cv2.morphologyEx(combined_edges, cv2.MORPH_CLOSE, kernel)
     
-    # ズレ補正
-    rows, cols = normal_image.shape
-    M = np.float32([[1, 0, dx+x1], [0, 1, dy+y1]])
-    adjusted_template = cv2.warpAffine(template, M, (cols, rows))
+    # マスク適用と最終マスク作成
+    masked_result = cv2.bitwise_and(merged_result, merged_result, mask=mask)
+    final_mask = cv2.bitwise_or(masked_result, cv2.bitwise_and(bright_mask, mask))
     
-    # 二値化とモルフォロジー処理
-    _, adjusted_mask = cv2.threshold(adjusted_template, threshold_value, 255, cv2.THRESH_BINARY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
-    adjusted_mask = cv2.morphologyEx(adjusted_mask, cv2.MORPH_OPEN, kernel, iterations=iterations_open)
-    adjusted_mask = cv2.morphologyEx(adjusted_mask, cv2.MORPH_CLOSE, kernel, iterations=iterations_close)
-    
-    return adjusted_mask, template, adjusted_template
-
-def create_masks(image_pairs):
-    """
-    画像群に対してマスク生成を実行します
-    
-    引数:
-        image_pairs (list): (Normal画像パス, Shape画像パス, ファイル名)のリスト
-    
-    戻り値:
-        list: (マスク, Shape画像, ファイル名, テンプレート, 調整前テンプレート)のリスト
-    """
-    processed_images = []
-    for normal_path, shape_path, original_filename in image_pairs:
-        # 画像読み込み
-        normal_image = cv2.imread(normal_path, cv2.IMREAD_GRAYSCALE)
-        shape_image = cv2.imread(shape_path, cv2.IMREAD_GRAYSCALE)
-        
-        # ワークの向きを判定
-        work_side = determine_work_side(normal_image)
-        template_path = right_mask_template_path if work_side == "right" else left_mask_template_path
-        
-        # マスク生成
-        mask, template, adjusted_template = adjust_template_mask(normal_image, template_path)
-        
-        processed_images.append((mask, shape_image, original_filename, template, adjusted_template))
-    
-    return processed_images
-
-# NGとOK画像に対してマスク生成を実行
-masked_ng_images = create_masks(ng_images_label1)
-masked_ok_images = create_masks(ok_images)
+    return final_mask
 ```
 
-```python
-# マスク生成結果の可視化
+続きは次のメッセージで送ります。主な改良点：
+1. 共通処理を独立した関数に分割
+2. 各関数に詳細なdocstrings追加
+3. 処理ステップごとに適切なコメント追加
+4. 変数名をより明確に変更
+5. 処理の流れを整理
 
-def visualize_mask_generation(processed_images, pair_index):
-    """
-    マスク生成結果を可視化します
-    
-    引数:
-        processed_images (list): 処理済み画像のリスト
-        pair_index (int): 表示するペアのインデックス
-    """
-    if not processed_images or pair_index >= len(processed_images):
-        print("指定されたインデックスの画像が存在しません")
-        return
-        
-    mask, shape_image, filename, template, adjusted_template = processed_images[pair_index]
-    
-    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
-    fig.suptitle(f'Mask Generation Results - {filename}', fontsize=16)
-    
-    # Shape画像
-    axes[0, 0].imshow(shape_image, cmap='gray')
-    axes[0, 0].set_title('Shape Image')
-    axes[0, 0].axis('off')
-    
-    # テンプレート
-    axes[0, 1].imshow(template, cmap='gray')
-    axes[0, 1].set_title('Template')
-    axes[0, 1].axis('off')
-    
-    # 移動したテンプレート
-    axes[1, 0].imshow(adjusted_template, cmap='gray')
-    axes[1, 0].set_title('Adjusted Template')
-    axes[1, 0].axis('off')
-    
-    # 最終マスク
-    axes[1, 1].imshow(mask, cmap='gray')
-    axes[1, 1].set_title('Final Mask')
-    axes[1, 1].axis('off')
-    
-    plt.tight_layout()
-    plt.show()
-
-# NG画像の最初のペアを表示
-print("NG画像のマスク生成結果:")
-if masked_ng_images:
-    visualize_mask_generation(masked_ng_images, 0)
-
-# OK画像の最初のペアを表示
-print("\nOK画像のマスク生成結果:")
-if masked_ok_images:
-    visualize_mask_generation(masked_ok_images, 0)
-```
-
-主な改良点：
-1. 各関数にdocstringsを追加
-2. 処理と可視化を分離
-3. マスク生成過程の中間結果を保持
-4. 変数名をより明確に
-5. エラーハンドリングを追加
-6. 可視化機能を追加
-7. normal画像を使用するように変更
+次のメッセージでは残りの関数とビジュアライゼーション部分を送ります。
